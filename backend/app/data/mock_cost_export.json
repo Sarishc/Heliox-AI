@@ -1,0 +1,179 @@
+{
+  "export_metadata": {
+    "generated_at": "2026-01-09T20:00:00Z",
+    "source": "aws_cost_explorer_mock",
+    "currency": "USD",
+    "description": "Mock AWS GPU cost data for 14 days across 2 GPU types"
+  },
+  "cost_data": [
+    {
+      "date": "2026-01-01",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1245.67
+    },
+    {
+      "date": "2026-01-01",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2189.45
+    },
+    {
+      "date": "2026-01-02",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1198.32
+    },
+    {
+      "date": "2026-01-02",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2345.78
+    },
+    {
+      "date": "2026-01-03",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1302.15
+    },
+    {
+      "date": "2026-01-03",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2456.90
+    },
+    {
+      "date": "2026-01-04",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 987.54
+    },
+    {
+      "date": "2026-01-04",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 1876.23
+    },
+    {
+      "date": "2026-01-05",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1450.88
+    },
+    {
+      "date": "2026-01-05",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2678.34
+    },
+    {
+      "date": "2026-01-06",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1523.45
+    },
+    {
+      "date": "2026-01-06",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2543.12
+    },
+    {
+      "date": "2026-01-07",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1089.67
+    },
+    {
+      "date": "2026-01-07",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2123.89
+    },
+    {
+      "date": "2026-01-08",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1367.23
+    },
+    {
+      "date": "2026-01-08",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2498.76
+    },
+    {
+      "date": "2026-01-09",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1432.56
+    },
+    {
+      "date": "2026-01-09",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2654.32
+    },
+    {
+      "date": "2026-01-10",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1276.89
+    },
+    {
+      "date": "2026-01-10",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2367.45
+    },
+    {
+      "date": "2026-01-11",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1145.78
+    },
+    {
+      "date": "2026-01-11",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2234.56
+    },
+    {
+      "date": "2026-01-12",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1398.45
+    },
+    {
+      "date": "2026-01-12",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2567.89
+    },
+    {
+      "date": "2026-01-13",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1487.23
+    },
+    {
+      "date": "2026-01-13",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2789.12
+    },
+    {
+      "date": "2026-01-14",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "cost_usd": 1234.67
+    },
+    {
+      "date": "2026-01-14",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "cost_usd": 2456.78
+    }
+  ]
+}
+

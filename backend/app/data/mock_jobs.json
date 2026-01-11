@@ -1,0 +1,322 @@
+{
+  "teams": [
+    {
+      "name": "ml-research",
+      "description": "Machine Learning Research Team",
+      "budget_usd": 50000.00
+    },
+    {
+      "name": "data-science",
+      "description": "Data Science Production Team",
+      "budget_usd": 75000.00
+    },
+    {
+      "name": "ai-platform",
+      "description": "AI Platform Infrastructure Team",
+      "budget_usd": 100000.00
+    }
+  ],
+  "jobs": [
+    {
+      "job_id": "job-001",
+      "team_name": "ml-research",
+      "model_name": "llama-2-7b",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-01T08:00:00Z",
+      "end_time": "2026-01-01T12:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-002",
+      "team_name": "data-science",
+      "model_name": "bert-base",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-01T09:00:00Z",
+      "end_time": "2026-01-01T10:15:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-003",
+      "team_name": "ai-platform",
+      "model_name": "gpt-3.5-turbo",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-01T14:00:00Z",
+      "end_time": "2026-01-01T18:45:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-004",
+      "team_name": "ml-research",
+      "model_name": "stable-diffusion-xl",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-02T07:30:00Z",
+      "end_time": "2026-01-02T11:00:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-005",
+      "team_name": "data-science",
+      "model_name": "llama-2-13b",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-02T10:00:00Z",
+      "end_time": "2026-01-02T16:20:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-006",
+      "team_name": "ai-platform",
+      "model_name": "whisper-large-v3",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-03T08:15:00Z",
+      "end_time": "2026-01-03T09:45:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-007",
+      "team_name": "ml-research",
+      "model_name": "llama-2-7b",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-03T13:00:00Z",
+      "end_time": "2026-01-03T17:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-008",
+      "team_name": "data-science",
+      "model_name": "bert-large",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-04T06:00:00Z",
+      "end_time": "2026-01-04T08:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-009",
+      "team_name": "ai-platform",
+      "model_name": "gpt-4",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-04T11:00:00Z",
+      "end_time": "2026-01-04T19:15:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-010",
+      "team_name": "ml-research",
+      "model_name": "stable-diffusion-xl",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-05T09:30:00Z",
+      "end_time": "2026-01-05T14:00:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-011",
+      "team_name": "data-science",
+      "model_name": "llama-2-7b",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-05T15:00:00Z",
+      "end_time": "2026-01-05T18:45:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-012",
+      "team_name": "ai-platform",
+      "model_name": "claude-2",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-06T07:00:00Z",
+      "end_time": "2026-01-06T12:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-013",
+      "team_name": "ml-research",
+      "model_name": "llama-2-13b",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-06T14:00:00Z",
+      "end_time": "2026-01-06T20:15:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-014",
+      "team_name": "data-science",
+      "model_name": "bert-base",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-07T08:30:00Z",
+      "end_time": "2026-01-07T10:00:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-015",
+      "team_name": "ai-platform",
+      "model_name": "gpt-3.5-turbo",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-07T12:00:00Z",
+      "end_time": "2026-01-07T15:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-016",
+      "team_name": "ml-research",
+      "model_name": "stable-diffusion-xl",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-08T09:00:00Z",
+      "end_time": "2026-01-08T13:45:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-017",
+      "team_name": "data-science",
+      "model_name": "llama-2-70b",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-08T16:00:00Z",
+      "end_time": "2026-01-09T02:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-018",
+      "team_name": "ai-platform",
+      "model_name": "whisper-large-v3",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-09T07:15:00Z",
+      "end_time": "2026-01-09T08:45:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-019",
+      "team_name": "ml-research",
+      "model_name": "llama-2-7b",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-09T10:00:00Z",
+      "end_time": "2026-01-09T14:20:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-020",
+      "team_name": "data-science",
+      "model_name": "bert-large",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-10T08:00:00Z",
+      "end_time": "2026-01-10T10:15:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-021",
+      "team_name": "ai-platform",
+      "model_name": "gpt-4",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-10T13:30:00Z",
+      "end_time": "2026-01-10T21:00:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-022",
+      "team_name": "ml-research",
+      "model_name": "stable-diffusion-xl",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-11T09:00:00Z",
+      "end_time": "2026-01-11T13:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-023",
+      "team_name": "data-science",
+      "model_name": "llama-2-13b",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-11T15:00:00Z",
+      "end_time": "2026-01-11T22:45:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-024",
+      "team_name": "ai-platform",
+      "model_name": "claude-2",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-12T08:00:00Z",
+      "end_time": "2026-01-12T14:15:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-025",
+      "team_name": "ml-research",
+      "model_name": "llama-2-7b",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-12T16:30:00Z",
+      "end_time": "2026-01-12T20:00:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-026",
+      "team_name": "data-science",
+      "model_name": "bert-base",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-13T07:00:00Z",
+      "end_time": "2026-01-13T08:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-027",
+      "team_name": "ai-platform",
+      "model_name": "gpt-3.5-turbo",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-13T11:00:00Z",
+      "end_time": "2026-01-13T14:45:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-028",
+      "team_name": "ml-research",
+      "model_name": "stable-diffusion-xl",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-14T08:30:00Z",
+      "end_time": "2026-01-14T12:15:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-029",
+      "team_name": "data-science",
+      "model_name": "llama-2-70b",
+      "provider": "AWS",
+      "gpu_type": "H100",
+      "start_time": "2026-01-14T15:00:00Z",
+      "end_time": "2026-01-15T01:30:00Z",
+      "status": "completed"
+    },
+    {
+      "job_id": "job-030",
+      "team_name": "ai-platform",
+      "model_name": "whisper-large-v3",
+      "provider": "AWS",
+      "gpu_type": "A100",
+      "start_time": "2026-01-14T09:00:00Z",
+      "end_time": "2026-01-14T10:20:00Z",
+      "status": "completed"
+    }
+  ]
+}
+

@@ -307,5 +307,3 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Built with ❤️ for production-grade applications**
-

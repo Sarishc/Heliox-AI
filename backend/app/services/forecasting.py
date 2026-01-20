@@ -5,14 +5,17 @@ import logging
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
+from uuid import UUID
 
 import numpy as np
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.cost import CostSnapshot, UsageSnapshot
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # Forecasting configuration
 MIN_DATA_POINTS_FOR_ML = 30  # Minimum days for ML models
@@ -39,6 +42,7 @@ class ForecastingService:
     def _generate_cache_key(
         self,
         forecast_type: str,
+        team_id: Optional[UUID],
         provider: Optional[str],
         gpu_type: Optional[str],
         horizon_days: int
@@ -46,6 +50,7 @@ class ForecastingService:
         """Generate cache key for forecast results."""
         key_data = {
             "type": forecast_type,
+            "team_id": str(team_id) if team_id else "none",
             "provider": provider or "all",
             "gpu_type": gpu_type or "all",
             "horizon": horizon_days
@@ -85,6 +90,7 @@ class ForecastingService:
     
     def _fetch_usage_history(
         self,
+        team_id: Optional[UUID],
         provider: Optional[str],
         gpu_type: Optional[str]
     ) -> List[Tuple[date, float]]:
@@ -94,6 +100,8 @@ class ForecastingService:
             func.sum(UsageSnapshot.gpu_hours).label("total_hours")
         ).group_by(UsageSnapshot.date).order_by(UsageSnapshot.date)
         
+        if team_id:
+            query = query.where(UsageSnapshot.team_id == team_id)
         if provider:
             query = query.where(UsageSnapshot.provider == provider.lower())
         if gpu_type:
@@ -104,6 +112,7 @@ class ForecastingService:
     
     def _fetch_cost_history(
         self,
+        team_id: Optional[UUID],
         provider: Optional[str],
         gpu_type: Optional[str]
     ) -> List[Tuple[date, float]]:
@@ -113,6 +122,8 @@ class ForecastingService:
             func.sum(CostSnapshot.cost_usd).label("total_cost")
         ).group_by(CostSnapshot.date).order_by(CostSnapshot.date)
         
+        if team_id:
+            query = query.where(CostSnapshot.team_id == team_id)
         if provider:
             query = query.where(CostSnapshot.provider == provider.lower())
         if gpu_type:
@@ -308,9 +319,11 @@ class ForecastingService:
     
     def forecast_usage(
         self,
+        team_id: Optional[UUID] = None,
         provider: Optional[str] = None,
         gpu_type: Optional[str] = None,
-        horizon_days: int = DEFAULT_HORIZON_DAYS
+        horizon_days: int = DEFAULT_HORIZON_DAYS,
+        allow_global: bool = False
     ) -> Dict:
         """
         Generate GPU usage forecast.
@@ -323,18 +336,26 @@ class ForecastingService:
         Returns:
             Dictionary with historical and forecast data
         """
+        # Guard: enforce team scope in multi-tenant mode
+        if settings.MULTI_TENANT and not allow_global and not team_id:
+            return {
+                "error": "team_id is required for forecasts in multi-tenant mode.",
+                "historical": [],
+                "forecast": []
+            }
+        
         # Validate inputs
         horizon_days = max(1, min(horizon_days, MAX_HORIZON_DAYS))
         
         # Check cache
-        cache_key = self._generate_cache_key("usage", provider, gpu_type, horizon_days)
+        cache_key = self._generate_cache_key("usage", team_id, provider, gpu_type, horizon_days)
         cached = self._get_cached_forecast(cache_key)
         if cached:
             return cached
         
         # Fetch historical data
         logger.info(f"Generating usage forecast: provider={provider}, gpu_type={gpu_type}, horizon={horizon_days}")
-        history = self._fetch_usage_history(provider, gpu_type)
+        history = self._fetch_usage_history(team_id, provider, gpu_type)
         
         if len(history) < MIN_DATA_POINTS_FOR_FORECAST:
             logger.warning(f"Insufficient data for forecast: {len(history)} days")
@@ -400,9 +421,11 @@ class ForecastingService:
     
     def forecast_spend(
         self,
+        team_id: Optional[UUID] = None,
         provider: Optional[str] = None,
         gpu_type: Optional[str] = None,
-        horizon_days: int = DEFAULT_HORIZON_DAYS
+        horizon_days: int = DEFAULT_HORIZON_DAYS,
+        allow_global: bool = False
     ) -> Dict:
         """
         Generate GPU cost forecast.
@@ -415,18 +438,26 @@ class ForecastingService:
         Returns:
             Dictionary with historical and forecast data
         """
+        # Guard: enforce team scope in multi-tenant mode
+        if settings.MULTI_TENANT and not allow_global and not team_id:
+            return {
+                "error": "team_id is required for forecasts in multi-tenant mode.",
+                "historical": [],
+                "forecast": []
+            }
+        
         # Validate inputs
         horizon_days = max(1, min(horizon_days, MAX_HORIZON_DAYS))
         
         # Check cache
-        cache_key = self._generate_cache_key("spend", provider, gpu_type, horizon_days)
+        cache_key = self._generate_cache_key("spend", team_id, provider, gpu_type, horizon_days)
         cached = self._get_cached_forecast(cache_key)
         if cached:
             return cached
         
         # Fetch historical data
         logger.info(f"Generating spend forecast: provider={provider}, gpu_type={gpu_type}, horizon={horizon_days}")
-        history = self._fetch_cost_history(provider, gpu_type)
+        history = self._fetch_cost_history(team_id, provider, gpu_type)
         
         if len(history) < MIN_DATA_POINTS_FOR_FORECAST:
             logger.warning(f"Insufficient data for forecast: {len(history)} days")

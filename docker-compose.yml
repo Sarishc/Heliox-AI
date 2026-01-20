@@ -52,6 +52,8 @@ services:
       # Application
       ENV: dev
       LOG_LEVEL: INFO
+      SECRET_KEY: dev-secret-key-change-me
+      ADMIN_API_KEY: dev-admin-key-change-me
       
       # Database
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/heliox
@@ -62,6 +64,7 @@ services:
       # CORS
       CORS_ENABLED: "true"
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:8000"]'
+      MULTI_TENANT: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -76,6 +79,54 @@ services:
       - heliox-network
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: heliox-worker
+    environment:
+      ENV: dev
+      LOG_LEVEL: INFO
+      SECRET_KEY: dev-secret-key-change-me
+      ADMIN_API_KEY: dev-admin-key-change-me
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/heliox
+      REDIS_URL: redis://redis:6379/0
+      MULTI_TENANT: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - heliox-network
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info
+
+  # Celery Beat
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: heliox-beat
+    environment:
+      ENV: dev
+      LOG_LEVEL: INFO
+      SECRET_KEY: dev-secret-key-change-me
+      ADMIN_API_KEY: dev-admin-key-change-me
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/heliox
+      REDIS_URL: redis://redis:6379/0
+      MULTI_TENANT: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - heliox-network
+    restart: unless-stopped
+    command: celery -A app.celery_app beat --loglevel=info
 
 volumes:
   postgres_data:

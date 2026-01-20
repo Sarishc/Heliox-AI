@@ -33,6 +33,9 @@ class JobData(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=200)
     provider: str = Field(..., min_length=1, max_length=100)
     gpu_type: str = Field(..., min_length=1, max_length=100)
+    job_type: str | None = None
+    environment: str | None = None
+    project: str | None = None
     start_time: datetime
     end_time: datetime | None = None
     status: str = Field(default="pending")
@@ -168,6 +171,9 @@ class JobIngestionService:
             "model_name": job_data.model_name.lower(),
             "provider": job_data.provider.lower(),
             "gpu_type": job_data.gpu_type.lower(),
+            "job_type": (job_data.job_type or "unknown").lower(),
+            "environment": (job_data.environment or "unknown").lower(),
+            "project": (job_data.project or "unknown").lower(),
             "start_time": job_data.start_time,
             "end_time": job_data.end_time,
             "status": job_data.status.lower()
@@ -182,6 +188,9 @@ class JobIngestionService:
                 "model_name": stmt.excluded.model_name,
                 "provider": stmt.excluded.provider,
                 "gpu_type": stmt.excluded.gpu_type,
+                "job_type": stmt.excluded.job_type,
+                "environment": stmt.excluded.environment,
+                "project": stmt.excluded.project,
                 "start_time": stmt.excluded.start_time,
                 "end_time": stmt.excluded.end_time,
                 "status": stmt.excluded.status,

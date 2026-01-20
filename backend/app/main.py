@@ -13,6 +13,8 @@ from app.core.config import get_settings
 from app.core.db import check_db_connection, get_db
 from app.core.logging import get_request_id, set_request_id, setup_logging
 from app.core.rate_limit import RateLimitMiddleware
+from app.core.cache import get_redis
+from app.plugins.loader import load_plugins, load_default_plugins
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -54,6 +56,15 @@ async def lifespan(app: FastAPI):
     
     logger.info(f"Startup complete - Database: {db_status}")
     logger.info("=" * 60)
+    
+    try:
+        if settings.HELIOX_PLUGINS:
+            loaded = load_plugins(settings.HELIOX_PLUGINS)
+        else:
+            loaded = load_default_plugins()
+        logger.info(f"Loaded plugins: {loaded}")
+    except Exception as exc:
+        logger.error(f"Failed to load plugins: {exc}")
     
     yield
     
@@ -225,6 +236,26 @@ async def health_check() -> Dict[str, str]:
         dict: Status indicating service is running
     """
     return {"status": "ok"}
+
+
+@app.get("/ready", tags=["Health"])
+async def readiness_check() -> Dict[str, str]:
+    """
+    Readiness check: database + redis connectivity.
+    """
+    db_ok = check_db_connection()
+    redis_client = get_redis()
+    redis_ok = redis_client is not None
+    if db_ok and redis_ok:
+        return {"status": "ok", "database": "connected", "redis": "connected"}
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "status": "error",
+            "database": "connected" if db_ok else "disconnected",
+            "redis": "connected" if redis_ok else "disconnected",
+        }
+    )
 
 
 @app.get("/health/db", tags=["Health"])

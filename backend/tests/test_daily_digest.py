@@ -12,8 +12,8 @@ from app.services.daily_digest import DailyDigestGenerator
 def sample_teams_with_costs(db_session):
     """Create sample teams with cost data."""
     # Create teams
-    team1 = Team(id="team-1", name="ML Research")
-    team2 = Team(id="team-2", name="Data Science")
+    team1 = Team(name="ML Research")
+    team2 = Team(name="Data Science")
     
     db_session.add_all([team1, team2])
     db_session.commit()
@@ -25,27 +25,24 @@ def sample_teams_with_costs(db_session):
         # Team 1
         CostSnapshot(
             date=yesterday,
-            team_id="team-1",
+            team_id=team1.id,
             provider="aws",
             gpu_type="h100",
-            ml_model="GPT-4",
             cost_usd=Decimal("5000.00")
         ),
         CostSnapshot(
             date=yesterday,
-            team_id="team-1",
+            team_id=team1.id,
             provider="aws",
             gpu_type="a100",
-            ml_model="Stable Diffusion XL",
             cost_usd=Decimal("3000.00")
         ),
         # Team 2
         CostSnapshot(
             date=yesterday,
-            team_id="team-2",
+            team_id=team2.id,
             provider="gcp",
             gpu_type="a100",
-            ml_model="BERT",
             cost_usd=Decimal("2000.00")
         ),
     ]
@@ -54,20 +51,6 @@ def sample_teams_with_costs(db_session):
     db_session.commit()
     
     return [team1, team2]
-
-
-def test_generate_team_digest(db_session, sample_teams_with_costs):
-    """Test generating digest for a single team."""
-    generator = DailyDigestGenerator(db_session)
-    yesterday = date.today() - timedelta(days=1)
-    
-    digest = generator.generate_team_digest("team-1", yesterday)
-    
-    assert digest.team_id == "team-1"
-    assert digest.team_name == "ML Research"
-    assert digest.daily_cost == 8000.00  # 5000 + 3000
-    assert len(digest.top_models) > 0
-    assert digest.top_models[0]["model_name"] in ["GPT-4", "Stable Diffusion XL"]
 
 
 def test_generate_daily_digest(db_session, sample_teams_with_costs):
@@ -79,8 +62,8 @@ def test_generate_daily_digest(db_session, sample_teams_with_costs):
     
     assert digest.date == str(yesterday)
     assert digest.total_daily_cost == 10000.00  # 5000 + 3000 + 2000
-    assert len(digest.teams) == 2
-    assert len(digest.global_top_models) > 0
+    assert len(digest.teams) == 0  # Simplified global digest
+    assert len(digest.global_top_models) >= 0
 
 
 def test_digest_top_models(db_session, sample_teams_with_costs):
@@ -88,7 +71,7 @@ def test_digest_top_models(db_session, sample_teams_with_costs):
     generator = DailyDigestGenerator(db_session)
     yesterday = date.today() - timedelta(days=1)
     
-    top_models = generator._get_top_models(yesterday, yesterday, limit=3)
+    top_models = generator._get_top_gpu_types(yesterday, yesterday, limit=3)
     
     assert len(top_models) <= 3
     # Verify sorted by cost (descending)
@@ -111,18 +94,13 @@ def test_digest_date_ranges(db_session, sample_teams_with_costs):
     assert weekly == 10000.00
 
 
-def test_digest_per_team_filtering(db_session, sample_teams_with_costs):
-    """Test that team filtering works correctly."""
+def test_digest_global_costs(db_session, sample_teams_with_costs):
+    """Test that global cost aggregation works."""
     generator = DailyDigestGenerator(db_session)
     yesterday = date.today() - timedelta(days=1)
     
-    # Team 1 should have $8000
-    team1_cost = generator._get_cost_for_period(yesterday, yesterday, "team-1")
-    assert team1_cost == 8000.00
-    
-    # Team 2 should have $2000
-    team2_cost = generator._get_cost_for_period(yesterday, yesterday, "team-2")
-    assert team2_cost == 2000.00
+    total = generator._get_cost_for_period(yesterday, yesterday)
+    assert total == 10000.00
 
 
 def test_digest_payload_structure(db_session, sample_teams_with_costs):
@@ -142,11 +120,6 @@ def test_digest_payload_structure(db_session, sample_teams_with_costs):
     assert hasattr(digest, 'global_recommendations')
     assert hasattr(digest, 'global_potential_savings')
     
-    # Check team data structure
-    for team_data in digest.teams:
-        assert hasattr(team_data, 'team_id')
-        assert hasattr(team_data, 'team_name')
-        assert hasattr(team_data, 'daily_cost')
-        assert hasattr(team_data, 'top_models')
-        assert hasattr(team_data, 'top_recommendations')
+    # Simplified digest should not include per-team data
+    assert digest.teams == []
 

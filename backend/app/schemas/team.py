@@ -15,6 +15,11 @@ class TeamBase(BaseModel):
         max_length=255,
         description="Unique name of the team"
     )
+    monthly_budget_usd: Optional[float] = Field(
+        None,
+        gt=0,
+        description="Monthly infra budget in USD"
+    )
 
 
 class TeamCreate(TeamBase):
@@ -31,6 +36,11 @@ class TeamUpdate(BaseModel):
         max_length=255,
         description="Updated team name"
     )
+    monthly_budget_usd: Optional[float] = Field(
+        None,
+        gt=0,
+        description="Monthly infra budget in USD"
+    )
 
 
 class Team(TeamBase):
@@ -41,4 +51,14 @@ class Team(TeamBase):
     updated_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class TeamBudgetUpdate(BaseModel):
+    """Schema for updating team budget."""
+    
+    monthly_budget_usd: float = Field(
+        ...,
+        gt=0,
+        description="Monthly infra budget in USD"
+    )
 

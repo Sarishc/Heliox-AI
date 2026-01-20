@@ -53,5 +53,22 @@ celery_app.conf.beat_schedule = {
             minute=0
         ),
     },
+    # Check anomalies every 6 hours
+    "check-anomalies": {
+        "task": "app.tasks.slack_tasks.check_anomalies_task",
+        "schedule": crontab(hour="*/6", minute=15),
+    },
+    "budget-guardrails": {
+        "task": "app.tasks.budget_tasks.budget_guardrails_tick",
+        "schedule": crontab(hour="*", minute=5),
+    },
+    # Daily rollups at 1 AM
+    "daily-rollups": {
+        "task": "app.tasks.rollup_tasks.compute_daily_rollups",
+        "schedule": crontab(
+            hour=1,
+            minute=0
+        ),
+    },
 }
 

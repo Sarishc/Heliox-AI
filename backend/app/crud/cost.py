@@ -13,12 +13,29 @@ from app.schemas.cost import CostSnapshotCreate, UsageSnapshotCreate
 class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
     """CRUD operations for CostSnapshot model."""
     
+    def get_multi(
+        self,
+        db: Session,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        team_id
+    ) -> List[CostSnapshot]:
+        return (
+            db.query(CostSnapshot)
+            .filter(CostSnapshot.team_id == team_id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+    
     def get_by_date_range(
         self,
         db: Session,
         *,
         start_date: date,
-        end_date: date
+        end_date: date,
+        team_id
     ) -> List[CostSnapshot]:
         """
         Get cost snapshots by date range.
@@ -35,6 +52,7 @@ class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
             db.query(CostSnapshot)
             .filter(
                 and_(
+                    CostSnapshot.team_id == team_id,
                     CostSnapshot.date >= start_date,
                     CostSnapshot.date <= end_date
                 )
@@ -49,7 +67,8 @@ class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
         *,
         provider: str,
         start_date: date,
-        end_date: date
+        end_date: date,
+        team_id
     ) -> List[CostSnapshot]:
         """
         Get cost snapshots by provider and date range.
@@ -67,6 +86,7 @@ class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
             db.query(CostSnapshot)
             .filter(
                 and_(
+                    CostSnapshot.team_id == team_id,
                     CostSnapshot.provider == provider,
                     CostSnapshot.date >= start_date,
                     CostSnapshot.date <= end_date
@@ -81,7 +101,8 @@ class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
         db: Session,
         *,
         start_date: date,
-        end_date: date
+        end_date: date,
+        team_id
     ) -> float:
         """
         Get total cost for date range.
@@ -98,6 +119,7 @@ class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
             func.sum(CostSnapshot.cost_usd)
         ).filter(
             and_(
+                CostSnapshot.team_id == team_id,
                 CostSnapshot.date >= start_date,
                 CostSnapshot.date <= end_date
             )
@@ -108,12 +130,29 @@ class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
 class CRUDUsageSnapshot(CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
     """CRUD operations for UsageSnapshot model."""
     
+    def get_multi(
+        self,
+        db: Session,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+        team_id
+    ) -> List[UsageSnapshot]:
+        return (
+            db.query(UsageSnapshot)
+            .filter(UsageSnapshot.team_id == team_id)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+    
     def get_by_date_range(
         self,
         db: Session,
         *,
         start_date: date,
-        end_date: date
+        end_date: date,
+        team_id
     ) -> List[UsageSnapshot]:
         """
         Get usage snapshots by date range.
@@ -130,6 +169,7 @@ class CRUDUsageSnapshot(CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
             db.query(UsageSnapshot)
             .filter(
                 and_(
+                    UsageSnapshot.team_id == team_id,
                     UsageSnapshot.date >= start_date,
                     UsageSnapshot.date <= end_date
                 )
@@ -144,7 +184,8 @@ class CRUDUsageSnapshot(CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
         *,
         provider: str,
         start_date: date,
-        end_date: date
+        end_date: date,
+        team_id
     ) -> List[UsageSnapshot]:
         """
         Get usage snapshots by provider and date range.
@@ -162,6 +203,7 @@ class CRUDUsageSnapshot(CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
             db.query(UsageSnapshot)
             .filter(
                 and_(
+                    UsageSnapshot.team_id == team_id,
                     UsageSnapshot.provider == provider,
                     UsageSnapshot.date >= start_date,
                     UsageSnapshot.date <= end_date
@@ -176,7 +218,8 @@ class CRUDUsageSnapshot(CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
         db: Session,
         *,
         start_date: date,
-        end_date: date
+        end_date: date,
+        team_id
     ) -> float:
         """
         Get total GPU hours for date range.
@@ -193,6 +236,7 @@ class CRUDUsageSnapshot(CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
             func.sum(UsageSnapshot.gpu_hours)
         ).filter(
             and_(
+                UsageSnapshot.team_id == team_id,
                 UsageSnapshot.date >= start_date,
                 UsageSnapshot.date <= end_date
             )

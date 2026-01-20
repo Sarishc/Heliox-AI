@@ -1,0 +1,10 @@
+{
+  "name": "@heliox/config",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    "./env": "./env.ts",
+    "./tsconfig": "./tsconfig.base.json",
+    "./eslint": "./eslint.base.cjs"
+  }
+}

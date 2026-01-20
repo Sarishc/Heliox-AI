@@ -131,7 +131,19 @@ def seed_demo_data(
             logger.info("Step 2: Ingesting mock cost data...")
             from app.api.routes.admin import ingest_mock_cost_data
             
-            cost_response = ingest_mock_cost_data(db=db, api_key=api_key)
+            # Ensure a team exists to attach cost data to
+            team_for_costs = db.query(Team).first()
+            if not team_for_costs:
+                team_for_costs = Team(name="Demo Team")
+                db.add(team_for_costs)
+                db.commit()
+                db.refresh(team_for_costs)
+            
+            cost_response = ingest_mock_cost_data(
+                db=db,
+                api_key=api_key,
+                team_id=team_for_costs.id
+            )
             cost_result = cost_response.result if hasattr(cost_response, 'result') else cost_response
             results["cost_ingestion"] = {
                 "inserted": cost_result.inserted if hasattr(cost_result, 'inserted') else cost_result.get("inserted", 0),
@@ -279,6 +291,7 @@ def _generate_usage_snapshots(db: Session) -> int:
         # Jobs contribute hours for each day they span
         stmt = (
             select(
+                Job.team_id,
                 Job.provider,
                 Job.gpu_type,
                 func.sum(
@@ -295,14 +308,15 @@ def _generate_usage_snapshots(db: Session) -> int:
                 func.date(Job.start_time) <= current_date,
                 func.date(Job.end_time) >= current_date
             )
-            .group_by(Job.provider, Job.gpu_type)
+            .group_by(Job.team_id, Job.provider, Job.gpu_type)
         )
         
         daily_usage = db.execute(stmt).all()
         
-        for provider, gpu_type, total_hours in daily_usage:
+        for team_id, provider, gpu_type, total_hours in daily_usage:
             if total_hours and total_hours > 0:
                 usage = UsageSnapshot(
+                    team_id=team_id,
                     date=current_date,
                     provider=provider.lower(),
                     gpu_type=gpu_type.lower(),

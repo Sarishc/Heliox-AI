@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ConfigDict
 class CostSnapshotBase(BaseModel):
     """Base cost snapshot schema with common fields."""
     
+    team_id: UUID | None = Field(None, description="Team ID that owns this snapshot")
     date: date_type = Field(..., description="Date of the cost snapshot")
     
     provider: str = Field(
@@ -50,6 +51,7 @@ class CostSnapshot(CostSnapshotBase):
 class UsageSnapshotBase(BaseModel):
     """Base usage snapshot schema with common fields."""
     
+    team_id: UUID | None = Field(None, description="Team ID that owns this snapshot")
     date: date_type = Field(..., description="Date of the usage snapshot")
     
     provider: str = Field(

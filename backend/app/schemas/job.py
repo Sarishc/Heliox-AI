@@ -30,6 +30,24 @@ class JobBase(BaseModel):
         description="Cloud provider or platform (e.g., AWS, GCP, Azure)"
     )
     
+    job_type: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Job type (e.g., training, inference)"
+    )
+    
+    environment: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Environment (e.g., prod, staging, dev)"
+    )
+
+    project: Optional[str] = Field(
+        None,
+        max_length=120,
+        description="Project or cost center identifier"
+    )
+    
     status: str = Field(
         default="pending",
         max_length=50,
@@ -59,6 +77,7 @@ class JobUpdate(BaseModel):
     model_name: Optional[str] = Field(None, min_length=1, max_length=255)
     gpu_type: Optional[str] = Field(None, min_length=1, max_length=100)
     provider: Optional[str] = Field(None, min_length=1, max_length=100)
+    project: Optional[str] = Field(None, max_length=120)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     status: Optional[str] = Field(None, max_length=50)

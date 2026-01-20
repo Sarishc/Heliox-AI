@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_active_user
+from app.core.tenant import require_team_access
+from app.models.team_member import TeamMember, TeamRole
 from app.core.db import get_db
 from app.crud import job as crud_job
 from app.models.user import User
@@ -46,6 +48,7 @@ def list_jobs(
     
     # Build query based on filters
     if team_id:
+        require_team_access(db, user=current_user, team_id=team_id)
         jobs = crud_job.get_by_team(db, team_id=team_id, skip=skip, limit=limit)
         # Get count for this filter
         query = select(func.count()).select_from(JobModel).where(JobModel.team_id == team_id)
@@ -56,8 +59,12 @@ def list_jobs(
         jobs = crud_job.get_by_provider(db, provider=provider, skip=skip, limit=limit)
         query = select(func.count()).select_from(JobModel).where(JobModel.provider == provider)
     else:
-        jobs = crud_job.get_multi(db, skip=skip, limit=limit)
-        query = select(func.count()).select_from(JobModel)
+        # Restrict to user's teams
+        team_ids = [
+            m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()
+        ]
+        jobs = db.query(JobModel).filter(JobModel.team_id.in_(team_ids)).offset(skip).limit(limit).all()
+        query = select(func.count()).select_from(JobModel).where(JobModel.team_id.in_(team_ids))
     
     # Get total count
     total = db.execute(query).scalar_one()
@@ -81,7 +88,7 @@ def create_job(
     """
     Create new job.
     """
-    # Verify team exists
+    # Verify team exists + membership
     from app.crud import team as crud_team
     team = crud_team.get(db, id=job_in.team_id)
     if not team:
@@ -90,6 +97,7 @@ def create_job(
             detail="Team not found"
         )
     
+    require_team_access(db, user=current_user, team_id=job_in.team_id)
     job = crud_job.create(db, obj_in=job_in)
     return job
 
@@ -110,6 +118,7 @@ def read_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
+    require_team_access(db, user=current_user, team_id=job.team_id)
     return job
 
 
@@ -130,6 +139,12 @@ def update_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=job.team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
+    )
     job = crud_job.update(db, db_obj=job, obj_in=job_in)
     return job
 
@@ -150,5 +165,11 @@ def delete_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=job.team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
+    )
     crud_job.delete(db, id=job_id)
 

@@ -1,10 +1,10 @@
-"\"\"\"Add waitlist_entries table
+"""Add waitlist_entries table
 
 Revision ID: 004
 Revises: 003
 Create Date: 2026-01-10 00:00:00.000000
 
-\"\"\""
+"""
 from alembic import op
 import sqlalchemy as sa
 

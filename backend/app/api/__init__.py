@@ -3,7 +3,7 @@ from fastapi import APIRouter
 
 from app.core.config import get_settings
 from app.api import auth, teams, jobs, costs, usage, analytics
-from app.api.routes import admin, recommendations, demo, forecast, alert_settings, daily_digest, public
+from app.api.routes import admin, recommendations, demo, forecast, alert_settings, daily_digest, public, ingest, onboarding, me, optimize, schedule, finance, experiments, assistant, plugins, alerts_webhook, anomalies, budgets
 
 settings = get_settings()
 
@@ -18,6 +18,18 @@ api_router.include_router(usage.router, prefix="/usage", tags=["Usage"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
 api_router.include_router(recommendations.router, prefix="/recommendations", tags=["Recommendations"])
+api_router.include_router(ingest.router, prefix="/ingest", tags=["Ingestion"])
+api_router.include_router(onboarding.router, prefix="/onboarding", tags=["Onboarding"])
+api_router.include_router(me.router, tags=["Me"])
+api_router.include_router(optimize.router, prefix="/optimize", tags=["Optimizer"])
+api_router.include_router(schedule.router, prefix="/schedule", tags=["Scheduling"])
+api_router.include_router(finance.router, prefix="/finance", tags=["Finance"])
+api_router.include_router(experiments.router, prefix="/experiments", tags=["Experiments"])
+api_router.include_router(assistant.router, prefix="/assistant", tags=["Assistant"])
+api_router.include_router(plugins.router, prefix="/plugins", tags=["Plugins"])
+api_router.include_router(alerts_webhook.router, prefix="/alerts", tags=["Alerts"])
+api_router.include_router(anomalies.router, prefix="/anomalies", tags=["Anomalies"])
+api_router.include_router(budgets.router, prefix="/budgets", tags=["Budgets"])
 
 # Demo routes only available in dev environment (security: prevents demo endpoints in production)
 if settings.ENV == "dev":

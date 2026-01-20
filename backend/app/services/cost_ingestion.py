@@ -7,9 +7,11 @@ from datetime import date as date_type
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Dict, List, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,10 @@ logger = logging.getLogger(__name__)
 class CostDataRecord(BaseModel):
     """Schema for validating individual cost data records."""
     
+    team_id: Optional[str] = Field(
+        None,
+        description="Team ID that owns this cost record (required in multi-tenant mode)"
+    )
     date: date_type = Field(..., description="Date of the cost snapshot")
     provider: str = Field(..., min_length=1, max_length=100, description="Cloud provider")
     gpu_type: str = Field(..., min_length=1, max_length=100, description="GPU type")
@@ -113,7 +119,26 @@ class CostIngestionService:
             raise
     
     @staticmethod
-    def normalize_record(record: CostDataRecord) -> Dict:
+    def _resolve_team_id(
+        record_team_id: Optional[str],
+        default_team_id: Optional[str]
+    ) -> UUID:
+        """Resolve team_id for ingestion, enforcing required values."""
+        team_id_value = record_team_id or default_team_id
+        if record_team_id and default_team_id and record_team_id != default_team_id:
+            raise ValueError("Record team_id does not match requested team_id")
+        if not team_id_value:
+            raise ValueError("team_id is required for cost ingestion")
+        try:
+            return UUID(team_id_value)
+        except ValueError:
+            raise ValueError("team_id must be a valid UUID")
+    
+    @staticmethod
+    def normalize_record(
+        record: CostDataRecord,
+        default_team_id: Optional[str] = None
+    ) -> Dict:
         """
         Normalize a cost data record.
         
@@ -127,7 +152,10 @@ class CostIngestionService:
         Returns:
             Dictionary with normalized data
         """
+        team_id = CostIngestionService._resolve_team_id(record.team_id, default_team_id)
+        
         return {
+            "team_id": team_id,
             "date": record.date,
             "provider": record.provider.lower().strip(),
             "gpu_type": record.gpu_type.lower().strip(),
@@ -156,7 +184,7 @@ class CostIngestionService:
         # Define what to do on conflict (when record already exists)
         # Update the cost_usd and updated_at timestamp
         stmt = stmt.on_conflict_do_update(
-            index_elements=["date", "provider", "gpu_type"],
+            index_elements=["team_id", "date", "provider", "gpu_type"],
             set_={
                 "cost_usd": stmt.excluded.cost_usd,
                 "updated_at": stmt.excluded.updated_at,
@@ -166,6 +194,7 @@ class CostIngestionService:
         # Check if record existed before upsert to determine if insert or update
         existing = self.db.execute(
             select(CostSnapshot).where(
+                CostSnapshot.team_id == normalized_data["team_id"],
                 CostSnapshot.date == normalized_data["date"],
                 CostSnapshot.provider == normalized_data["provider"],
                 CostSnapshot.gpu_type == normalized_data["gpu_type"],
@@ -173,7 +202,14 @@ class CostIngestionService:
         ).first()
         
         # Execute the upsert
-        self.db.execute(stmt)
+        try:
+            self.db.execute(stmt)
+        except OperationalError:
+            # SQLite fallback (no ON CONFLICT with PG insert)
+            if existing:
+                existing.cost_usd = normalized_data["cost_usd"]
+            else:
+                self.db.add(CostSnapshot(**normalized_data))
         
         return "updated" if existing else "inserted"
     
@@ -183,8 +219,8 @@ class CostIngestionService:
         Parse CSV content and return list of validated CostDataRecord objects.
         
         Expected CSV format:
-        - Header row: date,provider,gpu_type,cost_usd
-        - Data rows: YYYY-MM-DD,<provider>,<gpu_type>,<decimal>
+        - Header row: date,provider,gpu_type,cost_usd[,team_id]
+        - Data rows: YYYY-MM-DD,<provider>,<gpu_type>,<decimal>[,<team_id>]
         
         Args:
             csv_content: CSV file content as string
@@ -218,6 +254,9 @@ class CostIngestionService:
             # Parse and validate each row
             for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
                 try:
+                    # Extract and validate team_id (optional)
+                    team_id = row.get("team_id", "").strip() or None
+                    
                     # Extract and validate date
                     date_str = row.get("date", "").strip()
                     if not date_str:
@@ -265,6 +304,7 @@ class CostIngestionService:
                     
                     # Create and validate record using Pydantic
                     record = CostDataRecord(
+                        team_id=team_id,
                         date=date_value,
                         provider=provider,
                         gpu_type=gpu_type,
@@ -309,7 +349,8 @@ class CostIngestionService:
     
     def ingest_cost_data(
         self,
-        file_path: Optional[Path] = None
+        file_path: Optional[Path] = None,
+        team_id: Optional[str] = None
     ) -> IngestionResult:
         """
         Ingest cost data from file into database.
@@ -348,7 +389,7 @@ class CostIngestionService:
             for idx, record in enumerate(cost_export.cost_data, 1):
                 try:
                     # Normalize data
-                    normalized_data = self.normalize_record(record)
+                    normalized_data = self.normalize_record(record, default_team_id=team_id)
                     
                     # Upsert to database
                     operation = self.upsert_cost_snapshot(normalized_data)
@@ -387,7 +428,11 @@ class CostIngestionService:
             logger.error(f"Critical error during ingestion: {e}")
             raise
     
-    def ingest_cost_data_from_csv(self, csv_content: str) -> IngestionResult:
+    def ingest_cost_data_from_csv(
+        self,
+        csv_content: str,
+        team_id: Optional[str] = None
+    ) -> IngestionResult:
         """
         Ingest cost data from CSV content into database.
         
@@ -426,7 +471,7 @@ class CostIngestionService:
             for idx, record in enumerate(records, 1):
                 try:
                     # Normalize data
-                    normalized_data = self.normalize_record(record)
+                    normalized_data = self.normalize_record(record, default_team_id=team_id)
                     
                     # Upsert to database
                     operation = self.upsert_cost_snapshot(normalized_data)
@@ -465,9 +510,42 @@ class CostIngestionService:
             logger.error(f"CSV validation error: {e}")
             # Re-raise as ValueError with clear message
             raise
-        except Exception as e:
-            # Rollback on critical errors
-            self.db.rollback()
-            logger.error(f"Critical error during CSV ingestion: {e}")
-            raise
+
+    def ingest_cost_records(
+        self,
+        *,
+        records: List[CostDataRecord],
+        team_id: Optional[str] = None
+    ) -> IngestionResult:
+        """
+        Ingest cost data from in-memory records (API ingestion).
+        """
+        result = IngestionResult(
+            total_records=0,
+            inserted=0,
+            updated=0,
+            failed=0,
+        )
+        result.total_records = len(records)
+        
+        for idx, record in enumerate(records, 1):
+            try:
+                normalized_data = self.normalize_record(record, default_team_id=team_id)
+                operation = self.upsert_cost_snapshot(normalized_data)
+                if operation == "inserted":
+                    result.inserted += 1
+                else:
+                    result.updated += 1
+            except Exception as e:
+                result.failed += 1
+                result.errors.append(f"Record {idx}: {str(e)}")
+                continue
+        
+        if result.failed == 0:
+            self.db.commit()
+        else:
+            # Commit successful rows; errors are tracked for response
+            self.db.commit()
+        
+        return result
 

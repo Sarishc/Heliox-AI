@@ -9,13 +9,23 @@ from app.models.team import Team
 
 
 @pytest.fixture
-def db_with_usage_data(db_session):
+def sample_team(db_session):
+    """Create a sample team for tenant-scoped data."""
+    team = Team(name="Forecast Test Team")
+    db_session.add(team)
+    db_session.commit()
+    return team
+
+
+@pytest.fixture
+def db_with_usage_data(db_session, sample_team):
     """Create test database with usage data."""
     # Create 14 days of usage data
     start_date = date(2026, 1, 1)
     for i in range(14):
         current_date = start_date + timedelta(days=i)
         usage = UsageSnapshot(
+            team_id=sample_team.id,
             date=current_date,
             provider="aws",
             gpu_type="a100",
@@ -28,13 +38,14 @@ def db_with_usage_data(db_session):
 
 
 @pytest.fixture
-def db_with_cost_data(db_session):
+def db_with_cost_data(db_session, sample_team):
     """Create test database with cost data."""
     # Create 14 days of cost data
     start_date = date(2026, 1, 1)
     for i in range(14):
         current_date = start_date + timedelta(days=i)
         cost = CostSnapshot(
+            team_id=sample_team.id,
             date=current_date,
             provider="aws",
             gpu_type="a100",
@@ -46,11 +57,12 @@ def db_with_cost_data(db_session):
     return db_session
 
 
-def test_forecast_usage_shape(db_with_usage_data):
+def test_forecast_usage_shape(db_with_usage_data, sample_team):
     """Test that usage forecast returns correct shape."""
     service = ForecastingService(db_with_usage_data, redis_client=None)
     
     result = service.forecast_usage(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
@@ -81,11 +93,12 @@ def test_forecast_usage_shape(db_with_usage_data):
         assert point["upper_bound"] >= point["value"]
 
 
-def test_forecast_spend_shape(db_with_cost_data):
+def test_forecast_spend_shape(db_with_cost_data, sample_team):
     """Test that spend forecast returns correct shape."""
     service = ForecastingService(db_with_cost_data, redis_client=None)
     
     result = service.forecast_spend(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
@@ -116,7 +129,7 @@ def test_forecast_spend_shape(db_with_cost_data):
         assert point["upper_bound"] >= point["value"]
 
 
-def test_forecast_insufficient_data(db_session):
+def test_forecast_insufficient_data(db_session, sample_team):
     """Test forecast behavior with insufficient data."""
     service = ForecastingService(db_session, redis_client=None)
     
@@ -125,6 +138,7 @@ def test_forecast_insufficient_data(db_session):
     for i in range(3):
         current_date = start_date + timedelta(days=i)
         usage = UsageSnapshot(
+            team_id=sample_team.id,
             date=current_date,
             provider="aws",
             gpu_type="a100",
@@ -134,20 +148,26 @@ def test_forecast_insufficient_data(db_session):
     
     db_session.commit()
     
-    result = service.forecast_usage(provider="aws", gpu_type="a100", horizon_days=7)
+    result = service.forecast_usage(
+        team_id=sample_team.id,
+        provider="aws",
+        gpu_type="a100",
+        horizon_days=7
+    )
     
     # Should return error
     assert "error" in result
     assert len(result["forecast"]) == 0
 
 
-def test_forecast_horizon_validation(db_with_usage_data):
+def test_forecast_horizon_validation(db_with_usage_data, sample_team):
     """Test that forecast respects horizon limits."""
     service = ForecastingService(db_with_usage_data, redis_client=None)
     
     # Test various horizons
     for horizon in [1, 7, 14, 30]:
         result = service.forecast_usage(
+            team_id=sample_team.id,
             provider="aws",
             gpu_type="a100",
             horizon_days=horizon
@@ -155,11 +175,12 @@ def test_forecast_horizon_validation(db_with_usage_data):
         assert len(result["forecast"]) == horizon
 
 
-def test_forecast_trend_detection(db_with_usage_data):
+def test_forecast_trend_detection(db_with_usage_data, sample_team):
     """Test that forecast detects increasing trend."""
     service = ForecastingService(db_with_usage_data, redis_client=None)
     
     result = service.forecast_usage(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
@@ -176,11 +197,12 @@ def test_forecast_trend_detection(db_with_usage_data):
     assert first_forecast >= last_historical * 0.9  # Allow some variation
 
 
-def test_forecast_confidence_bands_widen(db_with_usage_data):
+def test_forecast_confidence_bands_widen(db_with_usage_data, sample_team):
     """Test that confidence bands widen over forecast horizon."""
     service = ForecastingService(db_with_usage_data, redis_client=None)
     
     result = service.forecast_usage(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
@@ -200,18 +222,20 @@ def test_forecast_confidence_bands_widen(db_with_usage_data):
     assert last_band_width >= first_band_width
 
 
-def test_forecast_caching(db_with_usage_data):
+def test_forecast_caching(db_with_usage_data, sample_team):
     """Test that forecast caching works (if Redis available)."""
     # This test will pass even without Redis
     service = ForecastingService(db_with_usage_data, redis_client=None)
     
     # Generate forecast twice
     result1 = service.forecast_usage(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
     )
     result2 = service.forecast_usage(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
@@ -222,11 +246,12 @@ def test_forecast_caching(db_with_usage_data):
     assert len(result1["forecast"]) == len(result2["forecast"])
 
 
-def test_forecast_non_negative(db_with_usage_data):
+def test_forecast_non_negative(db_with_usage_data, sample_team):
     """Test that forecast values are never negative."""
     service = ForecastingService(db_with_usage_data, redis_client=None)
     
     result = service.forecast_usage(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
@@ -239,11 +264,12 @@ def test_forecast_non_negative(db_with_usage_data):
         assert point["upper_bound"] >= 0
 
 
-def test_forecast_metadata(db_with_usage_data):
+def test_forecast_metadata(db_with_usage_data, sample_team):
     """Test that forecast includes correct metadata."""
     service = ForecastingService(db_with_usage_data, redis_client=None)
     
     result = service.forecast_usage(
+        team_id=sample_team.id,
         provider="aws",
         gpu_type="a100",
         horizon_days=7
@@ -257,7 +283,7 @@ def test_forecast_metadata(db_with_usage_data):
     assert result["gpu_type"] == "a100"
 
 
-def test_forecast_method_selection(db_session):
+def test_forecast_method_selection(db_session, sample_team):
     """Test that correct forecast method is selected based on data size."""
     service = ForecastingService(db_session, redis_client=None)
     
@@ -266,6 +292,7 @@ def test_forecast_method_selection(db_session):
     for i in range(14):
         current_date = start_date + timedelta(days=i)
         usage = UsageSnapshot(
+            team_id=sample_team.id,
             date=current_date,
             provider="aws",
             gpu_type="a100",
@@ -275,7 +302,12 @@ def test_forecast_method_selection(db_session):
     
     db_session.commit()
     
-    result = service.forecast_usage(provider="aws", gpu_type="a100", horizon_days=7)
+    result = service.forecast_usage(
+        team_id=sample_team.id,
+        provider="aws",
+        gpu_type="a100",
+        horizon_days=7
+    )
     
     # Should use moving_average for < 30 days
     assert result["forecast_method"] == "moving_average"

@@ -1,8 +1,9 @@
 """Slack notification service for Heliox alerts."""
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional
+from uuid import UUID
 from decimal import Decimal
 
 import httpx
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.cost import CostSnapshot
+from app.models.alert_settings import AlertSettings
+from app.models.budget import BudgetPolicy
 from app.schemas.recommendation import RecommendationFilters, RecommendationSeverity, RecommendationType
 from app.services.recommendations import RecommendationEngine
 
@@ -113,6 +116,81 @@ class SlackNotificationService:
     def _format_currency(self, amount: float) -> str:
         """Format currency for display."""
         return f"${amount:,.2f}"
+
+    async def send_budget_alert(
+        self,
+        *,
+        policy: BudgetPolicy,
+        mtd_spend: float,
+        forecasted_eom_spend: float,
+        percent_used: float,
+        predicted_breach_date: Optional[date],
+    ) -> bool:
+        """Send budget guardrail alert."""
+        env_label = policy.environment.value
+        project_label = policy.project or "all"
+        breach_text = (
+            predicted_breach_date.isoformat() if predicted_breach_date else "not projected"
+        )
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*Budget Guardrail Alert*"}},
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Environment:*\n{env_label}"},
+                    {"type": "mrkdwn", "text": f"*Project:*\n{project_label}"},
+                    {"type": "mrkdwn", "text": f"*Budget:*\n{self._format_currency(float(policy.monthly_budget_usd))}"},
+                    {"type": "mrkdwn", "text": f"*MTD Spend:*\n{self._format_currency(mtd_spend)}"},
+                    {"type": "mrkdwn", "text": f"*Used:*\n{percent_used * 100:.0f}%"},
+                    {"type": "mrkdwn", "text": f"*Forecast EOM:*\n{self._format_currency(forecasted_eom_spend)}"},
+                ],
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Predicted breach date: {breach_text}",
+                    }
+                ],
+            },
+        ]
+        text = f"Budget Guardrail: {percent_used * 100:.0f}% used ({env_label})"
+        return await self._send_slack_message(blocks, text)
+
+    def _create_anomaly_alert_blocks(self, anomalies: List[Dict]) -> List[Dict]:
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🚨 Anomaly Detected", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{len(anomalies)} anomaly signals detected in recent usage/spend.*",
+                },
+            },
+            {"type": "divider"},
+        ]
+        for anomaly in anomalies[:3]:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*{anomaly.get('type')}*\n"
+                        f"{anomaly.get('message')}\n"
+                        f"Severity: {anomaly.get('severity', 'unknown')}"
+                    ),
+                },
+            })
+        if len(anomalies) > 3:
+            blocks.append({
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"_+{len(anomalies) - 3} more anomalies_"}],
+            })
+        return blocks
     
     def _create_burn_rate_alert_blocks(
         self,
@@ -381,127 +459,129 @@ class SlackNotificationService:
         
         return await self._send_slack_message(blocks, text)
 
+    async def send_anomaly_alert(self, anomalies: List[Dict]) -> bool:
+        """Send anomaly detection alert."""
+        logger.info(f"Sending anomaly alert: {len(anomalies)} anomalies")
+        blocks = self._create_anomaly_alert_blocks(anomalies)
+        text = f"Heliox Anomaly Alert: {len(anomalies)} signals detected"
+        return await self._send_slack_message(blocks, text)
 
-async def check_and_send_burn_rate_alert(db: Session, date_str: Optional[str] = None) -> bool:
-    """
-    Check if burn rate exceeds threshold and send alert.
-    
-    Args:
-        db: Database session
-        date_str: Date to check (YYYY-MM-DD). Defaults to yesterday.
-        
-    Returns:
-        True if alert was sent
-    """
+
+def _get_team_alert_settings(db: Session, team_id: UUID) -> Optional[AlertSettings]:
+    return db.query(AlertSettings).filter(AlertSettings.team_id == team_id).first()
+
+
+def _get_team_slack_config(db: Session, team_id: UUID) -> tuple[Optional[str], float, bool]:
+    settings_record = _get_team_alert_settings(db, team_id)
+    if not settings_record or not settings_record.enable_slack:
+        return None, float(BURN_RATE_THRESHOLD_USD), False
+    webhook_url = settings_record.slack_webhook_url
+    threshold = float(settings_record.burn_rate_threshold_usd_per_day or BURN_RATE_THRESHOLD_USD)
+    return webhook_url, threshold, bool(webhook_url)
+
+
+async def check_and_send_burn_rate_alert(db: Session, team_id: UUID, date_str: Optional[str] = None) -> bool:
+    """Check if burn rate exceeds threshold and send alert for a team."""
     from datetime import date, timedelta
     
-    # Default to yesterday
+    webhook_url, threshold, enabled = _get_team_slack_config(db, team_id)
+    if not enabled:
+        return False
+    
     if date_str is None:
         check_date = date.today() - timedelta(days=1)
         date_str = check_date.strftime("%Y-%m-%d")
     
-    # Get daily cost
     query = select(func.sum(CostSnapshot.cost_usd)).where(
+        CostSnapshot.team_id == team_id,
         CostSnapshot.date == date_str
     )
     result = db.execute(query).scalar_one_or_none()
     daily_cost = float(result) if result else 0.0
     
-    logger.info(f"Daily cost for {date_str}: ${daily_cost:.2f}")
+    logger.info(f"[{team_id}] Daily cost for {date_str}: ${daily_cost:.2f}")
     
-    # Check threshold
-    if daily_cost > BURN_RATE_THRESHOLD_USD:
-        slack_service = SlackNotificationService()
+    if daily_cost > threshold:
+        slack_service = SlackNotificationService(webhook_url=webhook_url)
         return await slack_service.send_burn_rate_alert(
             daily_cost,
-            BURN_RATE_THRESHOLD_USD,
+            threshold,
             date_str
         )
     
-    logger.info(f"Burn rate OK: ${daily_cost:.2f} <= ${BURN_RATE_THRESHOLD_USD}")
     return False
 
 
-async def check_and_send_idle_spend_alert(db: Session) -> bool:
-    """
-    Check for high-severity idle spend recommendations and send alert.
-    
-    Args:
-        db: Database session
-        
-    Returns:
-        True if alert was sent
-    """
+async def check_and_send_idle_spend_alert(db: Session, team_id: UUID) -> bool:
+    """Check for high-severity idle spend recommendations for a team."""
     from datetime import date, timedelta
     
-    # Get recommendations for last 14 days
+    webhook_url, _, enabled = _get_team_slack_config(db, team_id)
+    if not enabled:
+        return False
+    
     end_date = date.today()
     start_date = end_date - timedelta(days=14)
     
-    # Create filters for high-severity idle GPU recommendations
     filters = RecommendationFilters(
         start_date=start_date,
         end_date=end_date,
         min_severity=RecommendationSeverity.HIGH,
-        types=[RecommendationType.IDLE_GPU]
+        types=[RecommendationType.IDLE_GPU],
+        team_id=team_id,
     )
     
     rec_engine = RecommendationEngine(db)
     response = rec_engine.generate_recommendations(filters)
-    
-    # Convert Recommendation objects to dicts
     idle_recommendations = [rec.model_dump() for rec in response.recommendations]
     
-    logger.info(f"Found {len(idle_recommendations)} high-severity idle spend recommendations")
+    logger.info(f"[{team_id}] Found {len(idle_recommendations)} idle spend recommendations")
     
     if idle_recommendations:
-        slack_service = SlackNotificationService()
+        slack_service = SlackNotificationService(webhook_url=webhook_url)
         return await slack_service.send_idle_spend_alert(idle_recommendations)
     
-    logger.info("No high-severity idle spend detected")
     return False
 
 
-async def send_daily_summary_report(db: Session) -> bool:
-    """
-    Generate and send daily summary report.
-    
-    Args:
-        db: Database session
-        
-    Returns:
-        True if sent successfully
-    """
+async def send_daily_summary_report(db: Session, team_id: UUID) -> bool:
+    """Generate and send daily summary report for a team."""
     from datetime import date, timedelta
     from sqlalchemy import desc
+    
+    webhook_url, _, enabled = _get_team_slack_config(db, team_id)
+    if not enabled:
+        return False
     
     today = date.today()
     yesterday = today - timedelta(days=1)
     week_ago = today - timedelta(days=7)
     month_ago = today - timedelta(days=30)
     
-    # Get cost summaries
     yesterday_query = select(func.sum(CostSnapshot.cost_usd)).where(
+        CostSnapshot.team_id == team_id,
         CostSnapshot.date == yesterday
     )
     daily_cost = float(db.execute(yesterday_query).scalar_one_or_none() or 0)
     
     weekly_query = select(func.sum(CostSnapshot.cost_usd)).where(
+        CostSnapshot.team_id == team_id,
         CostSnapshot.date >= week_ago
     )
     weekly_cost = float(db.execute(weekly_query).scalar_one_or_none() or 0)
     
     monthly_query = select(func.sum(CostSnapshot.cost_usd)).where(
+        CostSnapshot.team_id == team_id,
         CostSnapshot.date >= month_ago
     )
     monthly_cost = float(db.execute(monthly_query).scalar_one_or_none() or 0)
     
-    # Get top GPU types from yesterday (simplified: no model attribution)
     top_gpu_query = select(
         CostSnapshot.provider,
         CostSnapshot.gpu_type,
         func.sum(CostSnapshot.cost_usd).label("cost")
     ).where(
+        CostSnapshot.team_id == team_id,
         CostSnapshot.date == yesterday
     ).group_by(
         CostSnapshot.provider,
@@ -516,11 +596,11 @@ async def send_daily_summary_report(db: Session) -> bool:
         for row in top_gpu_result
     ]
     
-    # Get recommendations
     filters = RecommendationFilters(
         start_date=yesterday - timedelta(days=14),
         end_date=yesterday,
-        min_severity=RecommendationSeverity.HIGH
+        min_severity=RecommendationSeverity.HIGH,
+        team_id=team_id,
     )
     rec_engine = RecommendationEngine(db)
     response = rec_engine.generate_recommendations(filters)
@@ -528,8 +608,7 @@ async def send_daily_summary_report(db: Session) -> bool:
     high_severity_count = len(response.recommendations)
     total_savings = sum(rec.estimated_savings_usd for rec in response.recommendations)
     
-    # Send summary
-    slack_service = SlackNotificationService()
+    slack_service = SlackNotificationService(webhook_url=webhook_url)
     return await slack_service.send_daily_summary(
         daily_cost,
         weekly_cost,
@@ -538,4 +617,20 @@ async def send_daily_summary_report(db: Session) -> bool:
         high_severity_count,
         total_savings
     )
+
+
+async def check_and_send_anomaly_alert(db: Session, team_id: UUID) -> bool:
+    """Check anomaly detection for a team and send alert if needed."""
+    from app.services.anomaly import AnomalyDetectionService
+    
+    webhook_url, _, enabled = _get_team_slack_config(db, team_id)
+    if not enabled:
+        return False
+    
+    service = AnomalyDetectionService(db)
+    result = service.detect(team_id=team_id)
+    if result.anomalies:
+        slack_service = SlackNotificationService(webhook_url=webhook_url)
+        return await slack_service.send_anomaly_alert(result.anomalies)
+    return False
 

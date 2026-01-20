@@ -1,6 +1,6 @@
-# Heliox-AI Backend
+# Heliox-AI
 
-Production-grade FastAPI backend scaffold with PostgreSQL and Redis.
+Production-grade FastAPI backend plus a single product frontend for GPU cost analytics.
 
 ## 🚀 Tech Stack
 
@@ -16,6 +16,10 @@ Production-grade FastAPI backend scaffold with PostgreSQL and Redis.
 
 ```
 heliox-ai/
+├── apps/
+│   └── app/                    # Product app (Next.js)
+├── packages/
+│   └── config/                 # Shared lint/tsconfig helpers
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI application entry point
@@ -35,6 +39,25 @@ heliox-ai/
 ```
 
 ## 🏃 Quick Start
+
+For the full 15-minute founder onboarding flow, see `docs/QUICKSTART.md`.
+
+### Agent + SDK
+- `agent/heliox_agent.py` (CLI, NVML or mock)
+- `sdk/heliox_sdk.py` (minimal Python helper)
+
+### Frontend (pnpm)
+
+Install dependencies once at the repo root:
+```bash
+pnpm install
+```
+
+Run the product app:
+```bash
+pnpm --filter app dev
+```
+Then open: http://localhost:3000
 
 ### Prerequisites
 

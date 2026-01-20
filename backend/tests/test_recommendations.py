@@ -48,7 +48,7 @@ class TestRecommendationEngine:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 14)
         )
-        result = engine.generate_recommendations(filters)
+        result = engine.generate_recommendations(filters, allow_global=True)
         
         # Verify recommendations
         assert len(result.recommendations) > 0, "Should generate at least 1 recommendation"
@@ -88,7 +88,7 @@ class TestRecommendationEngine:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 14)
         )
-        result = engine.generate_recommendations(filters)
+        result = engine.generate_recommendations(filters, allow_global=True)
         
         idle_recs = [r for r in result.recommendations if r.type.value == "idle_gpu"]
         assert len(idle_recs) > 0
@@ -123,7 +123,7 @@ class TestRecommendationEngine:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 14)
         )
-        result = engine.generate_recommendations(filters)
+        result = engine.generate_recommendations(filters, allow_global=True)
         
         idle_recs = [r for r in result.recommendations if r.type.value == "idle_gpu"]
         assert len(idle_recs) > 0
@@ -155,7 +155,7 @@ class TestRecommendationEngine:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 14)
         )
-        result = engine.generate_recommendations(filters)
+        result = engine.generate_recommendations(filters, allow_global=True)
         
         idle_recs = [r for r in result.recommendations if r.type.value == "idle_gpu"]
         assert len(idle_recs) == 0, "Should not generate idle recommendation for 80% utilization"
@@ -184,7 +184,7 @@ class TestRecommendationEngine:
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 7)
         )
-        result = engine.generate_recommendations(filters)
+        result = engine.generate_recommendations(filters, allow_global=True)
         
         idle_recs = [r for r in result.recommendations if r.type.value == "idle_gpu"]
         if idle_recs:
@@ -216,7 +216,7 @@ class TestRecommendationEngine:
             end_date=date(2026, 1, 14),
             min_severity=RecommendationSeverity.HIGH
         )
-        result = engine.generate_recommendations(filters)
+        result = engine.generate_recommendations(filters, allow_global=True)
         
         # All recommendations should be HIGH severity
         for rec in result.recommendations:
@@ -245,8 +245,8 @@ class TestRecommendationEngine:
             end_date=date(2026, 1, 14)
         )
         
-        result1 = engine.generate_recommendations(filters)
-        result2 = engine.generate_recommendations(filters)
+        result1 = engine.generate_recommendations(filters, allow_global=True)
+        result2 = engine.generate_recommendations(filters, allow_global=True)
         
         # Should generate same number of recommendations
         assert len(result1.recommendations) == len(result2.recommendations)

@@ -22,6 +22,12 @@ from app.models.cost import CostSnapshot, UsageSnapshot  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.waitlist import WaitlistEntry  # noqa: F401
 from app.models.alert_settings import AlertSettings  # noqa: F401
+from app.models.team_member import TeamMember  # noqa: F401
+from app.models.audit_log import AuditLog  # noqa: F401
+from app.models.api_usage import ApiUsage  # noqa: F401
+from app.models.team_rollup import TeamDailyRollup  # noqa: F401
+from app.models.experiment import Experiment, ExperimentAssignment, ExperimentResult  # noqa: F401
+from app.models.business_metric import BusinessMetric  # noqa: F401
 
 # Alembic Config object
 config = context.config

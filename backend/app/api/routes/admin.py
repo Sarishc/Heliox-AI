@@ -1,8 +1,9 @@
 """Admin API endpoints for system management and data ingestion."""
 import logging
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,16 @@ from app.core.db import get_db
 from app.core.security import verify_admin_api_key
 from app.services.cost_ingestion import CostIngestionService, IngestionResult
 from app.services.job_ingestion import JobIngestionService
+from app.models.team import Team
+from app.models.team_api_key import TeamAPIKey
+from app.schemas.team_api_key import (
+    TeamAPIKeyCreate,
+    TeamAPIKeyResponse,
+    TeamAPIKeyCreateResponse
+)
+from app.core.tenant import resolve_ingest_team_id
+from app.core.audit import record_audit_event
+from app.schemas.onboarding import OnboardingRequest, OnboardingResponse
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -26,6 +37,204 @@ class IngestionResponse(BaseModel):
     result: IngestionResult
 
 
+@router.get(
+    "/teams",
+    response_model=list,
+    status_code=status.HTTP_200_OK,
+    summary="List all teams (admin only)",
+)
+def list_all_teams(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_admin_api_key),
+) -> Any:
+    teams = db.query(Team).all()
+    return teams
+
+
+@router.post(
+    "/onboard",
+    response_model=OnboardingResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Admin onboarding: create team + API key",
+)
+def admin_onboard_team(
+    payload: OnboardingRequest,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_admin_api_key),
+) -> Any:
+    team = db.query(Team).filter(Team.name == payload.team_name).first()
+    if team:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Team with this name already exists"
+        )
+    team = Team(name=payload.team_name)
+    db.add(team)
+    db.commit()
+    db.refresh(team)
+    raw_key = TeamAPIKey.generate_key()
+    new_key = TeamAPIKey(
+        team_id=team.id,
+        key_name=payload.api_key_name,
+        key_hash=TeamAPIKey.hash_key(raw_key),
+        is_active=True
+    )
+    db.add(new_key)
+    db.commit()
+    record_audit_event(
+        db,
+        team_id=team.id,
+        actor_type="admin",
+        actor_id=None,
+        action="team_onboarded",
+        metadata={"team_name": team.name, "key_name": payload.api_key_name}
+    )
+    return OnboardingResponse(
+        team_id=str(team.id),
+        api_key=raw_key,
+        message="Save this API key now; it will not be shown again."
+    )
+
+
+@router.get(
+    "/teams/{team_id}/api-keys",
+    response_model=list[TeamAPIKeyResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List team API keys",
+    description="List API keys for a team (admin only).",
+)
+def list_team_api_keys(
+    team_id: UUID,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_admin_api_key),
+) -> Any:
+    """
+    List API keys for a given team.
+    
+    Requires admin API key.
+    """
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Team {team_id} not found"
+        )
+    
+    keys = db.query(TeamAPIKey).filter(TeamAPIKey.team_id == team_id).all()
+    return keys
+
+
+@router.post(
+    "/teams/{team_id}/api-keys",
+    response_model=TeamAPIKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create team API key",
+    description="Create a new API key for a team (admin only).",
+)
+def create_team_api_key(
+    team_id: UUID,
+    payload: TeamAPIKeyCreate,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_admin_api_key),
+) -> Any:
+    """
+    Create a new API key for a team.
+    
+    Returns the raw API key value only once.
+    """
+    if payload.team_id != team_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="team_id in path must match payload.team_id"
+        )
+    
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Team {team_id} not found"
+        )
+    
+    raw_key = TeamAPIKey.generate_key()
+    key_hash = TeamAPIKey.hash_key(raw_key)
+    
+    new_key = TeamAPIKey(
+        team_id=team_id,
+        key_name=payload.key_name,
+        key_hash=key_hash,
+        is_active=True
+    )
+    
+    db.add(new_key)
+    db.commit()
+    db.refresh(new_key)
+    record_audit_event(
+        db,
+        team_id=team_id,
+        actor_type="admin",
+        actor_id=None,
+        action="api_key_created",
+        metadata={"key_name": payload.key_name}
+    )
+    
+    logger.info(
+        "Created team API key",
+        extra={"team_id": team_id, "key_name": payload.key_name}
+    )
+    
+    return TeamAPIKeyCreateResponse(
+        id=new_key.id,
+        team_id=team_id,
+        key_name=new_key.key_name,
+        api_key=raw_key,
+        is_active=new_key.is_active,
+        created_at=new_key.created_at
+    )
+
+
+@router.delete(
+    "/teams/{team_id}/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke team API key",
+    description="Deactivate a team API key (admin only).",
+)
+def revoke_team_api_key(
+    team_id: UUID,
+    key_id: UUID,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(verify_admin_api_key),
+) -> None:
+    """
+    Revoke (deactivate) an API key for a team.
+    """
+    key = db.query(TeamAPIKey).filter(
+        TeamAPIKey.id == key_id,
+        TeamAPIKey.team_id == team_id
+    ).first()
+    
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found for team"
+        )
+    
+    key.is_active = False
+    db.commit()
+    record_audit_event(
+        db,
+        team_id=team_id,
+        actor_type="admin",
+        actor_id=None,
+        action="api_key_revoked",
+        metadata={"key_id": str(key_id)}
+    )
+    
+    logger.info(
+        "Revoked team API key",
+        extra={"team_id": team_id, "key_id": key_id}
+    )
+
+
 @router.post(
     "/ingest/cost/mock",
     response_model=IngestionResponse,
@@ -38,6 +247,10 @@ class IngestionResponse(BaseModel):
 def ingest_mock_cost_data(
     *,
     db: Session = Depends(get_db),
+    team_id: UUID | None = Query(
+        None,
+        description="Team ID to associate with ingested cost data"
+    ),
     api_key: str = Depends(verify_admin_api_key),
 ) -> Any:
     """
@@ -82,11 +295,14 @@ def ingest_mock_cost_data(
     try:
         logger.info("Starting mock cost data ingestion")
         
+        # Resolve team_id for ingestion (multi-tenant safe)
+        resolved_team_id = resolve_ingest_team_id(team_id)
+        
         # Initialize ingestion service
         ingestion_service = CostIngestionService(db)
         
         # Ingest data
-        result = ingestion_service.ingest_cost_data()
+        result = ingestion_service.ingest_cost_data(team_id=str(resolved_team_id))
         
         # Build response
         if result.failed > 0:
@@ -205,10 +421,10 @@ def ingest_mock_job_data(
         from sqlalchemy.orm import sessionmaker
         from app.core.config import get_settings
         
-        settings = get_settings()
+        local_settings = get_settings()
         
         # Convert DATABASE_URL to async format
-        async_db_url = settings.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+        async_db_url = local_settings.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
         
         async def run_ingestion():
             # Create async engine and session
@@ -286,6 +502,10 @@ def ingest_mock_job_data(
 def import_cost_csv(
     *,
     file: UploadFile = File(..., description="CSV file with cost data"),
+    team_id: UUID | None = Query(
+        None,
+        description="Team ID to associate with ingested cost data"
+    ),
     db: Session = Depends(get_db),
     api_key: str = Depends(verify_admin_api_key),
 ) -> Any:
@@ -293,15 +513,15 @@ def import_cost_csv(
     Import GPU cost data from CSV file.
     
     **CSV Format:**
-    - Header row (required): `date,provider,gpu_type,cost_usd`
-    - Data rows: `YYYY-MM-DD,<provider>,<gpu_type>,<decimal>`
+    - Header row (required): `date,provider,gpu_type,cost_usd` (optional `team_id`)
+    - Data rows: `YYYY-MM-DD,<provider>,<gpu_type>,<decimal>` (optional `<team_id>`)
     
     **Example CSV:**
     ```csv
-    date,provider,gpu_type,cost_usd
-    2024-01-01,AWS,A100,1245.67
-    2024-01-01,AWS,H100,2189.45
-    2024-01-02,GCP,A100,1150.00
+    date,provider,gpu_type,cost_usd,team_id
+    2024-01-01,AWS,A100,1245.67,00000000-0000-0000-0000-000000000000
+    2024-01-01,AWS,H100,2189.45,00000000-0000-0000-0000-000000000000
+    2024-01-02,GCP,A100,1150.00,00000000-0000-0000-0000-000000000000
     ```
     
     **Validation:**
@@ -311,7 +531,7 @@ def import_cost_csv(
     - Cost: Positive decimal number (will be rounded to 2 decimal places)
     
     **Idempotency:**
-    - Records are upserted based on unique key (date, provider, gpu_type)
+    - Records are upserted based on unique key (team_id, date, provider, gpu_type)
     - If record exists, only cost_usd is updated
     - Safe to upload the same file multiple times
     
@@ -375,11 +595,17 @@ def import_cost_csv(
     try:
         logger.info(f"Starting CSV import from file: {file.filename}")
         
+        # Resolve team_id for ingestion (multi-tenant safe)
+        resolved_team_id = resolve_ingest_team_id(team_id)
+        
         # Initialize ingestion service
         ingestion_service = CostIngestionService(db)
         
         # Import CSV data
-        result = ingestion_service.ingest_cost_data_from_csv(csv_content)
+        result = ingestion_service.ingest_cost_data_from_csv(
+            csv_content,
+            team_id=str(resolved_team_id)
+        )
         
         # Build response message
         if result.failed == 0:

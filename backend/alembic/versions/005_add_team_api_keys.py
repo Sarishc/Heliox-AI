@@ -1,15 +1,16 @@
 """Add team_api_keys table
 
-Revision ID: 005
+Revision ID: 005a
 Revises: 004
 Create Date: 2026-01-10 12:00:00.000000
 
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '005'
+revision = '005a'
 down_revision = '004'
 branch_labels = None
 depends_on = None
@@ -19,8 +20,8 @@ def upgrade() -> None:
     # Create team_api_keys table
     op.create_table(
         'team_api_keys',
-        sa.Column('id', sa.String(), nullable=False),
-        sa.Column('team_id', sa.String(), nullable=False),
+        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('team_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('key_name', sa.String(length=255), nullable=False),
         sa.Column('key_hash', sa.String(length=64), nullable=False),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),

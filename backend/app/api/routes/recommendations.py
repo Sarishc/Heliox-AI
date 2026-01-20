@@ -7,6 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.usage_tracking import record_api_usage
+from app.core.security import get_team_api_key_optional
+from app.core.tenant import get_effective_team_id
+from app.models.team_api_key import TeamAPIKey
 from app.schemas.recommendation import (
     RecommendationFilters,
     RecommendationResponse,
@@ -36,6 +40,7 @@ def get_recommendations(
         None, ge=0, description="Filter by minimum estimated savings (USD)"
     ),
     db: Session = Depends(get_db),
+    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
     # Public endpoint for demo - no authentication required
 ) -> Any:
     """
@@ -80,12 +85,14 @@ def get_recommendations(
             f"Generating recommendations for date range: {start_date} to {end_date}"
         )
         
-        # Create filters
+        # Create filters (enforce tenant isolation)
+        team_id = get_effective_team_id(team_api_key)
         filters = RecommendationFilters(
             start_date=start_date,
             end_date=end_date,
             min_severity=min_severity,
             min_savings=min_savings,
+            team_id=team_id,
         )
         
         # Initialize recommendation engine
@@ -99,6 +106,7 @@ def get_recommendations(
             f"with ${result.total_estimated_savings_usd:,.2f} potential savings"
         )
         
+        record_api_usage(db, team_id=team_id, endpoint="recommendations")
         return result
         
     except Exception as e:
@@ -118,6 +126,7 @@ def get_recommendations_summary(
     start_date: date = Query(..., description="Start date for analysis (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date for analysis (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
+    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
     """
     Get a summary of recommendations without full details.
@@ -142,9 +151,11 @@ def get_recommendations_summary(
     
     try:
         # Create filters
+        team_id = get_effective_team_id(team_api_key)
         filters = RecommendationFilters(
             start_date=start_date,
             end_date=end_date,
+            team_id=team_id,
         )
         
         # Initialize recommendation engine
@@ -154,6 +165,7 @@ def get_recommendations_summary(
         result = engine.generate_recommendations(filters)
         
         # Return only summary
+        record_api_usage(db, team_id=team_id, endpoint="recommendations_summary")
         return {
             "date_range": result.date_range,
             "total_recommendations": len(result.recommendations),

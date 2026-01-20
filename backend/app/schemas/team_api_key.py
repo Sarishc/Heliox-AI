@@ -15,7 +15,7 @@ class TeamAPIKeyCreate(BaseModel):
         max_length=255,
         description="Human-readable name for this API key"
     )
-    team_id: str = Field(
+    team_id: UUID = Field(
         ...,
         description="Team ID that will own this API key"
     )
@@ -25,7 +25,7 @@ class TeamAPIKeyResponse(BaseModel):
     """Schema for team API key response (without sensitive data)."""
     
     id: UUID
-    team_id: str
+    team_id: UUID
     key_name: str
     is_active: bool
     last_used_at: Optional[datetime] = None
@@ -40,7 +40,7 @@ class TeamAPIKeyCreateResponse(BaseModel):
     """Schema for API key creation response (includes the key once)."""
     
     id: UUID
-    team_id: str
+    team_id: UUID
     key_name: str
     api_key: str = Field(
         ...,

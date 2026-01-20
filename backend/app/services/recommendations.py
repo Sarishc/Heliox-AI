@@ -1,11 +1,13 @@
 """Recommendation engine for Heliox-AI cost optimization."""
 from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Optional
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import logging
+from app.core.config import get_settings
 from app.models.cost import CostSnapshot, UsageSnapshot
 from app.models.job import Job
 from app.models.team import Team
@@ -19,6 +21,7 @@ from app.schemas.recommendation import (
 )
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class RecommendationEngine:
@@ -32,7 +35,7 @@ class RecommendationEngine:
     
     # Configuration constants
     LONG_RUNNING_JOB_THRESHOLD_HOURS = 24  # Jobs longer than 24 hours
-    IDLE_GPU_THRESHOLD_PERCENTAGE = 30  # GPU usage below 30% is considered idle
+    IDLE_GPU_THRESHOLD_PERCENTAGE = 70  # GPU usage below 70% is considered idle
     OFF_HOURS_START = time(18, 0)  # 6 PM
     OFF_HOURS_END = time(9, 0)  # 9 AM
     HOURLY_GPU_COST_ESTIMATE = 3.50  # Rough estimate for savings calculations
@@ -47,7 +50,9 @@ class RecommendationEngine:
         self.db = db
     
     def generate_recommendations(
-        self, filters: RecommendationFilters
+        self,
+        filters: RecommendationFilters,
+        allow_global: bool = False
     ) -> RecommendationResponse:
         """
         Generate all recommendations based on filters.
@@ -66,6 +71,9 @@ class RecommendationEngine:
         recommendations: List[Recommendation] = []
         
         try:
+            if settings.MULTI_TENANT and not allow_global and not filters.team_id:
+                raise ValueError("team_id is required for recommendations in multi-tenant mode")
+            
             # Rule 1: Detect idle GPU spend
             idle_gpu_recs = self._detect_idle_gpu_spend(
                 filters.start_date, filters.end_date, filters.team_id
@@ -123,7 +131,7 @@ class RecommendationEngine:
             )
     
     def _detect_idle_gpu_spend(
-        self, start_date: date, end_date: date, team_id: Optional[str] = None
+        self, start_date: date, end_date: date, team_id: Optional[UUID] = None
     ) -> List[Recommendation]:
         """
         Detect idle GPU spend by comparing usage hours to expected usage.
@@ -156,6 +164,8 @@ class RecommendationEngine:
                 )
                 .group_by(CostSnapshot.gpu_type, CostSnapshot.provider)
             )
+            if team_id:
+                cost_stmt = cost_stmt.where(CostSnapshot.team_id == team_id)
             
             cost_results = self.db.execute(cost_stmt).all()
             
@@ -170,6 +180,8 @@ class RecommendationEngine:
                         UsageSnapshot.provider == provider,
                     )
                 )
+                if team_id:
+                    usage_stmt = usage_stmt.where(UsageSnapshot.team_id == team_id)
                 
                 actual_usage = self.db.execute(usage_stmt).scalar_one_or_none() or 0.0
                 
@@ -224,7 +236,7 @@ class RecommendationEngine:
         return recommendations
     
     def _detect_long_running_jobs(
-        self, start_date: date, end_date: date, team_id: Optional[str] = None
+        self, start_date: date, end_date: date, team_id: Optional[UUID] = None
     ) -> List[Recommendation]:
         """
         Detect jobs that run for an unusually long time.
@@ -260,7 +272,11 @@ class RecommendationEngine:
             
             results = self.db.execute(stmt).all()
             
-            for job, team_name in results:
+            for row in results:
+                job = row[0]
+                team_name = row[1]
+                if not hasattr(job, "start_time") or not hasattr(job, "end_time"):
+                    continue
                 runtime_delta = job.end_time - job.start_time
                 runtime_hours = runtime_delta.total_seconds() / 3600
                 
@@ -308,7 +324,7 @@ class RecommendationEngine:
         return recommendations
     
     def _detect_off_hours_jobs(
-        self, start_date: date, end_date: date, team_id: Optional[str] = None
+        self, start_date: date, end_date: date, team_id: Optional[UUID] = None
     ) -> List[Recommendation]:
         """
         Detect jobs running during peak business hours (9am-6pm weekdays).
@@ -346,7 +362,11 @@ class RecommendationEngine:
             # Group by team to avoid too many individual recommendations
             team_business_hours_jobs: Dict[str, List[Job]] = {}
             
-            for job, team_name in results:
+            for row in results:
+                job = row[0]
+                team_name = row[1]
+                if not hasattr(job, "start_time"):
+                    continue
                 job_start_time = job.start_time.time()
                 job_weekday = job.start_time.weekday()  # 0=Monday, 6=Sunday
                 

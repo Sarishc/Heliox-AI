@@ -58,6 +58,24 @@ class Job(Base, UUIDMixin, TimestampMixin):
         comment="Cloud provider or platform (e.g., AWS, GCP, Azure)"
     )
     
+    job_type: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Job type (e.g., training, inference, finetune)"
+    )
+    
+    environment: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Environment (e.g., prod, staging, dev)"
+    )
+
+    project: Mapped[Optional[str]] = mapped_column(
+        String(120),
+        nullable=True,
+        comment="Project or cost center identifier"
+    )
+    
     # Timing
     start_time: Mapped[Optional[datetime]] = mapped_column(
         nullable=True,

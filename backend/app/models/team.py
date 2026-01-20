@@ -1,8 +1,9 @@
 """Team model for Heliox-AI."""
+from decimal import Decimal
 from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
-from sqlalchemy import String
+from sqlalchemy import String, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -11,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.alert_settings import AlertSettings
     from app.models.job import Job
     from app.models.team_api_key import TeamAPIKey
+    from app.models.team_member import TeamMember
 
 
 class Team(Base, UUIDMixin, TimestampMixin):
@@ -31,6 +33,11 @@ class Team(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Unique name of the team"
     )
+    monthly_budget_usd: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 2),
+        nullable=True,
+        comment="Monthly infra budget in USD"
+    )
     
     # Relationships
     jobs: Mapped[List["Job"]] = relationship(
@@ -47,6 +54,12 @@ class Team(Base, UUIDMixin, TimestampMixin):
     )
     api_keys: Mapped[List["TeamAPIKey"]] = relationship(
         "TeamAPIKey",
+        back_populates="team",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    members: Mapped[List["TeamMember"]] = relationship(
+        "TeamMember",
         back_populates="team",
         cascade="all, delete-orphan",
         lazy="selectin"

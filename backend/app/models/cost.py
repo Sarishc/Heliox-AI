@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Date, Index, Numeric, String
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -20,6 +20,12 @@ class CostSnapshot(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "cost_snapshots"
     
     # Date and Provider Info
+    team_id: Mapped[UUID] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Reference to the team that owns this cost snapshot"
+    )
     date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
@@ -48,8 +54,8 @@ class CostSnapshot(Base, UUIDMixin, TimestampMixin):
     # Composite index and unique constraint for efficient querying and upserts
     __table_args__ = (
         Index(
-            "ix_cost_snapshots_date_provider_gpu",
-            "date", "provider", "gpu_type",
+            "ix_cost_snapshots_team_date_provider_gpu",
+            "team_id", "date", "provider", "gpu_type",
             unique=True  # Unique constraint for idempotent upserts
         ),
         Index("ix_cost_snapshots_date", "date"),
@@ -73,6 +79,12 @@ class UsageSnapshot(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "usage_snapshots"
     
     # Date and Provider Info
+    team_id: Mapped[UUID] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Reference to the team that owns this usage snapshot"
+    )
     date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
@@ -90,6 +102,20 @@ class UsageSnapshot(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Type of GPU (e.g., A100, H100, V100)"
     )
+
+    environment: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        default="unknown",
+        comment="Environment tag (e.g., prod, staging, dev)"
+    )
+
+    project: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        default="unknown",
+        comment="Project or cost center tag"
+    )
     
     # Usage Data
     gpu_hours: Mapped[Decimal] = mapped_column(
@@ -101,10 +127,12 @@ class UsageSnapshot(Base, UUIDMixin, TimestampMixin):
     # Composite index for efficient querying
     __table_args__ = (
         Index(
-            "ix_usage_snapshots_date_provider_gpu",
-            "date", "provider", "gpu_type"
+            "ix_usage_snapshots_team_date_provider_gpu_env_project",
+            "team_id", "date", "provider", "gpu_type", "environment", "project",
+            unique=True
         ),
         Index("ix_usage_snapshots_date", "date"),
+        Index("ix_usage_snapshots_team_id", "team_id"),
     )
     
     def __repr__(self) -> str:

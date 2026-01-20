@@ -1,4 +1,5 @@
 """Structured logging configuration with request ID tracking."""
+import json
 import logging
 import sys
 import uuid
@@ -45,9 +46,18 @@ class StructuredFormatter(logging.Formatter):
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)
         
-        # Format as key=value pairs for easy parsing
-        formatted_pairs = [f"{k}={v}" for k, v in log_data.items()]
-        return " ".join(formatted_pairs)
+        # Include extra fields (e.g., path, status_code)
+        reserved = {
+            "name", "msg", "args", "levelname", "levelno", "pathname",
+            "filename", "module", "exc_info", "exc_text", "stack_info",
+            "lineno", "funcName", "created", "msecs", "relativeCreated",
+            "thread", "threadName", "processName", "process", "message"
+        }
+        for key, value in record.__dict__.items():
+            if key not in reserved and key not in log_data:
+                log_data[key] = value
+        
+        return json.dumps(log_data, default=str)
 
 
 def setup_logging() -> None:

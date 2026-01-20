@@ -1,0 +1,40 @@
+"use client";
+
+import BetaAccessGate from "@/components/BetaAccessGate";
+import AppShell from "@/components/AppShell";
+import AnomalyCard from "@/components/AnomalyCard";
+import SlackWebhookCard from "@/components/SlackWebhookCard";
+import BudgetEventsList from "@/components/BudgetEventsList";
+
+function AlertsContent() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-500">Alerts</p>
+        <h1 className="text-2xl font-semibold text-slate-900">
+          Proactive risk monitoring
+        </h1>
+        <p className="mt-2 text-sm text-slate-500">
+          Configure notifications and review anomaly signals.
+        </p>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+        <AnomalyCard />
+        <SlackWebhookCard />
+      </div>
+
+      <BudgetEventsList />
+    </div>
+  );
+}
+
+export default function AlertsPage() {
+  return (
+    <BetaAccessGate>
+      <AppShell>
+        <AlertsContent />
+      </AppShell>
+    </BetaAccessGate>
+  );
+}

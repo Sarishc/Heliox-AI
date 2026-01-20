@@ -9,10 +9,7 @@ from app.models.team import Team
 @pytest.fixture
 def sample_team(db_session):
     """Create a sample team."""
-    team = Team(
-        id="test-team-1",
-        name="Test Team"
-    )
+    team = Team(name="Test Team")
     db_session.add(team)
     db_session.commit()
     return team

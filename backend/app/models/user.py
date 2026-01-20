@@ -2,7 +2,9 @@
 from typing import Optional
 
 from sqlalchemy import Boolean, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from typing import TYPE_CHECKING, List
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
@@ -44,6 +46,16 @@ class User(Base, UUIDMixin, TimestampMixin):
         default=True,
         nullable=False,
         comment="Whether the user account is active"
+    )
+    
+    if TYPE_CHECKING:
+        from app.models.team_member import TeamMember
+    
+    memberships: Mapped[List["TeamMember"]] = relationship(
+        "TeamMember",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
     )
     
     def __repr__(self) -> str:

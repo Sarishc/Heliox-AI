@@ -1,6 +1,7 @@
 """API endpoints for alert settings management."""
 import logging
 from typing import Any, List
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -20,6 +21,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _mask_webhook(url: str | None) -> str | None:
+    if not url:
+        return None
+    return f"***{url[-8:]}"
+
+
 @router.get(
     "/",
     response_model=List[AlertSettingsResponse],
@@ -36,6 +43,8 @@ def list_alert_settings(
     Requires admin API key.
     """
     settings = db.query(AlertSettings).all()
+    for item in settings:
+        item.slack_webhook_url = _mask_webhook(item.slack_webhook_url)
     return settings
 
 
@@ -46,7 +55,7 @@ def list_alert_settings(
     description="Retrieve alert settings for a specific team"
 )
 def get_alert_settings(
-    team_id: str,
+    team_id: UUID,
     db: Session = Depends(get_db),
     api_key: str = Depends(get_api_key)
 ) -> Any:
@@ -79,10 +88,12 @@ def get_alert_settings(
             "enable_slack": True,
             "enable_email": False,
             "email_recipients": None,
+            "slack_webhook_url": None,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
     
+    settings.slack_webhook_url = _mask_webhook(settings.slack_webhook_url)
     return settings
 
 
@@ -130,6 +141,7 @@ def create_alert_settings(
     
     logger.info(f"Created alert settings for team {settings_in.team_id}")
     
+    settings.slack_webhook_url = _mask_webhook(settings.slack_webhook_url)
     return settings
 
 
@@ -140,7 +152,7 @@ def create_alert_settings(
     description="Update alert settings for a team (admin only)"
 )
 def update_alert_settings(
-    team_id: str,
+    team_id: UUID,
     settings_update: AlertSettingsUpdate,
     db: Session = Depends(get_db),
     api_key: str = Depends(get_api_key)
@@ -179,6 +191,7 @@ def update_alert_settings(
     
     logger.info(f"Updated alert settings for team {team_id}")
     
+    settings.slack_webhook_url = _mask_webhook(settings.slack_webhook_url)
     return settings
 
 
@@ -189,7 +202,7 @@ def update_alert_settings(
     description="Delete alert settings for a team (reverts to defaults)"
 )
 def delete_alert_settings(
-    team_id: str,
+    team_id: UUID,
     db: Session = Depends(get_db),
     api_key: str = Depends(get_api_key)
 ) -> None:

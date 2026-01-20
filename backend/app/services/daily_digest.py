@@ -123,7 +123,7 @@ class DailyDigestGenerator:
             start_date=yesterday - timedelta(days=14),
             end_date=yesterday
         )
-        response = self.rec_engine.generate_recommendations(filters)
+        response = self.rec_engine.generate_recommendations(filters, allow_global=True)
         all_recommendations = response.recommendations
         
         # Sort by savings and get top 5

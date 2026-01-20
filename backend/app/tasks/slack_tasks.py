@@ -2,14 +2,17 @@
 import asyncio
 import logging
 from typing import Optional
+from uuid import UUID
 
 from app.celery_app import celery_app
 from app.core.db import SessionLocal
 from app.services.slack_notifications import (
     check_and_send_burn_rate_alert,
     check_and_send_idle_spend_alert,
-    send_daily_summary_report
+    send_daily_summary_report,
+    check_and_send_anomaly_alert,
 )
+from app.models.alert_settings import AlertSettings
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +41,18 @@ def check_burn_rate_task(self, date_str: Optional[str] = None):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        alert_sent = loop.run_until_complete(
-            check_and_send_burn_rate_alert(db, date_str)
-        )
+        team_ids = [
+            UUID(row.team_id)
+            for row in db.query(AlertSettings)
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .all()
+        ]
+        alert_sent = False
+        for team_id in team_ids:
+            sent = loop.run_until_complete(
+                check_and_send_burn_rate_alert(db, team_id, date_str)
+            )
+            alert_sent = alert_sent or sent
         
         if alert_sent:
             logger.info("Burn rate alert sent successfully")
@@ -77,9 +89,18 @@ def check_idle_spend_task(self):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        alert_sent = loop.run_until_complete(
-            check_and_send_idle_spend_alert(db)
-        )
+        team_ids = [
+            UUID(row.team_id)
+            for row in db.query(AlertSettings)
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .all()
+        ]
+        alert_sent = False
+        for team_id in team_ids:
+            sent = loop.run_until_complete(
+                check_and_send_idle_spend_alert(db, team_id)
+            )
+            alert_sent = alert_sent or sent
         
         if alert_sent:
             logger.info("Idle spend alert sent successfully")
@@ -116,9 +137,17 @@ def send_daily_summary_task(self):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        sent = loop.run_until_complete(
-            send_daily_summary_report(db)
-        )
+        team_ids = [
+            UUID(row.team_id)
+            for row in db.query(AlertSettings)
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .all()
+        ]
+        sent = False
+        for team_id in team_ids:
+            sent = sent or loop.run_until_complete(
+                send_daily_summary_report(db, team_id)
+            )
         
         if sent:
             logger.info("Daily summary sent successfully")
@@ -130,6 +159,46 @@ def send_daily_summary_task(self):
     except Exception as e:
         logger.error(f"Daily summary task failed: {e}", exc_info=True)
         # Retry the task
+        raise self.retry(exc=e)
+    finally:
+        db.close()
+
+
+@celery_app.task(
+    name="app.tasks.slack_tasks.check_anomalies_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=300
+)
+def check_anomalies_task(self):
+    """
+    Celery task to check anomalies and send alerts.
+    """
+    logger.info("Starting anomaly detection task")
+    
+    db = SessionLocal()
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        team_ids = [
+            UUID(row.team_id)
+            for row in db.query(AlertSettings)
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .all()
+        ]
+        alert_sent = False
+        for team_id in team_ids:
+            sent = loop.run_until_complete(
+                check_and_send_anomaly_alert(db, team_id)
+            )
+            alert_sent = alert_sent or sent
+        
+        return {"alert_sent": alert_sent}
+    except Exception as e:
+        logger.error(f"Anomaly detection task failed: {e}", exc_info=True)
         raise self.retry(exc=e)
     finally:
         db.close()

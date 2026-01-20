@@ -6,6 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.usage_tracking import record_api_usage
+from app.core.security import get_team_api_key_optional
+from app.core.tenant import get_effective_team_id
+from app.models.team_api_key import TeamAPIKey
 from app.schemas.forecast import ForecastResponse
 from app.services.forecasting import ForecastingService, DEFAULT_HORIZON_DAYS, MAX_HORIZON_DAYS
 
@@ -50,6 +54,7 @@ def forecast_usage(
         example=7
     ),
     db: Session = Depends(get_db),
+    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
     """
     Generate GPU usage forecast.
@@ -84,7 +89,9 @@ def forecast_usage(
         redis_client = get_redis_client()
         forecast_service = ForecastingService(db, redis_client)
         
+        team_id = get_effective_team_id(team_api_key)
         result = forecast_service.forecast_usage(
+            team_id=team_id,
             provider=provider,
             gpu_type=gpu_type,
             horizon_days=horizon_days
@@ -96,6 +103,7 @@ def forecast_usage(
                 detail=result["error"]
             )
         
+        record_api_usage(db, team_id=team_id, endpoint="forecast_usage")
         return result
         
     except HTTPException:
@@ -134,6 +142,7 @@ def forecast_spend(
         example=7
     ),
     db: Session = Depends(get_db),
+    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
     """
     Generate GPU spending forecast.
@@ -169,7 +178,9 @@ def forecast_spend(
         redis_client = get_redis_client()
         forecast_service = ForecastingService(db, redis_client)
         
+        team_id = get_effective_team_id(team_api_key)
         result = forecast_service.forecast_spend(
+            team_id=team_id,
             provider=provider,
             gpu_type=gpu_type,
             horizon_days=horizon_days
@@ -181,6 +192,7 @@ def forecast_spend(
                 detail=result["error"]
             )
         
+        record_api_usage(db, team_id=team_id, endpoint="forecast_spend")
         return result
         
     except HTTPException:

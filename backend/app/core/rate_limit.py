@@ -1,8 +1,8 @@
-"""In-memory rate limiting middleware for MVP."""
+"""Redis-backed rate limiting middleware."""
 import json
 import time
-from collections import defaultdict
-from typing import Dict
+import logging
+from typing import Optional
 
 from fastapi import Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -10,16 +10,30 @@ from starlette.responses import Response
 
 from app.core.logging import get_request_id
 from app.core.config import get_settings
+from app.core.cache import get_redis
 
 settings = get_settings()
-
-# In-memory storage for rate limiting (per-client)
-# Format: {client_id: [(timestamp, path), ...]}
-_rate_limit_store: Dict[str, list] = defaultdict(list)
+logger = logging.getLogger(__name__)
 
 # Rate limit configuration
 RATE_LIMIT_WINDOW_SECONDS = 60  # 1 minute window
 RATE_LIMIT_MAX_REQUESTS = 100  # Max requests per window per client
+_LOCAL_LIMITS: dict[str, tuple[int, int]] = {}
+
+
+def _local_is_rate_limited(client_id: str) -> tuple[bool, int]:
+    current_time = int(time.time())
+    window_start = current_time - (current_time % RATE_LIMIT_WINDOW_SECONDS)
+    count, stored_window = _LOCAL_LIMITS.get(client_id, (0, window_start))
+    if stored_window != window_start:
+        count = 0
+        stored_window = window_start
+    count += 1
+    _LOCAL_LIMITS[client_id] = (count, stored_window)
+    if count > RATE_LIMIT_MAX_REQUESTS:
+        retry_after = window_start + RATE_LIMIT_WINDOW_SECONDS - current_time
+        return True, max(1, retry_after)
+    return False, RATE_LIMIT_WINDOW_SECONDS
 
 
 def get_client_id(request: Request) -> str:
@@ -40,7 +54,7 @@ def get_client_id(request: Request) -> str:
     return f"ip:{client_host}"
 
 
-def is_rate_limited(client_id: str, path: str) -> bool:
+def is_rate_limited(client_id: str, path: str) -> tuple[bool, int]:
     """
     Check if client has exceeded rate limit.
     
@@ -51,59 +65,27 @@ def is_rate_limited(client_id: str, path: str) -> bool:
     Returns:
         True if rate limited, False otherwise
     """
-    current_time = time.time()
-    window_start = current_time - RATE_LIMIT_WINDOW_SECONDS
+    current_time = int(time.time())
+    window_start = current_time - (current_time % RATE_LIMIT_WINDOW_SECONDS)
+    key = f"rl:{client_id}:{window_start}"
+    redis_client = get_redis()
+    if not redis_client:
+        logger.warning("Redis unavailable for rate limiting; falling back to local limiter")
+        return _local_is_rate_limited(client_id)
     
-    # Get request history for this client
-    requests = _rate_limit_store.get(client_id, [])
-    
-    # Filter to requests within the current window
-    recent_requests = [
-        (ts, p) for ts, p in requests
-        if ts >= window_start
-    ]
-    
-    # Check if limit exceeded
-    if len(recent_requests) >= RATE_LIMIT_MAX_REQUESTS:
-        return True
-    
-    # Add current request
-    recent_requests.append((current_time, path))
-    _rate_limit_store[client_id] = recent_requests
-    
-    # Cleanup old entries (keep only last window worth)
-    _rate_limit_store[client_id] = [
-        (ts, p) for ts, p in recent_requests
-        if ts >= window_start
-    ]
-    
-    return False
-
-
-def get_retry_after(client_id: str) -> int:
-    """
-    Calculate retry-after seconds for rate-limited client.
-    
-    Args:
-        client_id: Client identifier
+    try:
+        count = redis_client.incr(key)
+        if count == 1:
+            redis_client.expire(key, RATE_LIMIT_WINDOW_SECONDS * 2)
         
-    Returns:
-        Seconds until next request is allowed
-    """
-    current_time = time.time()
-    window_start = current_time - RATE_LIMIT_WINDOW_SECONDS
-    
-    requests = _rate_limit_store.get(client_id, [])
-    if not requests:
-        return RATE_LIMIT_WINDOW_SECONDS
-    
-    # Find oldest request in window
-    oldest_time = min(ts for ts, _ in requests if ts >= window_start)
-    if oldest_time:
-        retry_after = int(window_start + RATE_LIMIT_WINDOW_SECONDS - current_time)
-        return max(1, retry_after)
-    
-    return RATE_LIMIT_WINDOW_SECONDS
+        if count > RATE_LIMIT_MAX_REQUESTS:
+            retry_after = window_start + RATE_LIMIT_WINDOW_SECONDS - current_time
+            return True, max(1, retry_after)
+        
+        return False, RATE_LIMIT_WINDOW_SECONDS
+    except Exception:
+        logger.warning("Redis error for rate limiting; falling back to local limiter", exc_info=True)
+        return _local_is_rate_limited(client_id)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -125,9 +107,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_id = get_client_id(request)
         path = request.url.path
         
-        if is_rate_limited(client_id, path):
+        limited, retry_after = is_rate_limited(client_id, path)
+        if limited:
             request_id = get_request_id()
-            retry_after = get_retry_after(client_id)
             
             return Response(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -148,14 +130,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         response = await call_next(request)
         
-        # Add rate limit headers
-        requests = _rate_limit_store.get(client_id, [])
-        current_time = time.time()
-        window_start = current_time - RATE_LIMIT_WINDOW_SECONDS
-        remaining = RATE_LIMIT_MAX_REQUESTS - len([
-            (ts, p) for ts, p in requests if ts >= window_start
-        ])
-        
+        # Add rate limit headers (best-effort)
+        remaining = max(0, RATE_LIMIT_MAX_REQUESTS - 1)
         response.headers["X-RateLimit-Limit"] = str(RATE_LIMIT_MAX_REQUESTS)
         response.headers["X-RateLimit-Remaining"] = str(max(0, remaining))
         response.headers["X-RateLimit-Window"] = str(RATE_LIMIT_WINDOW_SECONDS)

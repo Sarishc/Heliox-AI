@@ -2,6 +2,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -26,6 +27,10 @@ class AlertSettingsBase(BaseModel):
         default=None,
         description="Comma-separated list of email addresses"
     )
+    slack_webhook_url: Optional[str] = Field(
+        default=None,
+        description="Slack webhook URL (stored securely, masked in responses)"
+    )
     
     @field_validator("email_recipients")
     @classmethod
@@ -46,7 +51,7 @@ class AlertSettingsBase(BaseModel):
 class AlertSettingsCreate(AlertSettingsBase):
     """Schema for creating alert settings."""
     
-    team_id: str = Field(..., description="Team ID")
+    team_id: UUID = Field(..., description="Team ID")
 
 
 class AlertSettingsUpdate(BaseModel):
@@ -69,13 +74,17 @@ class AlertSettingsUpdate(BaseModel):
         default=None,
         description="Comma-separated list of email addresses"
     )
+    slack_webhook_url: Optional[str] = Field(
+        default=None,
+        description="Slack webhook URL"
+    )
 
 
 class AlertSettingsResponse(AlertSettingsBase):
     """Schema for alert settings response."""
     
     id: str
-    team_id: str
+    team_id: UUID
     created_at: datetime
     updated_at: datetime
     
@@ -89,10 +98,22 @@ class AlertSettingsResponse(AlertSettingsBase):
                 "enable_slack": True,
                 "enable_email": False,
                 "email_recipients": "team-lead@example.com,finance@example.com",
+                "slack_webhook_url": "***abcd1234",
                 "created_at": "2026-01-09T12:00:00Z",
                 "updated_at": "2026-01-09T12:00:00Z"
             }
         }
+
+
+class SlackWebhookRequest(BaseModel):
+    team_id: UUID
+    slack_webhook_url: str
+
+
+class SlackWebhookResponse(BaseModel):
+    team_id: UUID
+    configured: bool
+    masked_webhook_url: Optional[str]
 
 
 class DailyDigestTeamData(BaseModel):

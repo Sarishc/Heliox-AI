@@ -36,6 +36,16 @@ class Settings(BaseSettings):
     
     # API
     API_V1_PREFIX: str = "/api/v1"
+
+    # Multi-tenant mode
+    MULTI_TENANT: bool = Field(
+        default=True,
+        description="Enable multi-tenant isolation (requires team-scoped API keys)"
+    )
+    SINGLE_TENANT_TEAM_ID: str = Field(
+        default="",
+        description="Team ID to lock all queries to when MULTI_TENANT is false"
+    )
     
     # Security - REQUIRED: No defaults for production safety
     SECRET_KEY: str = Field(
@@ -62,6 +72,12 @@ class Settings(BaseSettings):
     TIMEZONE: str = Field(
         default="UTC",
         description="Timezone for scheduled tasks (e.g., 'America/New_York', 'UTC')"
+    )
+    
+    # Plugins
+    HELIOX_PLUGINS: List[str] = Field(
+        default=[],
+        description="Comma-separated module paths for plugins to load"
     )
     
     model_config = SettingsConfigDict(
@@ -91,6 +107,13 @@ class Settings(BaseSettings):
             raise ValueError(f"ENV must be one of {valid_envs}")
         return v_lower
     
+    @field_validator("HELIOX_PLUGINS", mode="before")
+    @classmethod
+    def parse_plugins(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v
+    
     def model_post_init(self, __context) -> None:
         """Validate production-required settings after initialization."""
         # Security: In production, secrets and CORS must be explicitly configured
@@ -106,6 +129,13 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"CORS_ORIGINS cannot include localhost origins in production: {localhost_origins}. "
                     "Use production domain names only."
+                )
+
+        # Tenant safety: if multi-tenant is disabled, require a single team ID
+        if not self.MULTI_TENANT:
+            if not self.SINGLE_TENANT_TEAM_ID:
+                raise ValueError(
+                    "SINGLE_TENANT_TEAM_ID must be set when MULTI_TENANT is false."
                 )
 
 

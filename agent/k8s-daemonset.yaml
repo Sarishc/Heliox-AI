@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: heliox-agent
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: heliox-agent
+  template:
+    metadata:
+      labels:
+        app: heliox-agent
+    spec:
+      containers:
+        - name: heliox-agent
+          image: python:3.11-slim
+          command: ["python", "/agent/heliox_agent.py"]
+          args:
+            - "--endpoint"
+            - "https://api.heliox.ai"
+            - "--api-key"
+            - "$(HELIOX_API_KEY)"
+            - "--interval"
+            - "60"
+          env:
+            - name: HELIOX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: heliox-agent-secret
+                  key: api_key
+          volumeMounts:
+            - name: agent-code
+              mountPath: /agent
+      volumes:
+        - name: agent-code
+          configMap:
+            name: heliox-agent-code

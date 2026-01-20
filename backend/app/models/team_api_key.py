@@ -2,6 +2,7 @@
 import secrets
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -19,7 +20,7 @@ class TeamAPIKey(UUIDMixin, TimestampMixin, Base):
     
     __tablename__ = "team_api_keys"
     
-    team_id: Mapped[str] = mapped_column(
+    team_id: Mapped[UUID] = mapped_column(
         ForeignKey("teams.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

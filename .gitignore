@@ -32,6 +32,11 @@ env/
 .env.local
 .env.*.local
 
+# Frontend
+node_modules/
+.next/
+out/
+
 # IDEs
 .vscode/
 .idea/

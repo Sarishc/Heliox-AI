@@ -1,4 +1,6 @@
 """Budget policy schemas."""
+from __future__ import annotations
+
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
@@ -48,6 +50,7 @@ class BudgetStatus(BaseModel):
     percent_used: float
     forecasted_eom_spend_usd: Decimal
     predicted_breach_date: Optional[date]
+    explain: "MetricValue | None" = None
 
 
 class BudgetEventResponse(BaseModel):
@@ -64,3 +67,9 @@ class BudgetEventResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+from app.schemas.explainability import MetricValue
+
+# Update forward references
+BudgetStatus.model_rebuild()

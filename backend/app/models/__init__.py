@@ -8,6 +8,7 @@ from app.models.cost import CostSnapshot, UsageSnapshot
 from app.models.business_metric import BusinessMetric
 from app.models.experiment import Experiment, ExperimentAssignment, ExperimentResult
 from app.models.job import Job
+from app.models.reporting import SavedReport, ReportShareLink, ReportRun
 from app.models.team import Team
 from app.models.team_api_key import TeamAPIKey
 from app.models.team_member import TeamMember
@@ -38,5 +39,8 @@ __all__ = [
     "TeamDailyRollup",
     "User",
     "WaitlistEntry",
+    "SavedReport",
+    "ReportShareLink",
+    "ReportRun",
 ]
 

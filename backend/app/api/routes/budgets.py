@@ -19,6 +19,8 @@ from app.schemas.budget import (
     BudgetStatus,
     BudgetEventResponse,
 )
+from app.schemas.explainability import Component
+from app.services.explainability import explain_metric
 from app.services.budget_guardrails import BudgetGuardrailsService
 
 router = APIRouter()
@@ -141,6 +143,7 @@ def disable_policy(
 @router.get("/status", response_model=list[BudgetStatus])
 def get_budget_status(
     as_of: Optional[date] = Query(None),
+    include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
@@ -149,6 +152,24 @@ def get_budget_status(
     month_start, month_end = service._month_range(as_of or date.today())
     results = []
     for policy, evaluation in service.list_status(team_id, as_of=as_of):
+        explain = None
+        if include_explain:
+            explain = explain_metric(
+                value=round(evaluation.percent_used, 4),
+                unit="ratio",
+                window=f"{month_start.isoformat()} to {month_end.isoformat()}",
+                formula="mtd_spend / monthly_budget",
+                components=[
+                    Component(name="mtd_spend", value=round(evaluation.mtd_spend, 2), unit="USD", source="cost_snapshots"),
+                    Component(name="monthly_budget", value=float(policy.monthly_budget_usd), unit="USD", source="budget_policy"),
+                    Component(name="forecasted_eom_spend", value=round(evaluation.forecasted_eom_spend, 2), unit="USD", source="forecast"),
+                ],
+                assumptions=["MTD spend is allocated by usage share for environment/project scopes."],
+                inputs={
+                    "data_points": (as_of or date.today()).day,
+                    "window_days": (month_end - month_start).days + 1,
+                },
+            )
         results.append(
             BudgetStatus(
                 policy=policy,
@@ -159,6 +180,7 @@ def get_budget_status(
                 percent_used=round(evaluation.percent_used, 4),
                 forecasted_eom_spend_usd=Decimal(str(round(evaluation.forecasted_eom_spend, 2))),
                 predicted_breach_date=evaluation.predicted_breach_date,
+                explain=explain,
             )
         )
     return results

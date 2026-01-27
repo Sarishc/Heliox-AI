@@ -25,6 +25,7 @@ celery_app.conf.update(
     task_soft_time_limit=240,  # 4 minutes soft limit
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    beat_schedule_filename='/app/data/celerybeat-schedule.db',  # Fix permission error
 )
 
 # Celery Beat schedule

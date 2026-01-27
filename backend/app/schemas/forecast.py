@@ -1,4 +1,6 @@
 """Schemas for forecasting endpoints."""
+from __future__ import annotations
+
 from datetime import date
 from typing import Dict, List, Optional
 
@@ -39,6 +41,7 @@ class ForecastResponse(BaseModel):
     forecast: List[ForecastPoint] = Field(..., description="Forecasted data points")
     metadata: ForecastMetadata = Field(..., description="Forecast metadata")
     error: Optional[str] = Field(None, description="Error message if forecast failed")
+    explain: "MetricValue | None" = None
     
     class Config:
         json_schema_extra = {
@@ -65,4 +68,10 @@ class ForecastResponse(BaseModel):
                 }
             }
         }
+
+
+from app.schemas.explainability import MetricValue
+
+# Update forward references
+ForecastResponse.model_rebuild()
 

@@ -13,10 +13,32 @@ interface SavingsSummaryResponse {
   total_spend_usd: number;
   estimated_idle_waste_usd: number;
   recommended_savings_usd: number;
+  total_spend_explain?: MetricExplain;
+  idle_waste_explain?: MetricExplain;
+  recommended_savings_explain?: MetricExplain;
 }
 
 interface ForecastResponse {
   forecast: Array<{ date: string; value: number }>;
+  explain?: MetricExplain;
+}
+
+interface MetricExplain {
+  value: number | string;
+  unit: string;
+  window: string;
+  confidence: number;
+  confidence_reasons: string[];
+  explanation: {
+    formula: string;
+    components: Array<{
+      name: string;
+      value: number | string;
+      unit?: string | null;
+      source?: string | null;
+    }>;
+    assumptions: string[];
+  };
 }
 
 const formatCurrency = (value: number) =>
@@ -26,6 +48,7 @@ export default function ExecutiveKpis() {
   const { startDate, endDate } = useDashboardFilters();
   const [summary, setSummary] = useState<SavingsSummaryResponse | null>(null);
   const [nextMonthSpend, setNextMonthSpend] = useState<number | null>(null);
+  const [forecastExplain, setForecastExplain] = useState<MetricExplain | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,18 +58,19 @@ export default function ExecutiveKpis() {
       setError(null);
       try {
         const summaryResponse = await fetchJson<SavingsSummaryResponse>(
-          `/api/v1/analytics/savings/summary?start=${startDate}&end=${endDate}`
+          `/api/v1/analytics/savings/summary?start=${startDate}&end=${endDate}&include_explain=true`
         );
         setSummary(summaryResponse);
 
         const forecast = await fetchJson<ForecastResponse>(
-          `/api/v1/forecast/spend?horizon_days=30`
+          `/api/v1/forecast/spend?horizon_days=30&include_explain=true`
         );
         const totalForecast = forecast.forecast.reduce(
           (acc, point) => acc + point.value,
           0
         );
         setNextMonthSpend(totalForecast);
+        setForecastExplain(forecast.explain);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Unable to load KPI summary."
@@ -88,24 +112,28 @@ export default function ExecutiveKpis() {
         value={formatCurrency(summary.total_spend_usd)}
         helper="Tracked spend for selected window."
         icon={<Wallet className="h-4 w-4" />}
+        explain={summary.total_spend_explain}
       />
       <KpiCard
         label="Idle Waste"
         value={formatCurrency(summary.estimated_idle_waste_usd)}
         helper="Estimated spend on idle capacity."
         icon={<TrendingDown className="h-4 w-4" />}
+        explain={summary.idle_waste_explain}
       />
       <KpiCard
         label="Forecasted Next-Month Spend"
         value={nextMonthSpend ? formatCurrency(nextMonthSpend) : "—"}
         helper="Model-based projection for next 30 days."
         icon={<TrendingUp className="h-4 w-4" />}
+        explain={forecastExplain}
       />
       <KpiCard
         label="Savings Opportunity"
         value={formatCurrency(summary.recommended_savings_usd)}
         helper="Estimated savings from top actions."
         icon={<Sparkles className="h-4 w-4" />}
+        explain={summary.recommended_savings_explain}
       />
     </div>
   );

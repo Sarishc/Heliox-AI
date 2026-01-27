@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 interface KpiCardProps {
   label: string;
@@ -6,14 +7,34 @@ interface KpiCardProps {
   change?: string;
   icon?: ReactNode;
   helper?: string;
+  explain?: {
+    value: number | string;
+    unit: string;
+    window: string;
+    confidence: number;
+    confidence_reasons: string[];
+    explanation: {
+      formula: string;
+      components: Array<{
+        name: string;
+        value: number | string;
+        unit?: string | null;
+        source?: string | null;
+      }>;
+      assumptions: string[];
+    };
+  };
 }
 
-export default function KpiCard({ label, value, change, icon, helper }: KpiCardProps) {
+export default function KpiCard({ label, value, change, icon, helper, explain }: KpiCardProps) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+            {explain && <MetricExplainDrawer title={label} metric={explain} />}
+          </div>
           <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
           {change && <p className="mt-1 text-xs text-emerald-600">{change}</p>}
         </div>

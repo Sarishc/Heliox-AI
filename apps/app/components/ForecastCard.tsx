@@ -39,9 +39,29 @@ interface ForecastData {
     historical_data_points: number;
     forecast_generated_at: string;
   };
+  explain?: MetricExplain;
+}
+
+interface MetricExplain {
+  value: number | string;
+  unit: string;
+  window: string;
+  confidence: number;
+  confidence_reasons: string[];
+  explanation: {
+    formula: string;
+    components: Array<{
+      name: string;
+      value: number | string;
+      unit?: string | null;
+      source?: string | null;
+    }>;
+    assumptions: string[];
+  };
 }
 
 import { fetchJson, getApiBaseUrl } from "@/lib/api";
+import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 const formatLabel = (value: string) => {
   const date = new Date(value);
@@ -109,7 +129,7 @@ export default function ForecastCard() {
     setError(null);
 
     try {
-      const url = `/api/v1/forecast/spend?horizon_days=${horizonDays}`;
+      const url = `/api/v1/forecast/spend?horizon_days=${horizonDays}&include_explain=true`;
       const data = await fetchJson<ForecastData>(url);
       setForecastData(data);
     } catch (err) {
@@ -200,6 +220,12 @@ export default function ForecastCard() {
               <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">
                 Historical vs. Forecast
               </p>
+              {forecastData?.explain && (
+                <MetricExplainDrawer
+                  title="Forecasted spend"
+                  metric={forecastData.explain}
+                />
+              )}
             </div>
             <h2 className="text-lg font-semibold text-gray-900">
               Cost Forecasting

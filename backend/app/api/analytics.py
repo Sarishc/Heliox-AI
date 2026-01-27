@@ -2,7 +2,7 @@
 Analytics API endpoints for cost and usage insights.
 """
 from datetime import date, datetime, timedelta
-from typing import List
+from typing import List, Union
 
 from typing import Any
 
@@ -17,6 +17,8 @@ from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.team_api_key import TeamAPIKey
 from app.schemas.savings import SavingsSummaryResponse
+from app.schemas.explainability import Component, MetricValue
+from app.services.explainability import explain_metric
 from app.schemas.business_metric import (
     BusinessMetricIngestRequest,
     BusinessMetricResponse,
@@ -25,7 +27,7 @@ from app.schemas.business_metric import (
 )
 from app.schemas.recommendation import RecommendationFilters
 from app.services.recommendations import RecommendationEngine
-from app.models.cost import CostSnapshot
+from app.models.cost import CostSnapshot, UsageSnapshot
 from app.models.business_metric import BusinessMetric
 from app.models.job import Job
 from app.models.team import Team
@@ -40,6 +42,8 @@ class CostByModelResponse(BaseModel):
     job_count: int = Field(description="Number of jobs for this model")
     start_date: date
     end_date: date
+    runtime_share: float | None = None
+    explain: MetricValue | None = None
 
 
 class CostByTeamResponse(BaseModel):
@@ -50,16 +54,31 @@ class CostByTeamResponse(BaseModel):
     job_count: int = Field(description="Number of jobs for this team")
     start_date: date
     end_date: date
+    cost_share: float | None = None
+    explain: MetricValue | None = None
+
+
+class CostByModelEnvelope(BaseModel):
+    items: List[CostByModelResponse]
+    explain: MetricValue
+    point_explain: dict[str, MetricValue] | None = None
+
+
+class CostByTeamEnvelope(BaseModel):
+    items: List[CostByTeamResponse]
+    explain: MetricValue
+    point_explain: dict[str, MetricValue] | None = None
 
 
 @router.get(
     "/cost/by-model",
-    response_model=List[CostByModelResponse],
+    response_model=Union[List[CostByModelResponse], CostByModelEnvelope],
     summary="Get cost aggregated by model"
 )
 def get_cost_by_model(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
     # Public endpoint for demo - no authentication required
@@ -163,6 +182,7 @@ def get_cost_by_model(
     daily_costs = {row[0]: float(row[1] or 0.0) for row in daily_cost_rows}
     
     model_costs = {}
+    model_total_runtime = {}
     for (day, model_name), runtime in model_runtime.items():
         daily_cost = daily_costs.get(day, 0.0)
         if daily_cost <= 0:
@@ -175,7 +195,9 @@ def get_cost_by_model(
             model_jobs = model_job_count_by_day.get((day, model_name), 0)
             share = (model_jobs / total_jobs) if total_jobs > 0 else 0.0
         model_costs[model_name] = model_costs.get(model_name, 0.0) + (daily_cost * share)
+        model_total_runtime[model_name] = model_total_runtime.get(model_name, 0.0) + runtime
     
+    total_runtime = sum(model_total_runtime.values()) if model_total_runtime else 0.0
     cost_by_model = [
         CostByModelResponse(
             model_name=model_name,
@@ -183,22 +205,74 @@ def get_cost_by_model(
             job_count=model_job_count.get(model_name, 0),
             start_date=start,
             end_date=end,
+            runtime_share=(
+                round(model_total_runtime.get(model_name, 0.0) / total_runtime, 4)
+                if total_runtime > 0
+                else None
+            ),
+            explain=(
+                explain_metric(
+                    value=round(model_costs.get(model_name, 0.0), 2),
+                    unit="USD",
+                    window=f"{start.isoformat()} to {end.isoformat()}",
+                    formula="sum(daily_cost * runtime_share)",
+                    components=[
+                        Component(name="model_runtime_seconds", value=round(model_total_runtime.get(model_name, 0.0), 2), unit="seconds", source="jobs"),
+                        Component(name="job_count", value=model_job_count.get(model_name, 0), unit="jobs", source="jobs"),
+                    ],
+                    assumptions=["Runtime share falls back to job-count share when runtime missing."],
+                    inputs={
+                        "data_points": (end - start).days + 1,
+                        "window_days": (end - start).days + 1,
+                        "telemetry_coverage": 1.0 if model_total_runtime.get(model_name, 0.0) > 0 else 0.6,
+                    },
+                )
+                if include_explain
+                else None
+            ),
         )
         for model_name in model_job_count.keys()
     ]
     cost_by_model.sort(key=lambda x: x.total_cost_usd, reverse=True)
     record_api_usage(db, team_id=team_id, endpoint="analytics_cost_by_model")
+    if include_explain:
+        point_explain = {
+            item.model_name: item.explain
+            for item in cost_by_model
+            if item.explain is not None
+        }
+        return CostByModelEnvelope(
+            items=cost_by_model,
+            explain=explain_metric(
+                value=round(sum(model_costs.values()), 2),
+                unit="USD",
+                window=f"{start.isoformat()} to {end.isoformat()}",
+                formula="sum(daily_cost * runtime_share) across models",
+                components=[
+                    Component(name="total_cost", value=round(sum(model_costs.values()), 2), unit="USD", source="cost_snapshots"),
+                    Component(name="total_runtime_seconds", value=round(total_runtime, 2), unit="seconds", source="jobs"),
+                ],
+                assumptions=["Runtime share falls back to job-count share when runtime missing."],
+                inputs={
+                    "data_points": (end - start).days + 1,
+                    "window_days": (end - start).days + 1,
+                    "telemetry_coverage": 1.0 if total_runtime > 0 else 0.6,
+                },
+            ),
+            point_explain=point_explain,
+        )
     return cost_by_model
 
 
 @router.get(
     "/cost/by-team",
-    response_model=List[CostByTeamResponse],
+    response_model=Union[List[CostByTeamResponse], CostByTeamEnvelope],
     summary="Get cost aggregated by team"
 )
 def get_cost_by_team(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
     # Public endpoint for demo - no authentication required
@@ -259,10 +333,57 @@ def get_cost_by_team(
             job_count=int(job_count),
             start_date=start,
             end_date=end,
+            cost_share=1.0 if float(total_cost) > 0 else 0.0,
+            explain=(
+                explain_metric(
+                    value=round(float(total_cost), 2),
+                    unit="USD",
+                    window=f"{start.isoformat()} to {end.isoformat()}",
+                    formula="sum(cost_usd) across cost snapshots in window",
+                    components=[
+                        Component(name="total_cost", value=round(float(total_cost), 2), unit="USD", source="cost_snapshots"),
+                        Component(name="job_count", value=int(job_count), unit="jobs", source="jobs"),
+                    ],
+                    assumptions=["Cost snapshots are scoped to the authenticated team."],
+                    inputs={
+                        "data_points": (end - start).days + 1,
+                        "window_days": (end - start).days + 1,
+                        "telemetry_coverage": 1.0 if int(job_count) > 0 else 0.6,
+                    },
+                )
+                if include_explain
+                else None
+            ),
         )
     ]
     
     record_api_usage(db, team_id=team_id, endpoint="analytics_cost_by_team")
+    if include_explain:
+        point_explain = {
+            item.team_name: item.explain
+            for item in cost_by_team
+            if item.explain is not None
+        }
+        return CostByTeamEnvelope(
+            items=cost_by_team,
+            explain=explain_metric(
+                value=round(float(total_cost), 2),
+                unit="USD",
+                window=f"{start.isoformat()} to {end.isoformat()}",
+                formula="sum(cost_usd) across cost snapshots in window",
+                components=[
+                    Component(name="total_cost", value=round(float(total_cost), 2), unit="USD", source="cost_snapshots"),
+                    Component(name="job_count", value=int(job_count), unit="jobs", source="jobs"),
+                ],
+                assumptions=["Cost snapshots are scoped to the authenticated team."],
+                inputs={
+                    "data_points": (end - start).days + 1,
+                    "window_days": (end - start).days + 1,
+                    "telemetry_coverage": 1.0 if int(job_count) > 0 else 0.6,
+                },
+            ),
+            point_explain=point_explain,
+        )
     return cost_by_team
 
 
@@ -274,6 +395,7 @@ def get_cost_by_team(
 def get_savings_summary(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
@@ -294,12 +416,158 @@ def get_savings_summary(
     ).scalar_one_or_none() or 0.0
     total_cost = float(total_cost)
     
+    days = (end - start).days + 1
     # Estimate idle waste: compare expected hours (24h/day) to actual usage
     cost_stmt = (
         select(
             CostSnapshot.gpu_type,
             CostSnapshot.provider,
             func.sum(CostSnapshot.cost_usd).label("total_cost"),
+            func.count(CostSnapshot.id).label("days_count"),
+        )
+        .where(
+            CostSnapshot.team_id == team_id,
+            CostSnapshot.date >= start,
+            CostSnapshot.date <= end,
+        )
+        .group_by(CostSnapshot.gpu_type, CostSnapshot.provider)
+    )
+    idle_waste = 0.0
+    total_expected_hours = 0.0
+    total_usage_hours = 0.0
+    for gpu_type, provider, cost_sum, days_count in db.execute(cost_stmt).all():
+        expected_hours = float(days_count) * 24.0
+        usage_hours = db.execute(
+            select(func.sum(UsageSnapshot.gpu_hours)).where(
+                UsageSnapshot.team_id == team_id,
+                UsageSnapshot.date >= start,
+                UsageSnapshot.date <= end,
+                UsageSnapshot.gpu_type == gpu_type,
+                UsageSnapshot.provider == provider,
+            )
+        ).scalar_one_or_none() or 0.0
+        total_expected_hours += expected_hours
+        total_usage_hours += float(usage_hours)
+        if expected_hours > 0:
+            waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
+            idle_waste += float(cost_sum or 0.0) * waste_ratio
+    
+    # Recommended savings based on recommendations
+    filters = RecommendationFilters(start_date=start, end_date=end, team_id=team_id)
+    recs = RecommendationEngine(db).generate_recommendations(filters)
+    recommended_savings = float(recs.total_estimated_savings_usd)
+    
+    response = SavingsSummaryResponse(
+        start_date=start,
+        end_date=end,
+        total_spend_usd=round(total_cost, 2),
+        estimated_idle_waste_usd=round(idle_waste, 2),
+        recommended_savings_usd=round(recommended_savings, 2)
+    )
+    if include_explain:
+        window_label = f"{start.isoformat()} to {end.isoformat()}"
+        response.total_spend_explain = explain_metric(
+            value=round(total_cost, 2),
+            unit="USD",
+            window=window_label,
+            formula="sum(cost_usd) across cost snapshots in window",
+            components=[
+                Component(name="cost_snapshot_sum", value=round(total_cost, 2), unit="USD", source="cost_snapshots"),
+            ],
+            assumptions=["Cost snapshots are complete for the selected window."],
+            inputs={
+                "data_points": int(days),
+                "window_days": int(days),
+            },
+        )
+        response.idle_waste_explain = explain_metric(
+            value=round(idle_waste, 2),
+            unit="USD",
+            window=window_label,
+            formula="sum(cost_usd * idle_ratio), idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)",
+            components=[
+                Component(name="expected_hours", value=round(total_expected_hours, 2), unit="hours", source="assumption"),
+                Component(name="usage_hours", value=round(total_usage_hours, 2), unit="hours", source="usage_snapshots"),
+            ],
+            assumptions=["Expected hours = 24h/day per GPU type/provider."],
+            inputs={
+                "data_points": int(days),
+                "window_days": int(days),
+                "telemetry_coverage": (total_usage_hours / total_expected_hours) if total_expected_hours else 0.0,
+            },
+        )
+        response.recommended_savings_explain = explain_metric(
+            value=round(recommended_savings, 2),
+            unit="USD",
+            window=window_label,
+            formula="sum(recommendation.savings_estimate) for window",
+            components=[
+                Component(name="recommendation_savings_sum", value=round(recommended_savings, 2), unit="USD", source="recommendations"),
+            ],
+            assumptions=["Recommendations are deterministic for the window."],
+            inputs={
+                "data_points": len(recs.recommendations),
+                "window_days": int(days),
+                "telemetry_coverage": 1.0 if recs.recommendations else 0.6,
+            },
+        )
+    return response
+
+
+@router.get(
+    "/spend",
+    response_model=MetricValue,
+    summary="Get total spend with explainability"
+)
+def get_total_spend(
+    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+) -> Any:
+    if end < start:
+        raise HTTPException(status_code=400, detail="end_date must be >= start_date")
+    team_id = get_effective_team_id(team_api_key)
+    total_cost = db.execute(
+        select(func.sum(CostSnapshot.cost_usd)).where(
+            CostSnapshot.team_id == team_id,
+            CostSnapshot.date >= start,
+            CostSnapshot.date <= end,
+        )
+    ).scalar_one_or_none() or 0.0
+    days = (end - start).days + 1
+    return explain_metric(
+        value=round(float(total_cost), 2),
+        unit="USD",
+        window=f"{start.isoformat()} to {end.isoformat()}",
+        formula="sum(cost_usd) across cost snapshots in window",
+        components=[
+            Component(name="cost_snapshot_sum", value=round(float(total_cost), 2), unit="USD", source="cost_snapshots"),
+        ],
+        assumptions=["Cost snapshots are complete for the selected window."],
+        inputs={"data_points": int(days), "window_days": int(days)},
+    )
+
+
+@router.get(
+    "/idle-waste",
+    response_model=MetricValue,
+    summary="Get idle waste with explainability"
+)
+def get_idle_waste(
+    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+) -> Any:
+    if end < start:
+        raise HTTPException(status_code=400, detail="end_date must be >= start_date")
+    team_id = get_effective_team_id(team_api_key)
+    cost_stmt = (
+        select(
+            CostSnapshot.gpu_type,
+            CostSnapshot.provider,
+            func.sum(CostSnapshot.cost_usd).label("cost_sum"),
             func.count(CostSnapshot.id).label("days_count"),
         )
         .where(
@@ -317,25 +585,29 @@ def get_savings_summary(
                 UsageSnapshot.team_id == team_id,
                 UsageSnapshot.date >= start,
                 UsageSnapshot.date <= end,
-                UsageSnapshot.gpu_type == gpu_type,
                 UsageSnapshot.provider == provider,
+                UsageSnapshot.gpu_type == gpu_type,
             )
         ).scalar_one_or_none() or 0.0
         if expected_hours > 0:
             waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
             idle_waste += float(cost_sum or 0.0) * waste_ratio
-    
-    # Recommended savings based on recommendations
-    filters = RecommendationFilters(start_date=start, end_date=end, team_id=team_id)
-    recs = RecommendationEngine(db).generate_recommendations(filters)
-    recommended_savings = float(recs.total_estimated_savings_usd)
-    
-    return SavingsSummaryResponse(
-        start_date=start,
-        end_date=end,
-        total_spend_usd=round(total_cost, 2),
-        estimated_idle_waste_usd=round(idle_waste, 2),
-        recommended_savings_usd=round(recommended_savings, 2)
+
+    days = (end - start).days + 1
+    return explain_metric(
+        value=round(idle_waste, 2),
+        unit="USD",
+        window=f"{start.isoformat()} to {end.isoformat()}",
+        formula="sum(cost_usd * idle_ratio), idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)",
+        components=[
+            Component(name="idle_waste", value=round(idle_waste, 2), unit="USD", source="cost_snapshots"),
+        ],
+        assumptions=["Expected hours = 24h/day per GPU type/provider."],
+        inputs={
+            "data_points": int(days),
+            "window_days": int(days),
+            "telemetry_coverage": 1.0 if idle_waste > 0 else 0.6,
+        },
     )
 
 
@@ -386,6 +658,7 @@ def get_business_efficiency(
     start: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
     end: date | None = Query(None, description="End date (YYYY-MM-DD)"),
     window_days: int = Query(7, ge=1, le=30, description="Smoothing window in days"),
+    include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
@@ -502,12 +775,47 @@ def get_business_efficiency(
             sum(t.requests_per_gpu_dollar for t in window_items) / len(window_items), 4
         )
     
-    record_api_usage(db, team_id=team_id, endpoint="business_efficiency")
-    return BusinessEfficiencyResponse(
+    response = BusinessEfficiencyResponse(
         start_date=start_date,
         end_date=end_date,
         revenue_per_gpu_dollar=revenue_per_gpu_dollar,
         cost_per_active_user=cost_per_active_user,
         efficiency_trends=trends,
     )
+    if include_explain:
+        window_label = f"{start_date.isoformat()} to {end_date.isoformat()}"
+        response.revenue_per_gpu_dollar_explain = explain_metric(
+            value=round(revenue_per_gpu_dollar, 4),
+            unit="ratio",
+            window=window_label,
+            formula="total_revenue / total_cost",
+            components=[
+                Component(name="total_revenue", value=round(total_revenue, 2), unit="USD", source="business_metrics"),
+                Component(name="total_cost", value=round(total_cost, 2), unit="USD", source="cost_snapshots"),
+            ],
+            assumptions=["Revenue and cost are summed over the same window."],
+            inputs={
+                "data_points": (end_date - start_date).days + 1,
+                "window_days": (end_date - start_date).days + 1,
+                "telemetry_coverage": 1.0 if total_cost > 0 else 0.5,
+            },
+        )
+        response.cost_per_active_user_explain = explain_metric(
+            value=round(cost_per_active_user, 4),
+            unit="USD",
+            window=window_label,
+            formula="total_cost / avg_active_users",
+            components=[
+                Component(name="total_cost", value=round(total_cost, 2), unit="USD", source="cost_snapshots"),
+                Component(name="avg_active_users", value=round(avg_active_users, 2), unit="users", source="business_metrics"),
+            ],
+            assumptions=["Active users averaged over the window."],
+            inputs={
+                "data_points": (end_date - start_date).days + 1,
+                "window_days": (end_date - start_date).days + 1,
+                "telemetry_coverage": 1.0 if avg_active_users > 0 else 0.5,
+            },
+        )
+    record_api_usage(db, team_id=team_id, endpoint="business_efficiency")
+    return response
 

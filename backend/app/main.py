@@ -318,8 +318,10 @@ async def root() -> Dict[str, str]:
 
 # Include API router
 from app.api import api_router
+from app.api.routes import share
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+app.include_router(share.router)
 
 
 if __name__ == "__main__":

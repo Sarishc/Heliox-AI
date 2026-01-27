@@ -5,6 +5,7 @@ import { CheckCircle, Clock, ShieldAlert } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
 import Skeleton from "@/components/ui/Skeleton";
+import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 interface OptimizationAction {
   action: string;
@@ -15,6 +16,26 @@ interface OptimizationAction {
   roi?: number | null;
   payback_period_days?: number | null;
   business_priority_score?: number;
+  explain?: MetricExplain;
+  roi_explain?: MetricExplain;
+}
+
+interface MetricExplain {
+  value: number | string;
+  unit: string;
+  window: string;
+  confidence: number;
+  confidence_reasons: string[];
+  explanation: {
+    formula: string;
+    components: Array<{
+      name: string;
+      value: number | string;
+      unit?: string | null;
+      source?: string | null;
+    }>;
+    assumptions: string[];
+  };
 }
 
 const riskStyles = {
@@ -35,7 +56,7 @@ export default function OptimizationActions() {
       setError(null);
       try {
         const data = await fetchJson<OptimizationAction[]>(
-          `/api/v1/optimize/roi?start_date=${startDate}&end_date=${endDate}`
+          `/api/v1/optimize/roi?start_date=${startDate}&end_date=${endDate}&include_explain=true`
         );
         setActions(data);
       } catch (err) {
@@ -99,16 +120,26 @@ export default function OptimizationActions() {
               <p className="text-sm text-slate-600">{action.rationale}</p>
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
                 <span>Confidence: {action.confidence}</span>
-                <span>ROI: {action.roi ?? "—"}</span>
+                <span className="flex items-center gap-2">
+                  ROI: {action.roi ?? "—"}
+                  {action.roi_explain && (
+                    <MetricExplainDrawer title="ROI" metric={action.roi_explain} />
+                  )}
+                </span>
                 <span>Payback: {action.payback_period_days ?? "—"} days</span>
               </div>
             </div>
 
             <div className="text-right">
               <p className="text-xs uppercase text-slate-500">Savings / mo</p>
-              <p className="text-2xl font-semibold text-emerald-600">
-                ${action.savings_estimate.toLocaleString()}
-              </p>
+              <div className="flex items-center justify-end gap-2">
+                <p className="text-2xl font-semibold text-emerald-600">
+                  ${action.savings_estimate.toLocaleString()}
+                </p>
+                {action.explain && (
+                  <MetricExplainDrawer title="Savings estimate" metric={action.explain} />
+                )}
+              </div>
               <div className="mt-3 flex justify-end gap-2">
                 <button className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
                   <Clock className="h-3 w-3" />

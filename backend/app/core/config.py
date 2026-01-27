@@ -37,6 +37,28 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
 
+    # Reports
+    REPORT_STORAGE_PATH: str = Field(
+        default="app/data/reports",
+        description="Local filesystem path to store generated reports"
+    )
+    REPORT_SHARE_DEFAULT_TTL_DAYS: int = Field(
+        default=7,
+        ge=1,
+        le=365,
+        description="Default share link expiration in days"
+    )
+    REPORT_SHARE_MAX_TTL_DAYS: int = Field(
+        default=90,
+        ge=1,
+        le=365,
+        description="Maximum share link expiration in days"
+    )
+    REPORT_SHARE_BASE_URL: str = Field(
+        default="",
+        description="Base URL for share links (e.g., https://app.example.com)"
+    )
+
     # Multi-tenant mode
     MULTI_TENANT: bool = Field(
         default=True,

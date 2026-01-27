@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   LineChart,
@@ -13,6 +13,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { format, eachDayOfInterval, parseISO } from "date-fns";
+import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 interface SpendTrendChartProps {
   startDate: string;
@@ -22,6 +23,24 @@ interface SpendTrendChartProps {
 interface DailySpend {
   date: string;
   cost: number;
+}
+
+interface MetricExplain {
+  value: number | string;
+  unit: string;
+  window: string;
+  confidence: number;
+  confidence_reasons: string[];
+  explanation: {
+    formula: string;
+    components: Array<{
+      name: string;
+      value: number | string;
+      unit?: string | null;
+      source?: string | null;
+    }>;
+    assumptions: string[];
+  };
 }
 
 export default function SpendTrendChart({
@@ -61,6 +80,31 @@ export default function SpendTrendChart({
     return () => clearTimeout(timer);
   }, [startDate, endDate]);
 
+  const explain = useMemo<MetricExplain>(
+    () => {
+      const avgCost =
+        data.length > 0
+          ? data.reduce((acc, point) => acc + point.cost, 0) / data.length
+          : 0;
+      return {
+        value: Number(avgCost.toFixed(2)),
+        unit: "USD",
+        window: `${startDate} to ${endDate}`,
+        confidence: 0.4,
+        confidence_reasons: ["MISSING_TELEMETRY"],
+        explanation: {
+          formula: "daily_cost = sum(cost_usd) per day; chart shows daily_cost over window",
+          components: [
+            { name: "days", value: data.length, unit: "days", source: "client" },
+            { name: "avg_daily_cost", value: Number(avgCost.toFixed(2)), unit: "USD", source: "client" },
+          ],
+          assumptions: ["Demo data generated client-side for the selected window."],
+        },
+      };
+    },
+    [data, startDate, endDate]
+  );
+
   if (loading) {
     return (
       <div className="h-80 flex items-center justify-center">
@@ -93,6 +137,9 @@ export default function SpendTrendChart({
 
   return (
     <div>
+      <div className="flex items-center justify-end mb-2">
+        <MetricExplainDrawer title="Daily Spend Trend" metric={explain} />
+      </div>
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>

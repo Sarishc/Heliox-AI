@@ -123,6 +123,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - celery_beat_data:/app/data
     networks:
       - heliox-network
     restart: unless-stopped
@@ -132,6 +134,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  celery_beat_data:
     driver: local
 
 networks:

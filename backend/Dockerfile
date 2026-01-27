@@ -41,6 +41,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser
 
+# Create data directory for Celery Beat with proper permissions
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
+
 # Copy application code and set ownership
 COPY --chown=appuser:appuser . .
 

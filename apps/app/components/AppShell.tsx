@@ -7,13 +7,14 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  FileText,
   LayoutGrid,
   Settings,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
 import DateRangePicker from "@/components/DateRangePicker";
-import { fetchJson } from "@/lib/api";
+import { bootstrapDevApiKey, fetchJson } from "@/lib/api";
 import {
   DashboardFiltersProvider,
   useDashboardFilters,
@@ -26,6 +27,7 @@ const navItems = [
   { label: "Forecast", href: "/forecast", icon: TrendingUp },
   { label: "Budgets", href: "/budgets", icon: AlertTriangle },
   { label: "Alerts", href: "/alerts", icon: Sparkles },
+  { label: "Reports", href: "/reports", icon: FileText },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -50,6 +52,7 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const loadTeam = async () => {
       try {
+        await bootstrapDevApiKey();
         const me = await fetchJson<MeResponse>("/api/v1/me");
         setTeamId(me.team_id);
         const team = await fetchJson<TeamResponse>(`/api/v1/teams/${me.team_id}`);

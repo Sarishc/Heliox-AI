@@ -42,6 +42,26 @@ heliox-ai/
 
 For the full 15-minute founder onboarding flow, see `docs/QUICKSTART.md`.
 
+## 📊 How Heliox Calculates Cost
+
+Heliox computes spend and efficiency metrics from three sources:
+
+- **Cost snapshots** (`cost_snapshots`): daily provider/GPU costs.
+- **Usage snapshots** (`usage_snapshots`): GPU hours and utilization.
+- **Job metadata** (`jobs`): optional environment/project attribution.
+
+Example (total spend):
+- **Formula**: `sum(cost_usd)` across the selected date window.
+- **Inputs**: daily cost snapshots by provider/GPU.
+- **Assumptions**: cost snapshots are complete for the window.
+
+Example (idle waste):
+- **Formula**: `sum(cost_usd * idle_ratio)` where `idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)`
+- **Inputs**: daily cost + usage snapshots per provider/GPU.
+- **Assumptions**: expected hours = 24 per day, per GPU type/provider.
+
+Each major endpoint can return **explainability metadata** (formula, inputs, assumptions, confidence) via `?include_explain=true`.
+
 ### Agent + SDK
 - `agent/heliox_agent.py` (CLI, NVML or mock)
 - `sdk/heliox_sdk.py` (minimal Python helper)

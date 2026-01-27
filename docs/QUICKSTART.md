@@ -135,6 +135,14 @@ curl -s "http://localhost:8000/api/v1/analytics/business-efficiency?window_days=
 ### 12) Open the dashboard
 - Product UI: `http://localhost:3000`
 
+### 13) Create your first board-ready report in 2 minutes
+1. Navigate to `Reports` in the left nav.
+2. Click **Save report** after choosing:
+   - Date range
+   - Sections (KPIs, daily spend, idle waste, top models, top recommendations)
+3. Click **Export CSV** or **Export PDF** to download.
+4. Click **Create share link** and copy the URL for a read-only view.
+
 ---
 
 ### Expected outputs

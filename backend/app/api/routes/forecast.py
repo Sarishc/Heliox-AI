@@ -11,6 +11,8 @@ from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.team_api_key import TeamAPIKey
 from app.schemas.forecast import ForecastResponse
+from app.schemas.explainability import Component
+from app.services.explainability import explain_metric
 from app.services.forecasting import ForecastingService, DEFAULT_HORIZON_DAYS, MAX_HORIZON_DAYS
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ def forecast_usage(
         description=f"Number of days to forecast (1-{MAX_HORIZON_DAYS})",
         example=7
     ),
+    include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
@@ -103,6 +106,23 @@ def forecast_usage(
                 detail=result["error"]
             )
         
+        if include_explain and not result.get("error"):
+            inputs = {
+                "data_points": result.get("metadata", {}).get("historical_data_points", 0),
+                "window_days": result.get("metadata", {}).get("historical_data_points", 0),
+            }
+            result["explain"] = explain_metric(
+                value=sum(point["value"] for point in result.get("forecast", [])),
+                unit="GPU hours",
+                window=f"{horizon_days} day forecast",
+                formula="forecast model over historical usage values",
+                components=[
+                    Component(name="forecast_method", value=result.get("forecast_method"), unit="method", source="forecasting"),
+                    Component(name="historical_points", value=inputs["data_points"], unit="days", source="usage_snapshots"),
+                ],
+                assumptions=["Forecast uses moving average or LightGBM based on data depth."],
+                inputs=inputs,
+            )
         record_api_usage(db, team_id=team_id, endpoint="forecast_usage")
         return result
         
@@ -141,6 +161,7 @@ def forecast_spend(
         description=f"Number of days to forecast (1-{MAX_HORIZON_DAYS})",
         example=7
     ),
+    include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
@@ -192,6 +213,23 @@ def forecast_spend(
                 detail=result["error"]
             )
         
+        if include_explain and not result.get("error"):
+            inputs = {
+                "data_points": result.get("metadata", {}).get("historical_data_points", 0),
+                "window_days": result.get("metadata", {}).get("historical_data_points", 0),
+            }
+            result["explain"] = explain_metric(
+                value=sum(point["value"] for point in result.get("forecast", [])),
+                unit="USD",
+                window=f"{horizon_days} day forecast",
+                formula="forecast model over historical daily cost values",
+                components=[
+                    Component(name="forecast_method", value=result.get("forecast_method"), unit="method", source="forecasting"),
+                    Component(name="historical_points", value=inputs["data_points"], unit="days", source="cost_snapshots"),
+                ],
+                assumptions=["Forecast uses moving average or LightGBM based on data depth."],
+                inputs=inputs,
+            )
         record_api_usage(db, team_id=team_id, endpoint="forecast_spend")
         return result
         

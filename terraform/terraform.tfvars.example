@@ -1,0 +1,64 @@
+# Example Terraform Variables File for Heliox
+# Copy this file to terraform.tfvars and update with your values
+
+# General Configuration
+aws_region  = "us-east-1"
+environment = "production"
+domain_name = "heliox.company.com"
+
+# VPC Configuration
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs = ["10.0.11.0/24", "10.0.12.0/24"]
+
+# Database Configuration
+db_name               = "heliox"
+db_username           = "heliox_admin"
+db_password           = "CHANGE_ME_STRONG_PASSWORD_HERE"  # Use a strong password!
+db_instance_class     = "db.t3.medium"
+db_allocated_storage  = 100
+backup_retention_days = 7
+
+# Redis Configuration
+redis_node_type = "cache.t3.medium"
+redis_num_nodes = 1
+
+# ECS Configuration
+api_image    = "123456789012.dkr.ecr.us-east-1.amazonaws.com/heliox/api:latest"
+worker_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/heliox/worker:latest"
+
+# API Service Sizing
+api_cpu            = 1024   # 1 vCPU
+api_memory         = 2048   # 2 GB
+api_desired_count  = 2      # Number of API tasks
+
+# Worker Service Sizing
+worker_cpu           = 512    # 0.5 vCPU
+worker_memory        = 1024   # 1 GB
+worker_desired_count = 1      # Number of worker tasks
+
+# S3 Configuration
+s3_bucket_name = "heliox-artifacts-prod-123456"  # Must be globally unique
+
+# CloudWatch Configuration
+log_retention_days = 30
+
+# SSL Certificate
+# Create certificate in ACM first, then paste ARN here
+acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/abcd1234-..."
+
+# Secrets (SSM Parameter Store ARNs)
+# Create these parameters in AWS Systems Manager Parameter Store (SecureString type)
+# Example: aws ssm put-parameter --name /heliox/production/SECRET_KEY --value "your-secret-here" --type SecureString
+
+secret_key_ssm_arn                  = "arn:aws:ssm:us-east-1:123456789012:parameter/heliox/production/SECRET_KEY"
+admin_api_key_ssm_arn               = "arn:aws:ssm:us-east-1:123456789012:parameter/heliox/production/ADMIN_API_KEY"
+integrations_encryption_key_ssm_arn = "arn:aws:ssm:us-east-1:123456789012:parameter/heliox/production/INTEGRATIONS_ENCRYPTION_KEY"
+
+# Optional: Stripe (for billing features)
+stripe_secret_key_ssm_arn     = "arn:aws:ssm:us-east-1:123456789012:parameter/heliox/production/STRIPE_SECRET_KEY"
+stripe_webhook_secret_ssm_arn = "arn:aws:ssm:us-east-1:123456789012:parameter/heliox/production/STRIPE_WEBHOOK_SECRET"
+
+# Optional: Google OAuth (for SSO)
+google_client_id_ssm_arn     = "arn:aws:ssm:us-east-1:123456789012:parameter/heliox/production/GOOGLE_CLIENT_ID"
+google_client_secret_ssm_arn = "arn:aws:ssm:us-east-1:123456789012:parameter/heliox/production/GOOGLE_CLIENT_SECRET"

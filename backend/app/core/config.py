@@ -90,6 +90,28 @@ class Settings(BaseSettings):
         description="Sampling rate for API usage metering (1.0 = 100%, 0.1 = 10%)"
     )
     
+    # Stripe Billing
+    STRIPE_SECRET_KEY: str = Field(
+        default="",
+        description="Stripe secret key for payment processing"
+    )
+    STRIPE_WEBHOOK_SECRET: str = Field(
+        default="",
+        description="Stripe webhook secret for signature verification"
+    )
+    STRIPE_PRICE_ID_STARTER: str = Field(
+        default="",
+        description="Stripe price ID for Starter plan"
+    )
+    STRIPE_PRICE_ID_GROWTH: str = Field(
+        default="",
+        description="Stripe price ID for Growth plan"
+    )
+    STRIPE_PRICE_ID_ENTERPRISE: str = Field(
+        default="",
+        description="Stripe price ID for Enterprise plan"
+    )
+    
     # Slack Notifications
     SLACK_WEBHOOK_URL: str = Field(
         default="",

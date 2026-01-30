@@ -93,6 +93,11 @@ app.add_middleware(
 )
 logger.info(f"Usage tracking middleware enabled (sample_rate={getattr(settings, 'USAGE_METERING_SAMPLE_RATE', 1.0)})")
 
+# Entitlement Check Middleware
+from app.middleware.entitlement_check import EntitlementCheckMiddleware
+app.add_middleware(EntitlementCheckMiddleware)
+logger.info("Entitlement check middleware enabled")
+
 # CORS Configuration
 if settings.CORS_ENABLED:
     app.add_middleware(

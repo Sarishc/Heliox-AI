@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.models.team_member import TeamMember
     from app.integrations.models import IntegrationConnection
     from app.models.usage import UsageEvent, UsageDailyRollup
+    from app.models.billing import TeamSubscription, TeamEntitlement
 
 
 class Team(Base, UUIDMixin, TimestampMixin):
@@ -83,6 +84,20 @@ class Team(Base, UUIDMixin, TimestampMixin):
         back_populates="team",
         cascade="all, delete-orphan",
         lazy="select"  # Don't eager load rollups
+    )
+    subscription: Mapped[Optional["TeamSubscription"]] = relationship(
+        "TeamSubscription",
+        back_populates="team",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    entitlement: Mapped[Optional["TeamEntitlement"]] = relationship(
+        "TeamEntitlement",
+        back_populates="team",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin"
     )
     
     def __repr__(self) -> str:

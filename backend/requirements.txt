@@ -24,6 +24,9 @@ boto3>=1.34.0
 # GCP SDK
 google-cloud-bigquery>=3.14.0
 
+# Stripe SDK
+stripe>=7.0.0
+
 # ML/Forecasting
 numpy>=1.24.0
 lightgbm>=4.0.0

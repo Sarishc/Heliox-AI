@@ -6,9 +6,9 @@
    Inspired by: Stripe, Datadog, Vercel, OpenAI
    ============================================ */
 
-/* Theme Variables - Light Mode (Default) */
+/* Theme Variables */
 :root {
-  /* Brand Colors - Deep Blue/Purple Gradient */
+  /* Brand Colors */
   --brand-50: #f0f4ff;
   --brand-100: #e0e7ff;
   --brand-200: #c7d2fe;
@@ -20,109 +20,56 @@
   --brand-800: #3730a3;
   --brand-900: #312e81;
   
-  /* Neutral Grayscale */
-  --gray-50: #fafafa;
-  --gray-100: #f4f4f5;
-  --gray-200: #e4e4e7;
-  --gray-300: #d4d4d8;
-  --gray-400: #a1a1aa;
-  --gray-500: #71717a;
-  --gray-600: #52525b;
-  --gray-700: #3f3f46;
-  --gray-800: #27272a;
-  --gray-900: #18181b;
-  
-  /* Semantic Colors */
+  /* Success */
   --success-50: #f0fdf4;
   --success-500: #10b981;
   --success-600: #059669;
+  --success-700: #047857;
   
+  /* Warning */
   --warning-50: #fffbeb;
   --warning-500: #f59e0b;
   --warning-600: #d97706;
+  --warning-700: #b45309;
   
+  /* Danger */
   --danger-50: #fef2f2;
   --danger-500: #ef4444;
   --danger-600: #dc2626;
+  --danger-700: #b91c1c;
   
+  /* Info */
   --info-50: #eff6ff;
   --info-500: #3b82f6;
   --info-600: #2563eb;
+  --info-700: #1d4ed8;
   
-  /* Layout Colors */
+  /* Base Colors */
   --background: #ffffff;
   --foreground: #18181b;
   --muted: #f4f4f5;
   --muted-foreground: #71717a;
   --border: #e4e4e7;
-  --input: #e4e4e7;
-  --ring: #4f46e5;
-  
-  /* Card & Surface */
   --card: #ffffff;
-  --card-foreground: #18181b;
-  
-  /* Sidebar */
   --sidebar: #fafafa;
-  --sidebar-foreground: #18181b;
-  --sidebar-accent: #f4f4f5;
-  
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
 }
 
 /* Dark Mode */
 .dark {
-  --brand-50: #1e1b4b;
-  --brand-100: #312e81;
-  --brand-200: #3730a3;
-  --brand-300: #4338ca;
-  --brand-400: #4f46e5;
-  --brand-500: #6366f1;
-  --brand-600: #818cf8;
-  --brand-700: #a5b4fc;
-  --brand-800: #c7d2fe;
-  --brand-900: #e0e7ff;
-  
-  --gray-50: #18181b;
-  --gray-100: #27272a;
-  --gray-200: #3f3f46;
-  --gray-300: #52525b;
-  --gray-400: #71717a;
-  --gray-500: #a1a1aa;
-  --gray-600: #d4d4d8;
-  --gray-700: #e4e4e7;
-  --gray-800: #f4f4f5;
-  --gray-900: #fafafa;
-  
   --background: #0a0a0a;
   --foreground: #fafafa;
   --muted: #18181b;
   --muted-foreground: #a1a1aa;
   --border: #27272a;
-  --input: #27272a;
-  --ring: #6366f1;
-  
   --card: #0f0f0f;
-  --card-foreground: #fafafa;
-  
   --sidebar: #0a0a0a;
-  --sidebar-foreground: #fafafa;
-  --sidebar-accent: #18181b;
   
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.8);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.8), 0 2px 4px -2px rgb(0 0 0 / 0.8);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.8), 0 4px 6px -4px rgb(0 0 0 / 0.8);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.8), 0 8px 10px -6px rgb(0 0 0 / 0.8);
+  --brand-50: #1e1b4b;
+  --brand-900: #e0e7ff;
 }
 
-/* Tailwind Theme Configuration */
-@theme {
-  /* Colors */
-  --color-brand-*: initial;
+@theme inline {
+  /* Brand Colors */
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
   --color-brand-200: var(--brand-200);
@@ -134,69 +81,48 @@
   --color-brand-800: var(--brand-800);
   --color-brand-900: var(--brand-900);
   
-  --color-success-*: initial;
   --color-success-50: var(--success-50);
   --color-success-500: var(--success-500);
   --color-success-600: var(--success-600);
+  --color-success-700: var(--success-700);
   
-  --color-warning-*: initial;
   --color-warning-50: var(--warning-50);
   --color-warning-500: var(--warning-500);
   --color-warning-600: var(--warning-600);
+  --color-warning-700: var(--warning-700);
   
-  --color-danger-*: initial;
   --color-danger-50: var(--danger-50);
   --color-danger-500: var(--danger-500);
   --color-danger-600: var(--danger-600);
+  --color-danger-700: var(--danger-700);
   
-  --color-info-*: initial;
   --color-info-50: var(--info-50);
   --color-info-500: var(--info-500);
   --color-info-600: var(--info-600);
+  --color-info-700: var(--info-700);
   
-  /* Typography */
-  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-family-mono: 'Menlo', 'Monaco', 'Courier New', monospace;
-  
-  /* Spacing (4px base grid) */
-  --spacing-18: 4.5rem;
-  --spacing-88: 22rem;
-  --spacing-100: 25rem;
-  
-  /* Border Radius */
-  --radius-sm: 0.375rem;
-  --radius-DEFAULT: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
-  --radius-2xl: 2rem;
-  
-  /* Animations */
-  --animate-fade-in: fade-in 0.2s ease-out;
-  --animate-slide-in: slide-in 0.3s ease-out;
-  --animate-slide-up: slide-up 0.2s ease-out;
-  --animate-shimmer: shimmer 2s infinite;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-sidebar: var(--sidebar);
 }
 
 /* Global Styles */
-* {
-  @apply border-border;
-}
-
 body {
-  @apply bg-background text-foreground antialiased;
+  background: var(--background);
+  color: var(--foreground);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-feature-settings: "cv11", "ss01";
-  font-variation-settings: "opsz" auto;
-  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Smooth Scrolling */
 html {
   scroll-behavior: smooth;
 }
 
-/* Selection */
 ::selection {
   background-color: rgb(99 102 241 / 0.2);
   color: var(--foreground);
@@ -206,11 +132,6 @@ html {
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-@keyframes slide-in {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
 }
 
 @keyframes slide-up {
@@ -229,7 +150,6 @@ html {
   to { background-position: 1000px 0; }
 }
 
-/* Utility Classes */
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
@@ -238,23 +158,7 @@ html {
   animation: slide-up 0.2s ease-out;
 }
 
-.shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.05) 50%,
-    transparent 100%
-  );
-  background-size: 1000px 100%;
-  animation: shimmer 2s infinite;
-}
-
-/* Focus Visible */
-.focus-ring {
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
-}
-
-/* Scrollbar Styling */
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -270,18 +174,17 @@ html {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-600);
+  background: #52525b;
 }
 
-/* Dark mode scrollbar */
 .dark ::-webkit-scrollbar-track {
-  background: var(--gray-900);
+  background: #18181b;
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: var(--gray-700);
+  background: #3f3f46;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-600);
+  background: #52525b;
 }

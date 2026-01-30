@@ -4,6 +4,7 @@
  */
 
 import { ReactNode } from "react";
+import { motion } from "framer-motion";
 
 interface CardProps {
   children: ReactNode;
@@ -61,8 +62,16 @@ export function Card({
     );
   }
 
+  const MotionDiv = hoverable ? motion.div : "div";
+
   return (
-    <div
+    <MotionDiv
+      {...(hoverable
+        ? {
+            whileHover: { scale: 1.02, y: -4 },
+            transition: { duration: 0.2 },
+          }
+        : {})}
       className={`
         ${variantStyles[variant]}
         ${paddingStyles[padding]}
@@ -73,7 +82,7 @@ export function Card({
       `}
     >
       {children}
-    </div>
+    </MotionDiv>
   );
 }
 

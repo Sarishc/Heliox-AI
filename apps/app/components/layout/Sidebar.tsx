@@ -8,6 +8,7 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { ReactNode } from "react";
+import { motion } from "framer-motion";
 import {
   LayoutDashboard,
   TrendingUp,
@@ -101,32 +102,47 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navigation.map((item) => {
+        {navigation.map((item, index) => {
           const active = isActive(item.href);
           return (
-            <Link
+            <motion.div
               key={item.href}
-              href={item.href}
-              className={`
-                group flex items-center gap-3 px-3 py-2.5 rounded-lg
-                text-sm font-medium transition-all duration-200
-                ${
-                  active
-                    ? "bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-400"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
-                }
-              `}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2, delay: index * 0.05 }}
             >
-              <span className={`${active ? "text-brand-600 dark:text-brand-400" : "text-muted-foreground group-hover:text-foreground"}`}>
-                {item.icon}
-              </span>
-              <span className="flex-1">{item.label}</span>
-              {item.badge && (
-                <span className="px-2 py-0.5 text-xs font-semibold bg-brand-600 text-white rounded-md">
-                  {item.badge}
-                </span>
-              )}
-            </Link>
+              <Link
+                href={item.href}
+                className={`
+                  group flex items-center gap-3 px-3 py-2.5 rounded-lg
+                  text-sm font-medium transition-all duration-200
+                  ${
+                    active
+                      ? "bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-400"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+                  }
+                `}
+              >
+                <motion.span
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.2 }}
+                  className={`${active ? "text-brand-600 dark:text-brand-400" : "text-muted-foreground group-hover:text-foreground"}`}
+                >
+                  {item.icon}
+                </motion.span>
+                <span className="flex-1">{item.label}</span>
+                {item.badge && (
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 0.5 }}
+                    className="px-2 py-0.5 text-xs font-semibold bg-brand-600 text-white rounded-md"
+                  >
+                    {item.badge}
+                  </motion.span>
+                )}
+              </Link>
+            </motion.div>
           );
         })}
       </nav>

@@ -9,6 +9,7 @@ import { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { DashboardFiltersProvider } from "../DashboardFiltersContext";
+import { PageTransition } from "../ui/PageTransition";
 
 interface EnterpriseLayoutProps {
   children: ReactNode;
@@ -27,10 +28,10 @@ export function EnterpriseLayout({ children, teamName }: EnterpriseLayoutProps) 
           {/* Topbar */}
           <Topbar teamName={teamName} />
 
-          {/* Content Area */}
+          {/* Content Area with Page Transition */}
           <main className="p-6 lg:p-8">
             <div className="mx-auto max-w-[1600px]">
-              {children}
+              <PageTransition>{children}</PageTransition>
             </div>
           </main>
         </div>

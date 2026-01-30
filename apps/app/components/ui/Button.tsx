@@ -4,6 +4,7 @@
  */
 
 import { ReactNode, ButtonHTMLAttributes } from "react";
+import { motion } from "framer-motion";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
@@ -49,8 +50,11 @@ export function Button({
   const isDisabled = disabled || loading;
 
   return (
-    <button
+    <motion.button
       disabled={isDisabled}
+      whileHover={!isDisabled ? { scale: 1.02 } : {}}
+      whileTap={!isDisabled ? { scale: 0.98 } : {}}
+      transition={{ duration: 0.15 }}
       className={`
         inline-flex items-center justify-center gap-2
         font-medium rounded-lg
@@ -89,6 +93,6 @@ export function Button({
       {!loading && icon && iconPosition === "left" && icon}
       {children}
       {!loading && icon && iconPosition === "right" && icon}
-    </button>
+    </motion.button>
   );
 }

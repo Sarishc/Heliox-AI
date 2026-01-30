@@ -1,4 +1,6 @@
 """Team SSO settings API routes."""
+from __future__ import annotations
+
 import logging
 from typing import List, Optional
 

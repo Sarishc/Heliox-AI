@@ -1,10 +1,11 @@
 """Security utilities for API authentication and authorization."""
 import logging
 import secrets
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
 from fastapi import Depends, Header, HTTPException, status
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -15,6 +16,59 @@ from app.models.team_api_key import TeamAPIKey
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# JWT settings
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+
+
+def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Create a JWT access token.
+    
+    Args:
+        data: Data to encode in the token (e.g., {"sub": user_id, "email": email})
+        expires_delta: Optional custom expiration time
+        
+    Returns:
+        Encoded JWT token
+    """
+    to_encode = data.copy()
+    
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode.update({"exp": expire})
+    
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def decode_access_token(token: str) -> Dict[str, Any]:
+    """
+    Decode and validate a JWT access token.
+    
+    Args:
+        token: JWT token to decode
+        
+    Returns:
+        Decoded token data
+        
+    Raises:
+        HTTPException: 401 if token is invalid or expired
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError as e:
+        logger.warning(f"Invalid JWT token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def verify_admin_api_key(x_api_key: Optional[str] = Header(None)) -> str:

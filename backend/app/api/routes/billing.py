@@ -1,6 +1,8 @@
 """API routes for Stripe billing and subscription management."""
+from __future__ import annotations
+
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -67,7 +69,7 @@ class PricingPlan(BaseModel):
     """Pricing plan details."""
     plan: str
     name: str
-    price: any
+    price: Any
     description: str
     limits: dict
     features: dict

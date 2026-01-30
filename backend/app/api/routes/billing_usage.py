@@ -1,4 +1,6 @@
 """API routes for billing and usage metering."""
+from __future__ import annotations
+
 import logging
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
@@ -27,11 +29,14 @@ class UsageBreakdown(BaseModel):
 
 class UsageDailySummary(BaseModel):
     """Daily usage summary."""
-    date: date = Field(description="Date of the usage")
+    usage_date: date = Field(description="Date of the usage", alias="date")
     api_requests: int = Field(default=0, description="Number of API requests")
     ingestion_line_items: int = Field(default=0, description="Number of ingested line items")
     seats: int = Field(default=0, description="Number of active seats")
     gpu_nodes: int = Field(default=0, description="Number of monitored GPU nodes")
+    
+    class Config:
+        populate_by_name = True
 
 
 class UsageSummaryResponse(BaseModel):

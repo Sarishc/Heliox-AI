@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Gauge } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
-import Skeleton from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 interface SavingsSummaryResponse {

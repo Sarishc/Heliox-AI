@@ -5,7 +5,7 @@ import { Wallet, TrendingDown, TrendingUp, Sparkles } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
 import KpiCard from "@/components/ui/KpiCard";
-import Skeleton from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 interface SavingsSummaryResponse {
   start_date: string;

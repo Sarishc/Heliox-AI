@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { fetchJson } from "@/lib/api";
-import Skeleton from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 interface BudgetStatus {

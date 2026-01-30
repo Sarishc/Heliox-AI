@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Server } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
-import Skeleton from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 interface ScheduleForecastResponse {
   required_gpus: number;

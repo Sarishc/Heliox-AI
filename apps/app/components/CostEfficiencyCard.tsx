@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "rec
 import { TrendingUp } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
-import Skeleton from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 interface EfficiencyTrend {

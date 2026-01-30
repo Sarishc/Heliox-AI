@@ -83,6 +83,21 @@ def run_integration_sync(self, connection_id: str, sync_run_id: str):
             connection.last_successful_sync_at = datetime.utcnow()
             connection.last_error = None
             
+            # Record ingestion usage for billing
+            records_saved = metrics.get("records_saved", 0) if metrics else 0
+            if records_saved > 0:
+                from app.utils.usage_metering import record_ingestion_event
+                try:
+                    record_ingestion_event(
+                        team_id=connection.team_id,
+                        line_items_count=records_saved,
+                        source=provider.value,
+                        db=db
+                    )
+                    logger.debug(f"Recorded ingestion usage: {records_saved} line items from {provider.value}")
+                except Exception as usage_error:
+                    logger.error(f"Failed to record ingestion usage: {usage_error}")
+            
             logger.info(f"Integration sync completed successfully for {connection_id}")
         
         except Exception as sync_error:

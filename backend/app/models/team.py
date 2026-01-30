@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.team_api_key import TeamAPIKey
     from app.models.team_member import TeamMember
     from app.integrations.models import IntegrationConnection
+    from app.models.usage import UsageEvent, UsageDailyRollup
 
 
 class Team(Base, UUIDMixin, TimestampMixin):
@@ -70,6 +71,18 @@ class Team(Base, UUIDMixin, TimestampMixin):
         back_populates="team",
         cascade="all, delete-orphan",
         lazy="selectin"
+    )
+    usage_events: Mapped[List["UsageEvent"]] = relationship(
+        "UsageEvent",
+        back_populates="team",
+        cascade="all, delete-orphan",
+        lazy="select"  # Don't eager load usage events
+    )
+    usage_daily_rollups: Mapped[List["UsageDailyRollup"]] = relationship(
+        "UsageDailyRollup",
+        back_populates="team",
+        cascade="all, delete-orphan",
+        lazy="select"  # Don't eager load rollups
     )
     
     def __repr__(self) -> str:

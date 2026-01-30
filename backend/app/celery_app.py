@@ -76,5 +76,25 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.integration_tasks.run_scheduled_syncs",
         "schedule": crontab(minute="*/5"),
     },
+    # Usage metering: Daily rollup at 02:00 UTC
+    "usage-daily-rollup": {
+        "task": "app.tasks.usage_tasks.rollup_daily_usage",
+        "schedule": crontab(hour=2, minute=0),
+    },
+    # Usage metering: Daily seats snapshot at 03:00 UTC
+    "usage-seats-snapshot": {
+        "task": "app.tasks.usage_tasks.snapshot_daily_seats",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    # Usage retention: Cleanup old events weekly (Sunday 04:00 UTC)
+    "usage-cleanup-events": {
+        "task": "app.tasks.usage_tasks.cleanup_old_usage_events",
+        "schedule": crontab(hour=4, minute=0, day_of_week=0),
+    },
+    # Usage retention: Cleanup old rollups monthly (1st of month, 05:00 UTC)
+    "usage-cleanup-rollups": {
+        "task": "app.tasks.usage_tasks.cleanup_old_daily_rollups",
+        "schedule": crontab(hour=5, minute=0, day_of_month=1),
+    },
 }
 

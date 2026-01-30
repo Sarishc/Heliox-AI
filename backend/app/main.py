@@ -85,6 +85,14 @@ app = FastAPI(
 app.add_middleware(RateLimitMiddleware)
 logger.info("Rate limiting middleware enabled")
 
+# Usage Tracking Middleware
+from app.middleware.usage_tracking import UsageTrackingMiddleware
+app.add_middleware(
+    UsageTrackingMiddleware,
+    sample_rate=settings.USAGE_METERING_SAMPLE_RATE if hasattr(settings, 'USAGE_METERING_SAMPLE_RATE') else 1.0
+)
+logger.info(f"Usage tracking middleware enabled (sample_rate={getattr(settings, 'USAGE_METERING_SAMPLE_RATE', 1.0)})")
+
 # CORS Configuration
 if settings.CORS_ENABLED:
     app.add_middleware(

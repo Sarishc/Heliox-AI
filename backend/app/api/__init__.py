@@ -3,7 +3,7 @@ from fastapi import APIRouter
 
 from app.core.config import get_settings
 from app.api import auth, teams, jobs, costs, usage, analytics
-from app.api.routes import admin, recommendations, demo, forecast, alert_settings, daily_digest, public, ingest, onboarding, me, optimize, schedule, finance, experiments, assistant, plugins, alerts_webhook, anomalies, budgets, reports, integrations
+from app.api.routes import admin, recommendations, demo, forecast, alert_settings, daily_digest, public, ingest, onboarding, me, optimize, schedule, finance, experiments, assistant, plugins, alerts_webhook, anomalies, budgets, reports, integrations, billing_usage
 
 settings = get_settings()
 
@@ -32,6 +32,7 @@ api_router.include_router(anomalies.router, prefix="/anomalies", tags=["Anomalie
 api_router.include_router(budgets.router, prefix="/budgets", tags=["Budgets"])
 api_router.include_router(reports.router, prefix="/reports", tags=["Reports"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])
+api_router.include_router(billing_usage.router, prefix="/billing", tags=["Billing & Usage"])
 
 # Demo routes only available in dev environment (security: prevents demo endpoints in production)
 if settings.ENV == "dev":

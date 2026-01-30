@@ -84,6 +84,12 @@ class Settings(BaseSettings):
         description="Encryption key for integration configs (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
     )
     
+    # Usage Metering
+    USAGE_METERING_SAMPLE_RATE: float = Field(
+        default=1.0,
+        description="Sampling rate for API usage metering (1.0 = 100%, 0.1 = 10%)"
+    )
+    
     # Slack Notifications
     SLACK_WEBHOOK_URL: str = Field(
         default="",

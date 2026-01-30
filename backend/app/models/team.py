@@ -3,7 +3,8 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
-from sqlalchemy import String, Numeric
+from sqlalchemy import String, Numeric, Boolean
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
     from app.integrations.models import IntegrationConnection
     from app.models.usage import UsageEvent, UsageDailyRollup
     from app.models.billing import TeamSubscription, TeamEntitlement
+    from app.models.oauth_identity import OAuthIdentity
 
 
 class Team(Base, UUIDMixin, TimestampMixin):
@@ -40,6 +42,25 @@ class Team(Base, UUIDMixin, TimestampMixin):
         Numeric(12, 2),
         nullable=True,
         comment="Monthly infra budget in USD"
+    )
+    
+    # SSO Configuration
+    allowed_email_domains: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String(255)),
+        nullable=True,
+        comment="Allowed email domains for SSO (e.g., ['company.com'])"
+    )
+    sso_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether SSO is enabled for this team"
+    )
+    sso_enforce_domain: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Whether to enforce domain allowlist for SSO logins"
     )
     
     # Relationships
@@ -98,6 +119,12 @@ class Team(Base, UUIDMixin, TimestampMixin):
         uselist=False,
         cascade="all, delete-orphan",
         lazy="selectin"
+    )
+    oauth_identities: Mapped[List["OAuthIdentity"]] = relationship(
+        "OAuthIdentity",
+        back_populates="team",
+        cascade="all, delete-orphan",
+        lazy="select"
     )
     
     def __repr__(self) -> str:

@@ -112,6 +112,24 @@ class Settings(BaseSettings):
         description="Stripe price ID for Enterprise plan"
     )
     
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = Field(
+        default="",
+        description="Google OAuth client ID"
+    )
+    GOOGLE_CLIENT_SECRET: str = Field(
+        default="",
+        description="Google OAuth client secret"
+    )
+    GOOGLE_REDIRECT_URI: str = Field(
+        default="http://localhost:8000/api/v1/auth/google/callback",
+        description="Google OAuth redirect URI"
+    )
+    FRONTEND_URL: str = Field(
+        default="http://localhost:3000",
+        description="Frontend URL for OAuth redirects"
+    )
+    
     # Slack Notifications
     SLACK_WEBHOOK_URL: str = Field(
         default="",

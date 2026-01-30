@@ -50,12 +50,19 @@ class User(Base, UUIDMixin, TimestampMixin):
     
     if TYPE_CHECKING:
         from app.models.team_member import TeamMember
+        from app.models.oauth_identity import OAuthIdentity
     
     memberships: Mapped[List["TeamMember"]] = relationship(
         "TeamMember",
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin"
+    )
+    oauth_identities: Mapped[List["OAuthIdentity"]] = relationship(
+        "OAuthIdentity",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="select"
     )
     
     def __repr__(self) -> str:

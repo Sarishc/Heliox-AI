@@ -585,12 +585,56 @@ railway run alembic current
 
 ---
 
+## AWS Cost Explorer Integration
+
+### Setup AWS Integration (Optional)
+
+Heliox can automatically sync GPU costs from AWS Cost Explorer.
+
+1. **Create IAM User** with Cost Explorer permissions:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": [
+         "ce:GetCostAndUsage",
+         "ce:GetCostForecast",
+         "ce:GetDimensionValues",
+         "sts:GetCallerIdentity"
+       ],
+       "Resource": "*"
+     }]
+   }
+   ```
+
+2. **Generate Access Keys**:
+   ```bash
+   aws iam create-access-key --user-name heliox-cost-reader
+   ```
+
+3. **Connect in Heliox**:
+   - Go to Settings > Integrations
+   - Click "Connect" on AWS Cost Explorer
+   - Enter access key ID, secret key, region
+   - Test credentials → Connect & Sync
+
+4. **Verify**:
+   - Check sync status (should show "Active" after 1-2 min)
+   - View dashboard - AWS costs should appear
+
+For detailed setup, see `AWS_INTEGRATION_GUIDE.md`.
+
+---
+
 ## Support & Resources
 
 - **API Documentation**: `https://api.yourdomain.com/docs`
 - **Health Check**: `https://api.yourdomain.com/health`
 - **Logs**: Railway dashboard or AWS CloudWatch
 - **Database Admin**: Use TablePlus, pgAdmin, or Postico
+- **AWS Integration**: See `AWS_INTEGRATION_GUIDE.md`
 
 ---
 

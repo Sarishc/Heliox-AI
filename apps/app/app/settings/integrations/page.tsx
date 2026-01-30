@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { fetchJson } from "@/lib/api";
+import AWSIntegrationForm from "@/components/AWSIntegrationForm";
 
 interface AvailableIntegration {
   provider: string;
@@ -44,6 +45,7 @@ export default function IntegrationsPage() {
   const [connections, setConnections] = useState<IntegrationConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
+  const [showAWSForm, setShowAWSForm] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -165,7 +167,13 @@ export default function IntegrationsPage() {
                 ) : isEnabled ? (
                   <button
                     className="w-full mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                    onClick={() => alert("Connect modal coming soon")}
+                    onClick={() => {
+                      if (integration.provider === "aws") {
+                        setShowAWSForm(true);
+                      } else {
+                        alert("Connect modal coming soon");
+                      }
+                    }}
                   >
                     Connect
                   </button>
@@ -223,6 +231,22 @@ export default function IntegrationsPage() {
                     <span className="text-gray-600">Provider:</span>
                     <div className="font-medium capitalize">{connection.provider}</div>
                   </div>
+                  {connection.provider === "aws" && connection.config?.aws_region && (
+                    <div>
+                      <span className="text-gray-600">Region:</span>
+                      <div className="font-medium">{connection.config.aws_region}</div>
+                    </div>
+                  )}
+                  {connection.provider === "aws" && connection.config?.linked_account_ids && (
+                    <div>
+                      <span className="text-gray-600">AWS Accounts:</span>
+                      <div className="font-medium text-xs">
+                        {Array.isArray(connection.config.linked_account_ids)
+                          ? connection.config.linked_account_ids.join(", ")
+                          : "All accounts"}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {connection.last_error && (
@@ -258,12 +282,25 @@ export default function IntegrationsPage() {
         </section>
       )}
 
-      {connections.length === 0 && (
+      {connections.length === 0 && !showAWSForm && (
         <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
           <p className="text-gray-600 mb-4">No integrations connected yet.</p>
           <p className="text-sm text-gray-500">
             Connect an integration above to automatically sync your GPU costs.
           </p>
+        </div>
+      )}
+
+      {/* AWS Connection Form */}
+      {showAWSForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <AWSIntegrationForm
+            onSuccess={() => {
+              setShowAWSForm(false);
+              loadData();
+            }}
+            onCancel={() => setShowAWSForm(false)}
+          />
         </div>
       )}
     </div>

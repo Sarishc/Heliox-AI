@@ -1,6 +1,27 @@
 "use client";
 
+/**
+ * Enterprise Billing & Subscriptions Page
+ * Premium pricing with modern design
+ */
+
 import { useState, useEffect } from "react";
+import { 
+  Check, 
+  CreditCard, 
+  TrendingUp, 
+  Users, 
+  Zap,
+  Shield,
+  AlertCircle,
+  ExternalLink,
+  Sparkles,
+} from "lucide-react";
+import { EnterpriseLayout } from "@/components/layout/EnterpriseLayout";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { fetchJson } from "@/lib/api";
 
 interface PricingPlan {
@@ -40,7 +61,7 @@ interface Subscription {
   features: any;
 }
 
-export default function BillingPage() {
+function BillingContent() {
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +74,7 @@ export default function BillingPage() {
 
   async function loadData() {
     setLoading(true);
+    setError("");
     try {
       const [plansData, subData] = await Promise.all([
         fetchJson<PricingPlan[]>("/api/v1/billing/plans"),
@@ -61,7 +83,118 @@ export default function BillingPage() {
       setPlans(plansData);
       setSubscription(subData);
     } catch (err: any) {
+      console.error("Failed to load billing data:", err);
       setError(err.message || "Failed to load billing data");
+      // Set default mock data for demo purposes
+      setPlans([
+        {
+          plan: "free",
+          name: "Free",
+          price: 0,
+          description: "Perfect for trying out Heliox",
+          limits: {
+            max_teams: 1,
+            max_users: 3,
+            max_api_calls_per_day: 1000,
+            max_integrations: 1,
+            max_gpu_nodes: 10,
+            data_retention_days: 30,
+          },
+          features: {
+            integrations_enabled: true,
+            forecasting_enabled: false,
+            alerts_enabled: true,
+            api_access: true,
+            custom_reports: false,
+            sso_enabled: false,
+            priority_support: false,
+            white_label: false,
+          },
+        },
+        {
+          plan: "starter",
+          name: "Starter",
+          price: 99,
+          description: "For small teams getting started",
+          limits: {
+            max_teams: 3,
+            max_users: 10,
+            max_api_calls_per_day: 10000,
+            max_integrations: 3,
+            max_gpu_nodes: 50,
+            data_retention_days: 90,
+          },
+          features: {
+            integrations_enabled: true,
+            forecasting_enabled: true,
+            alerts_enabled: true,
+            api_access: true,
+            custom_reports: true,
+            sso_enabled: false,
+            priority_support: false,
+            white_label: false,
+          },
+        },
+        {
+          plan: "growth",
+          name: "Growth",
+          price: 299,
+          description: "For scaling teams with complex needs",
+          limits: {
+            max_teams: 10,
+            max_users: 50,
+            max_api_calls_per_day: 100000,
+            max_integrations: 10,
+            max_gpu_nodes: 200,
+            data_retention_days: 180,
+          },
+          features: {
+            integrations_enabled: true,
+            forecasting_enabled: true,
+            alerts_enabled: true,
+            api_access: true,
+            custom_reports: true,
+            sso_enabled: true,
+            priority_support: true,
+            white_label: false,
+          },
+        },
+        {
+          plan: "enterprise",
+          name: "Enterprise",
+          price: "Custom",
+          description: "For large organizations with advanced requirements",
+          limits: {
+            max_teams: -1,
+            max_users: -1,
+            max_api_calls_per_day: -1,
+            max_integrations: -1,
+            max_gpu_nodes: -1,
+            data_retention_days: 365,
+          },
+          features: {
+            integrations_enabled: true,
+            forecasting_enabled: true,
+            alerts_enabled: true,
+            api_access: true,
+            custom_reports: true,
+            sso_enabled: true,
+            priority_support: true,
+            white_label: true,
+          },
+        },
+      ]);
+      setSubscription({
+        team_id: "demo",
+        plan: "free",
+        status: "active",
+        stripe_customer_id: "",
+        stripe_subscription_id: null,
+        current_period_end: null,
+        cancel_at_period_end: false,
+        limits: {},
+        features: {},
+      });
     } finally {
       setLoading(false);
     }
@@ -84,7 +217,6 @@ export default function BillingPage() {
         }
       );
 
-      // Redirect to Stripe Checkout
       window.location.href = response.checkout_url;
     } catch (err: any) {
       setError(err.message || "Failed to start checkout");
@@ -104,7 +236,6 @@ export default function BillingPage() {
         }
       );
 
-      // Open customer portal in new tab
       window.open(response.portal_url, "_blank");
     } catch (err: any) {
       setError(err.message || "Failed to open customer portal");
@@ -116,271 +247,297 @@ export default function BillingPage() {
     return value.toLocaleString();
   }
 
-  if (loading) {
-    return (
-      <div className="p-8">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl font-bold mb-6">Billing & Subscriptions</h1>
-          <div className="text-gray-600">Loading...</div>
-        </div>
-      </div>
-    );
-  }
+  const planOrder = ["free", "starter", "growth", "enterprise"];
+  const currentPlanIndex = subscription
+    ? planOrder.indexOf(subscription.plan)
+    : 0;
 
   return (
-    <div className="p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Billing & Subscriptions</h1>
-          <p className="text-gray-600">
-            Choose a plan that fits your GPU monitoring needs
-          </p>
-        </div>
+    <>
+      {/* Page Header */}
+      <PageHeader
+        title="Billing & Subscriptions"
+        description="Choose the perfect plan for your GPU monitoring and optimization needs"
+        breadcrumbs={[
+          { label: "Home", href: "/" },
+          { label: "Billing" },
+        ]}
+      />
 
-        {/* Current Subscription Status */}
-        {subscription && (
-          <div className="bg-white rounded-lg shadow p-6 mb-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold mb-2">Current Plan</h2>
-                <div className="flex items-center gap-4">
-                  <div className="text-2xl font-bold text-blue-600 capitalize">
-                    {subscription.plan}
-                  </div>
-                  <span
-                    className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      subscription.status === "active"
-                        ? "bg-green-100 text-green-800"
-                        : subscription.status === "trialing"
-                        ? "bg-blue-100 text-blue-800"
-                        : "bg-red-100 text-red-800"
-                    }`}
-                  >
-                    {subscription.status}
-                  </span>
-                </div>
-                {subscription.current_period_end && (
-                  <p className="text-sm text-gray-600 mt-2">
-                    {subscription.cancel_at_period_end
-                      ? "Cancels on"
-                      : "Renews on"}{" "}
-                    {new Date(subscription.current_period_end).toLocaleDateString()}
+      {/* Success/Cancel Messages */}
+      {typeof window !== "undefined" && (
+        <>
+          {new URLSearchParams(window.location.search).get("success") && (
+            <Card variant="flat" className="mb-6 border-l-4 border-l-success-500">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3">
+                  <Check className="w-5 h-5 text-success-600" />
+                  <p className="font-medium text-success-900 dark:text-success-100">
+                    Subscription upgraded successfully!
                   </p>
-                )}
-              </div>
-              {subscription.stripe_subscription_id && (
-                <button
-                  onClick={openCustomerPortal}
-                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 font-medium"
-                >
-                  Manage Subscription
-                </button>
-              )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {new URLSearchParams(window.location.search).get("canceled") && (
+            <Card variant="flat" className="mb-6 border-l-4 border-l-warning-500">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-warning-600" />
+                  <p className="text-warning-900 dark:text-warning-100">
+                    Checkout canceled. You can try again anytime.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <Card variant="flat" className="mb-6 border-l-4 border-l-danger-500">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-danger-600" />
+              <p className="text-danger-900 dark:text-danger-100">{error}</p>
             </div>
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {/* Error Message */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded p-4 mb-6">
-            <p className="text-red-800">{error}</p>
-          </div>
-        )}
-
-        {/* URL Params Messages */}
-        {typeof window !== "undefined" && (
-          <>
-            {new URLSearchParams(window.location.search).get("success") && (
-              <div className="bg-green-50 border border-green-200 rounded p-4 mb-6">
-                <p className="text-green-800 font-medium">
-                  ✓ Subscription upgraded successfully!
-                </p>
-              </div>
-            )}
-            {new URLSearchParams(window.location.search).get("canceled") && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mb-6">
-                <p className="text-yellow-800">
-                  Checkout canceled. You can try again anytime.
-                </p>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {plans.map((plan) => {
-            const isCurrentPlan = subscription?.plan === plan.plan;
-            const isUpgrade =
-              subscription &&
-              ["free", "starter", "growth", "enterprise"].indexOf(subscription.plan) <
-                ["free", "starter", "growth", "enterprise"].indexOf(plan.plan);
-
-            return (
-              <div
-                key={plan.plan}
-                className={`bg-white rounded-lg shadow-lg overflow-hidden ${
-                  isCurrentPlan ? "ring-2 ring-blue-500" : ""
-                }`}
-              >
-                {isCurrentPlan && (
-                  <div className="bg-blue-500 text-white text-center py-1 text-sm font-medium">
+      {/* Current Subscription */}
+      {subscription && (
+        <Card className="mb-8" variant="elevated">
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-xl bg-brand-50 dark:bg-brand-500/10">
+                  <CreditCard className="w-6 h-6 text-brand-600 dark:text-brand-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-1">
                     Current Plan
-                  </div>
-                )}
-
-                <div className="p-6">
-                  {/* Plan Header */}
-                  <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
-                  <div className="mb-4">
-                    {typeof plan.price === "number" ? (
-                      <>
-                        <span className="text-4xl font-bold">${plan.price}</span>
-                        <span className="text-gray-600">/month</span>
-                      </>
-                    ) : (
-                      <span className="text-4xl font-bold">{plan.price}</span>
-                    )}
-                  </div>
-                  <p className="text-gray-600 text-sm mb-6">{plan.description}</p>
-
-                  {/* Limits */}
-                  <div className="space-y-3 mb-6">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Teams:</span>
-                      <span className="font-medium">{formatLimit(plan.limits.max_teams)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Users:</span>
-                      <span className="font-medium">{formatLimit(plan.limits.max_users)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">API Calls/day:</span>
-                      <span className="font-medium">
-                        {formatLimit(plan.limits.max_api_calls_per_day)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Integrations:</span>
-                      <span className="font-medium">
-                        {formatLimit(plan.limits.max_integrations)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">GPU Nodes:</span>
-                      <span className="font-medium">{formatLimit(plan.limits.max_gpu_nodes)}</span>
-                    </div>
-                  </div>
-
-                  {/* Features */}
-                  <div className="space-y-2 mb-6">
-                    {plan.features.integrations_enabled && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-green-500">✓</span>
-                        <span>Cloud Integrations</span>
-                      </div>
-                    )}
-                    {plan.features.forecasting_enabled && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-green-500">✓</span>
-                        <span>Cost Forecasting</span>
-                      </div>
-                    )}
-                    {plan.features.custom_reports && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-green-500">✓</span>
-                        <span>Custom Reports</span>
-                      </div>
-                    )}
-                    {plan.features.sso_enabled && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-green-500">✓</span>
-                        <span>SSO</span>
-                      </div>
-                    )}
-                    {plan.features.priority_support && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-green-500">✓</span>
-                        <span>Priority Support</span>
-                      </div>
-                    )}
-                    {plan.features.white_label && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-green-500">✓</span>
-                        <span>White Label</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* CTA Button */}
-                  {plan.plan === "free" ? (
-                    <button
-                      disabled={isCurrentPlan}
-                      className="w-full px-4 py-2 bg-gray-100 text-gray-600 rounded font-medium cursor-not-allowed"
+                  </h3>
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-2xl font-bold text-brand-600 dark:text-brand-400 capitalize">
+                      {subscription.plan}
+                    </span>
+                    <Badge
+                      variant={
+                        subscription.status === "active"
+                          ? "success"
+                          : subscription.status === "trialing"
+                          ? "info"
+                          : "danger"
+                      }
                     >
-                      {isCurrentPlan ? "Current Plan" : "Free Forever"}
-                    </button>
-                  ) : plan.plan === "enterprise" ? (
-                    <a
-                      href="mailto:sales@heliox.ai"
-                      className="block w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium text-center"
-                    >
-                      Contact Sales
-                    </a>
-                  ) : isCurrentPlan ? (
-                    <button
-                      disabled
-                      className="w-full px-4 py-2 bg-gray-100 text-gray-600 rounded font-medium cursor-not-allowed"
-                    >
-                      Current Plan
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleUpgrade(plan.plan)}
-                      disabled={upgrading === plan.plan}
-                      className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                    >
-                      {upgrading === plan.plan
-                        ? "Loading..."
-                        : isUpgrade
-                        ? "Upgrade"
-                        : "Downgrade"}
-                    </button>
+                      {subscription.status}
+                    </Badge>
+                  </div>
+                  {subscription.current_period_end && (
+                    <p className="text-sm text-muted-foreground">
+                      {subscription.cancel_at_period_end ? "Cancels on" : "Renews on"}{" "}
+                      {new Date(subscription.current_period_end).toLocaleDateString()}
+                    </p>
                   )}
                 </div>
               </div>
+              {subscription.stripe_subscription_id && (
+                <Button
+                  variant="outline"
+                  onClick={openCustomerPortal}
+                  icon={<ExternalLink className="w-4 h-4" />}
+                  iconPosition="right"
+                >
+                  Manage
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Pricing Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        {plans
+          .sort((a, b) => planOrder.indexOf(a.plan) - planOrder.indexOf(b.plan))
+          .map((plan) => {
+            const isCurrentPlan = subscription?.plan === plan.plan;
+            const planIndex = planOrder.indexOf(plan.plan);
+            const isUpgrade = currentPlanIndex < planIndex;
+            const isPopular = plan.plan === "growth";
+
+            return (
+              <Card
+                key={plan.plan}
+                variant={isPopular ? "elevated" : "default"}
+                className={`
+                  relative overflow-hidden
+                  ${isCurrentPlan ? "ring-2 ring-brand-500" : ""}
+                  ${isPopular ? "scale-105" : ""}
+                `}
+              >
+                {/* Popular Badge */}
+                {isPopular && (
+                  <div className="absolute top-0 right-0 bg-gradient-to-r from-brand-600 to-brand-500 text-white px-3 py-1 text-xs font-bold rounded-bl-lg">
+                    <Sparkles className="w-3 h-3 inline mr-1" />
+                    POPULAR
+                  </div>
+                )}
+
+                {/* Current Plan Badge */}
+                {isCurrentPlan && (
+                  <div className="bg-brand-600 text-white text-center py-2 text-sm font-semibold">
+                    ✓ Current Plan
+                  </div>
+                )}
+
+                <CardContent className="p-6">
+                  {/* Plan Name */}
+                  <h3 className="text-2xl font-bold text-foreground mb-2">{plan.name}</h3>
+
+                  {/* Price */}
+                  <div className="mb-4">
+                    {typeof plan.price === "number" ? (
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-bold text-foreground">
+                          ${plan.price}
+                        </span>
+                        <span className="text-muted-foreground">/month</span>
+                      </div>
+                    ) : (
+                      <span className="text-4xl font-bold text-foreground">{plan.price}</span>
+                    )}
+                  </div>
+
+                  <p className="text-sm text-muted-foreground mb-6 min-h-[40px]">
+                    {plan.description}
+                  </p>
+
+                  {/* CTA Button */}
+                  {plan.plan === "free" ? (
+                    <Button
+                      variant={isCurrentPlan ? "secondary" : "outline"}
+                      fullWidth
+                      disabled={isCurrentPlan}
+                    >
+                      {isCurrentPlan ? "Current Plan" : "Free Forever"}
+                    </Button>
+                  ) : plan.plan === "enterprise" ? (
+                    <Button
+                      variant="primary"
+                      fullWidth
+                      onClick={() => window.location.href = "mailto:sales@heliox.ai"}
+                      icon={<ExternalLink className="w-4 h-4" />}
+                      iconPosition="right"
+                    >
+                      Contact Sales
+                    </Button>
+                  ) : isCurrentPlan ? (
+                    <Button variant="secondary" fullWidth disabled>
+                      Current Plan
+                    </Button>
+                  ) : (
+                    <Button
+                      variant={isUpgrade ? "primary" : "outline"}
+                      fullWidth
+                      onClick={() => handleUpgrade(plan.plan)}
+                      loading={upgrading === plan.plan}
+                    >
+                      {isUpgrade ? "Upgrade" : "Change Plan"}
+                    </Button>
+                  )}
+
+                  {/* Limits */}
+                  <div className="mt-6 pt-6 border-t border-border space-y-3">
+                    <LimitItem icon={<Users />} label="Teams" value={formatLimit(plan.limits.max_teams)} />
+                    <LimitItem icon={<Users />} label="Users" value={formatLimit(plan.limits.max_users)} />
+                    <LimitItem icon={<Zap />} label="API Calls/day" value={formatLimit(plan.limits.max_api_calls_per_day)} />
+                    <LimitItem icon={<TrendingUp />} label="GPU Nodes" value={formatLimit(plan.limits.max_gpu_nodes)} />
+                  </div>
+
+                  {/* Features */}
+                  <div className="mt-6 pt-6 border-t border-border space-y-2">
+                    {plan.features.integrations_enabled && <FeatureItem text="Cloud Integrations" />}
+                    {plan.features.forecasting_enabled && <FeatureItem text="Cost Forecasting" />}
+                    {plan.features.alerts_enabled && <FeatureItem text="Budget Alerts" />}
+                    {plan.features.custom_reports && <FeatureItem text="Custom Reports" />}
+                    {plan.features.sso_enabled && <FeatureItem text="SSO Authentication" />}
+                    {plan.features.priority_support && <FeatureItem text="Priority Support" />}
+                    {plan.features.white_label && <FeatureItem text="White Label" />}
+                  </div>
+                </CardContent>
+              </Card>
             );
           })}
-        </div>
-
-        {/* FAQ / Info Section */}
-        <div className="mt-12 bg-gray-50 rounded-lg p-6">
-          <h2 className="text-xl font-bold mb-4">Frequently Asked Questions</h2>
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-semibold mb-1">Can I change my plan anytime?</h3>
-              <p className="text-gray-600 text-sm">
-                Yes, you can upgrade or downgrade your plan at any time. Changes take effect immediately for
-                upgrades, or at the end of your billing period for downgrades.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-1">What payment methods do you accept?</h3>
-              <p className="text-gray-600 text-sm">
-                We accept all major credit cards (Visa, Mastercard, American Express) through Stripe.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-1">Is there a free trial?</h3>
-              <p className="text-gray-600 text-sm">
-                The Free plan is available forever with no credit card required. Paid plans may offer a trial
-                period at checkout.
-              </p>
-            </div>
-          </div>
-        </div>
       </div>
+
+      {/* FAQ Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Frequently Asked Questions</CardTitle>
+          <CardDescription>Everything you need to know about billing</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            <FAQItem
+              question="Can I change my plan anytime?"
+              answer="Yes, you can upgrade or downgrade your plan at any time. Changes take effect immediately for upgrades, or at the end of your billing period for downgrades."
+            />
+            <FAQItem
+              question="What payment methods do you accept?"
+              answer="We accept all major credit cards (Visa, Mastercard, American Express) through Stripe."
+            />
+            <FAQItem
+              question="Is there a free trial?"
+              answer="The Free plan is available forever with no credit card required. Paid plans may offer a trial period at checkout."
+            />
+            <FAQItem
+              question="Can I cancel anytime?"
+              answer="Yes, you can cancel your subscription at any time. Your access will continue until the end of your billing period."
+            />
+          </div>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function LimitItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <span className="w-4 h-4">{icon}</span>
+        <span>{label}:</span>
+      </div>
+      <span className="font-semibold text-foreground">{value}</span>
     </div>
+  );
+}
+
+function FeatureItem({ text }: { text: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <Check className="w-4 h-4 text-success-600 dark:text-success-500 flex-shrink-0" />
+      <span className="text-foreground">{text}</span>
+    </div>
+  );
+}
+
+function FAQItem({ question, answer }: { question: string; answer: string }) {
+  return (
+    <div>
+      <h4 className="font-semibold text-foreground mb-2">{question}</h4>
+      <p className="text-sm text-muted-foreground">{answer}</p>
+    </div>
+  );
+}
+
+export default function BillingPage() {
+  return (
+    <EnterpriseLayout teamName="Demo Team">
+      <BillingContent />
+    </EnterpriseLayout>
   );
 }

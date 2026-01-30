@@ -41,11 +41,10 @@ interface DashboardData {
   anomalies: number;
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const { startDate, endDate } = useDashboardFilters();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [teamName, setTeamName] = useState("Demo Team");
 
   useEffect(() => {
     loadDashboardData();
@@ -74,7 +73,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <EnterpriseLayout teamName={teamName}>
+    <>
       {/* Page Header */}
       <PageHeader
         title="GPU Cost Command Center"
@@ -216,6 +215,14 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+    </>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <EnterpriseLayout teamName="Demo Team">
+      <DashboardContent />
     </EnterpriseLayout>
   );
 }

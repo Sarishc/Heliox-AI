@@ -1,7 +1,32 @@
 "use client";
 
+/**
+ * Enterprise Integrations Page
+ * Cloud provider integrations management
+ */
+
 import { useState, useEffect } from "react";
+import {
+  Plus,
+  RefreshCw,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  ExternalLink,
+  Settings as SettingsIcon,
+  Cloud,
+} from "lucide-react";
+import { EnterpriseLayout } from "@/components/layout/EnterpriseLayout";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Modal, ConfirmDialog } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 import { fetchJson } from "@/lib/api";
+
+// Existing forms
 import AWSIntegrationForm from "@/components/AWSIntegrationForm";
 import GCPIntegrationForm from "@/components/GCPIntegrationForm";
 
@@ -30,24 +55,16 @@ interface IntegrationConnection {
   updated_at: string;
 }
 
-interface SyncRun {
-  id: string;
-  connection_id: string;
-  started_at: string;
-  finished_at?: string;
-  status: string;
-  error?: string;
-  metrics?: Record<string, any>;
-  triggered_by: string;
-}
-
-export default function IntegrationsPage() {
+function IntegrationsContent() {
   const [available, setAvailable] = useState<AvailableIntegration[]>([]);
   const [connections, setConnections] = useState<IntegrationConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
   const [showAWSForm, setShowAWSForm] = useState(false);
   const [showGCPForm, setShowGCPForm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const { showSuccess, showError, showInfo } = useToast();
 
   useEffect(() => {
     loadData();
@@ -58,280 +75,401 @@ export default function IntegrationsPage() {
     try {
       const [availableData, connectionsData] = await Promise.all([
         fetchJson<AvailableIntegration[]>("/api/v1/integrations/available"),
-        fetchJson<{ connections: IntegrationConnection[] }>("/api/v1/integrations"),
+        fetchJson<IntegrationConnection[]>("/api/v1/integrations"),
       ]);
       setAvailable(availableData);
-      setConnections(connectionsData.connections);
-    } catch (error) {
-      console.error("Failed to load integrations:", error);
+      setConnections(connectionsData);
+    } catch (err: any) {
+      console.error("Failed to load integrations:", err);
+      showError("Failed to load", err.message || "Could not load integrations");
+      // Set mock data for demo
+      setAvailable([
+        {
+          provider: "aws_cost_explorer",
+          display_name: "AWS Cost Explorer",
+          description: "Import costs from AWS Cost Explorer API",
+          enabled: true,
+          config_schema: {},
+        },
+        {
+          provider: "gcp_billing_bigquery",
+          display_name: "GCP BigQuery",
+          description: "Import costs from GCP BigQuery billing export",
+          enabled: true,
+          config_schema: {},
+        },
+      ]);
+      setConnections([]);
     } finally {
       setLoading(false);
     }
   }
 
-  async function triggerSync(connectionId: string) {
+  async function handleSync(connectionId: string) {
     setSyncing((prev) => ({ ...prev, [connectionId]: true }));
+    showInfo("Sync started", "Integration sync is now running...");
+    
     try {
-      await fetchJson<SyncRun>(`/api/v1/integrations/${connectionId}/sync`, {
+      await fetchJson(`/api/v1/integrations/${connectionId}/sync`, {
         method: "POST",
       });
-      // Reload connections to get updated sync time
-      setTimeout(() => loadData(), 1000);
-    } catch (error) {
-      console.error("Sync failed:", error);
-      alert("Failed to trigger sync. See console for details.");
+      showSuccess("Sync complete", "Integration data has been updated");
+      await loadData();
+    } catch (err: any) {
+      showError("Sync failed", err.message || "Could not sync integration");
     } finally {
       setSyncing((prev) => ({ ...prev, [connectionId]: false }));
     }
   }
 
-  function getProviderIcon(provider: string): string {
-    const icons: Record<string, string> = {
-      aws: "☁️",
-      gcp: "🌐",
-      azure: "💠",
-      stripe: "💳",
-      sso_google: "🔐",
-      sso_okta: "🔑",
-      slack: "💬",
-    };
-    return icons[provider] || "🔌";
+  async function handleDelete(connectionId: string) {
+    try {
+      await fetchJson(`/api/v1/integrations/${connectionId}`, {
+        method: "DELETE",
+      });
+      showSuccess("Integration removed", "The integration has been deleted");
+      await loadData();
+    } catch (err: any) {
+      showError("Delete failed", err.message || "Could not delete integration");
+    } finally {
+      setDeleteConfirm(null);
+    }
   }
-
-  function getStatusBadge(status: string) {
-    const badges: Record<string, { bg: string; text: string; label: string }> = {
-      active: { bg: "bg-green-100", text: "text-green-800", label: "Active" },
-      error: { bg: "bg-red-100", text: "text-red-800", label: "Error" },
-      disabled: { bg: "bg-gray-100", text: "text-gray-800", label: "Disabled" },
-      pending: { bg: "bg-yellow-100", text: "text-yellow-800", label: "Pending" },
-    };
-    const badge = badges[status] || badges.pending;
-    return (
-      <span className={`px-2 py-1 rounded text-xs font-medium ${badge.bg} ${badge.text}`}>
-        {badge.label}
-      </span>
-    );
-  }
-
-  function formatDate(dateString?: string): string {
-    if (!dateString) return "Never";
-    const date = new Date(dateString);
-    return date.toLocaleString();
-  }
-
-  if (loading) {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold mb-6">Integrations</h1>
-        <div className="text-gray-500">Loading integrations...</div>
-      </div>
-    );
-  }
-
-  const connectedProviders = new Set(connections.map((c) => c.provider));
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-2">Integrations</h1>
-        <p className="text-gray-600">
-          Connect external services to automatically sync GPU costs and usage data.
-        </p>
-      </div>
+    <>
+      {/* Page Header */}
+      <PageHeader
+        title="Integrations"
+        description="Connect cloud providers to automatically import cost data"
+        breadcrumbs={[
+          { label: "Home", href: "/" },
+          { label: "Settings", href: "/settings" },
+          { label: "Integrations" },
+        ]}
+      />
 
       {/* Available Integrations */}
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Available Integrations</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {available.map((integration) => {
-            const isConnected = connectedProviders.has(integration.provider);
-            const isEnabled = integration.enabled;
-
-            return (
-              <div
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>Available Integrations</CardTitle>
+          <CardDescription>Connect to cloud providers and data sources</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {available.map((integration) => (
+              <IntegrationCard
                 key={integration.provider}
-                className={`border rounded-lg p-4 ${
-                  isEnabled ? "border-gray-200" : "border-gray-100 bg-gray-50"
-                }`}
-              >
-                <div className="flex items-start gap-3 mb-3">
-                  <span className="text-3xl">{getProviderIcon(integration.provider)}</span>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-lg">{integration.display_name}</h3>
-                    <p className="text-sm text-gray-600">{integration.description}</p>
-                  </div>
-                </div>
-
-                {isConnected ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-green-600 text-sm font-medium">✓ Connected</span>
-                  </div>
-                ) : isEnabled ? (
-                  <button
-                    className="w-full mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                    onClick={() => {
-                      if (integration.provider === "aws") {
-                        setShowAWSForm(true);
-                      } else if (integration.provider === "gcp_billing_bigquery") {
-                        setShowGCPForm(true);
-                      } else {
-                        alert("Connect modal coming soon");
-                      }
-                    }}
-                  >
-                    Connect
-                  </button>
-                ) : (
-                  <div className="mt-2 text-center">
-                    <span className="text-sm text-gray-500 italic">Coming soon</span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Connected Integrations */}
-      {connections.length > 0 && (
-        <section>
-          <h2 className="text-xl font-semibold mb-4">Connected Integrations</h2>
-          <div className="space-y-4">
-            {connections.map((connection) => (
-              <div key={connection.id} className="border rounded-lg p-4 bg-white">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{getProviderIcon(connection.provider)}</span>
-                    <div>
-                      <h3 className="font-semibold">{connection.name}</h3>
-                      {connection.description && (
-                        <p className="text-sm text-gray-600">{connection.description}</p>
-                      )}
-                    </div>
-                  </div>
-                  {getStatusBadge(connection.status)}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mb-3 text-sm">
-                  <div>
-                    <span className="text-gray-600">Last Sync:</span>
-                    <div className="font-medium">{formatDate(connection.last_sync_at)}</div>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Last Successful:</span>
-                    <div className="font-medium">
-                      {formatDate(connection.last_successful_sync_at)}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Auto-sync:</span>
-                    <div className="font-medium">
-                      {connection.auto_sync_enabled
-                        ? `Every ${connection.sync_interval_minutes} min`
-                        : "Disabled"}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Provider:</span>
-                    <div className="font-medium capitalize">{connection.provider}</div>
-                  </div>
-                  {connection.provider === "aws" && connection.config?.aws_region && (
-                    <div>
-                      <span className="text-gray-600">Region:</span>
-                      <div className="font-medium">{connection.config.aws_region}</div>
-                    </div>
-                  )}
-                  {connection.provider === "aws" && connection.config?.linked_account_ids && (
-                    <div>
-                      <span className="text-gray-600">AWS Accounts:</span>
-                      <div className="font-medium text-xs">
-                        {Array.isArray(connection.config.linked_account_ids)
-                          ? connection.config.linked_account_ids.join(", ")
-                          : "All accounts"}
-                      </div>
-                    </div>
-                  )}
-                  {connection.provider === "gcp_billing_bigquery" && connection.config?.gcp_project_id && (
-                    <div>
-                      <span className="text-gray-600">GCP Project:</span>
-                      <div className="font-medium text-xs">{connection.config.gcp_project_id}</div>
-                    </div>
-                  )}
-                  {connection.provider === "gcp_billing_bigquery" && connection.config?.bigquery_dataset && (
-                    <div>
-                      <span className="text-gray-600">BigQuery Dataset:</span>
-                      <div className="font-medium text-xs">{connection.config.bigquery_dataset}</div>
-                    </div>
-                  )}
-                </div>
-
-                {connection.last_error && (
-                  <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-                    <strong>Error:</strong> {connection.last_error}
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => triggerSync(connection.id)}
-                    disabled={syncing[connection.id]}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition text-sm font-medium"
-                  >
-                    {syncing[connection.id] ? "Syncing..." : "Sync Now"}
-                  </button>
-                  <button
-                    className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition text-sm font-medium"
-                    onClick={() => alert("Edit coming soon")}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="px-4 py-2 border border-red-300 text-red-600 rounded hover:bg-red-50 transition text-sm font-medium"
-                    onClick={() => alert("Delete coming soon")}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
+                integration={integration}
+                isConnected={connections.some((c) => c.provider === integration.provider)}
+                onConnect={() => {
+                  if (integration.provider === "aws_cost_explorer") {
+                    setShowAWSForm(true);
+                  } else if (integration.provider === "gcp_billing_bigquery") {
+                    setShowGCPForm(true);
+                  } else {
+                    showInfo("Coming soon", "This integration is not yet available");
+                  }
+                }}
+              />
             ))}
+
+            {/* Coming Soon Cards */}
+            <IntegrationCard
+              integration={{
+                provider: "azure_cost_management",
+                display_name: "Azure Cost Management",
+                description: "Import costs from Azure Cost Management API",
+                enabled: false,
+                config_schema: {},
+              }}
+              isConnected={false}
+              comingSoon
+            />
+            <IntegrationCard
+              integration={{
+                provider: "kubernetes",
+                display_name: "Kubernetes",
+                description: "Monitor GPU usage from Kubernetes clusters",
+                enabled: false,
+                config_schema: {},
+              }}
+              isConnected={false}
+              comingSoon
+            />
+            <IntegrationCard
+              integration={{
+                provider: "datadog",
+                display_name: "Datadog",
+                description: "Import metrics from Datadog monitoring",
+                enabled: false,
+                config_schema: {},
+              }}
+              isConnected={false}
+              comingSoon
+            />
           </div>
-        </section>
-      )}
+        </CardContent>
+      </Card>
 
-      {connections.length === 0 && !showAWSForm && !showGCPForm && (
-        <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
-          <p className="text-gray-600 mb-4">No integrations connected yet.</p>
-          <p className="text-sm text-gray-500">
-            Connect an integration above to automatically sync your GPU costs.
-          </p>
-        </div>
-      )}
+      {/* Active Connections */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Active Connections</CardTitle>
+          <CardDescription>
+            {connections.length} integration{connections.length !== 1 ? "s" : ""} configured
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {connections.length === 0 ? (
+            <div className="text-center py-12">
+              <Cloud className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                No integrations yet
+              </h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Connect a cloud provider to start importing cost data
+              </p>
+              <Button variant="primary" icon={<Plus className="w-4 h-4" />}>
+                Add Integration
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {connections.map((connection) => (
+                <ConnectionCard
+                  key={connection.id}
+                  connection={connection}
+                  onSync={() => handleSync(connection.id)}
+                  onDelete={() => setDeleteConfirm(connection.id)}
+                  syncing={syncing[connection.id]}
+                />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {/* AWS Connection Form */}
-      {showAWSForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <AWSIntegrationForm
-            onSuccess={() => {
-              setShowAWSForm(false);
-              loadData();
-            }}
-            onCancel={() => setShowAWSForm(false)}
-          />
-        </div>
-      )}
+      {/* AWS Form Modal */}
+      <Modal
+        isOpen={showAWSForm}
+        onClose={() => setShowAWSForm(false)}
+        title="Connect AWS Cost Explorer"
+        description="Import your AWS billing data"
+        size="lg"
+      >
+        <AWSIntegrationForm
+          onSuccess={() => {
+            setShowAWSForm(false);
+            loadData();
+            showSuccess("AWS connected", "Your AWS integration is now active");
+          }}
+          onCancel={() => setShowAWSForm(false)}
+        />
+      </Modal>
 
-      {/* GCP Connection Form */}
-      {showGCPForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <GCPIntegrationForm
-            onSuccess={() => {
-              setShowGCPForm(false);
-              loadData();
-            }}
-            onCancel={() => setShowGCPForm(false)}
-          />
+      {/* GCP Form Modal */}
+      <Modal
+        isOpen={showGCPForm}
+        onClose={() => setShowGCPForm(false)}
+        title="Connect GCP BigQuery"
+        description="Import your GCP billing data"
+        size="lg"
+      >
+        <GCPIntegrationForm
+          onSuccess={() => {
+            setShowGCPForm(false);
+            loadData();
+            showSuccess("GCP connected", "Your GCP integration is now active");
+          }}
+          onCancel={() => setShowGCPForm(false)}
+        />
+      </Modal>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        isOpen={deleteConfirm !== null}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => deleteConfirm && handleDelete(deleteConfirm)}
+        title="Remove Integration"
+        message="Are you sure you want to remove this integration? Historical data will be preserved, but new data will no longer be imported."
+        confirmText="Remove"
+        variant="danger"
+      />
+    </>
+  );
+}
+
+function IntegrationCard({
+  integration,
+  isConnected,
+  onConnect,
+  comingSoon = false,
+}: {
+  integration: AvailableIntegration;
+  isConnected: boolean;
+  onConnect?: () => void;
+  comingSoon?: boolean;
+}) {
+  const providerLogos = {
+    aws_cost_explorer: "☁️",
+    gcp_billing_bigquery: "🌐",
+    azure_cost_management: "🔷",
+    kubernetes: "☸️",
+    datadog: "🐕",
+  } as const;
+
+  return (
+    <Card
+      variant={isConnected ? "elevated" : "default"}
+      className={`${isConnected ? "ring-2 ring-brand-500" : ""}`}
+    >
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div className="text-3xl">
+            {providerLogos[integration.provider as keyof typeof providerLogos] || "🔌"}
+          </div>
+          {isConnected ? (
+            <Badge variant="success" size="sm">
+              <CheckCircle className="w-3 h-3 mr-1" />
+              Connected
+            </Badge>
+          ) : comingSoon ? (
+            <Badge variant="default" size="sm">
+              Coming Soon
+            </Badge>
+          ) : (
+            <Badge variant="default" size="sm">
+              Available
+            </Badge>
+          )}
         </div>
-      )}
+
+        <h3 className="font-semibold text-foreground mb-2">
+          {integration.display_name}
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
+          {integration.description}
+        </p>
+
+        {!isConnected && !comingSoon && (
+          <Button
+            variant="outline"
+            size="sm"
+            fullWidth
+            onClick={onConnect}
+            icon={<Plus className="w-4 h-4" />}
+          >
+            Connect
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ConnectionCard({
+  connection,
+  onSync,
+  onDelete,
+  syncing,
+}: {
+  connection: IntegrationConnection;
+  onSync: () => void;
+  onDelete: () => void;
+  syncing?: boolean;
+}) {
+  const statusConfig = {
+    active: { icon: CheckCircle, color: "success", text: "Active" },
+    error: { icon: XCircle, color: "danger", text: "Error" },
+    syncing: { icon: RefreshCw, color: "info", text: "Syncing" },
+  } as const;
+
+  const status = syncing ? "syncing" : connection.status === "active" ? "active" : "error";
+  const { icon: StatusIcon, color, text } = statusConfig[status];
+
+  return (
+    <div className="flex items-start gap-4 p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors">
+      <div className="p-3 rounded-lg bg-brand-50 dark:bg-brand-500/10">
+        <Cloud className="w-6 h-6 text-brand-600 dark:text-brand-400" />
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+            <h4 className="font-semibold text-foreground">{connection.name}</h4>
+            {connection.description && (
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {connection.description}
+              </p>
+            )}
+          </div>
+          <Badge variant={color as any} size="sm">
+            <StatusIcon className="w-3 h-3 mr-1" />
+            {text}
+          </Badge>
+        </div>
+
+        <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3">
+          {connection.last_successful_sync_at ? (
+            <span>
+              Last synced: {new Date(connection.last_successful_sync_at).toLocaleString()}
+            </span>
+          ) : (
+            <span>Never synced</span>
+          )}
+          {connection.auto_sync_enabled && (
+            <span className="flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" />
+              Auto-sync every {connection.sync_interval_minutes} min
+            </span>
+          )}
+        </div>
+
+        {connection.last_error && (
+          <div className="flex items-start gap-2 p-2 rounded bg-danger-50 dark:bg-danger-500/10 mb-3">
+            <AlertCircle className="w-4 h-4 text-danger-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-danger-900 dark:text-danger-100">
+              {connection.last_error}
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSync}
+            loading={syncing}
+            icon={<RefreshCw className="w-4 h-4" />}
+          >
+            Sync Now
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<SettingsIcon className="w-4 h-4" />}
+          >
+            Configure
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            icon={<Trash2 className="w-4 h-4" />}
+          >
+            Remove
+          </Button>
+        </div>
+      </div>
     </div>
+  );
+}
+
+export default function IntegrationsPage() {
+  return (
+    <EnterpriseLayout teamName="Demo Team">
+      <IntegrationsContent />
+    </EnterpriseLayout>
   );
 }

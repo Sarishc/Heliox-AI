@@ -533,3 +533,159 @@ def delete_integration(
     logger.info(f"Deleted integration connection {connection_id} for team {api_key.team_id}")
     
     return None
+
+
+# GCP-specific routes
+@router.post("/gcp/test")
+async def test_gcp_credentials(
+    *,
+    config: Dict[str, Any],
+    api_key: TeamAPIKey = Depends(verify_team_api_key)
+):
+    """
+    Test GCP BigQuery credentials before saving.
+    
+    Validates:
+    1. Service account JSON is valid
+    2. BigQuery dataset exists
+    3. Billing export table exists
+    4. Can query the table
+    
+    Returns validation results and dataset info.
+    """
+    from app.integrations.providers.gcp_billing_bigquery import GCPBillingBigQueryIntegration
+    
+    try:
+        # Create integration instance
+        integration = GCPBillingBigQueryIntegration(config)
+        
+        # Run health check
+        health_result = await integration.health()
+        
+        return {
+            "valid": health_result["status"] == "healthy",
+            "project_id": health_result.get("details", {}).get("project_id"),
+            "dataset": health_result.get("details", {}).get("dataset"),
+            "table": health_result.get("details", {}).get("table"),
+            "table_rows": health_result.get("details", {}).get("table_rows"),
+            "service_account": health_result.get("details", {}).get("service_account"),
+            "message": health_result["message"],
+            "details": health_result["details"]
+        }
+    
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid configuration: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"GCP credential test failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Credential test failed: {str(e)}"
+        )
+
+
+@router.post("/gcp/connect", response_model=IntegrationConnectionResponse, status_code=status.HTTP_201_CREATED)
+async def connect_gcp(
+    *,
+    db: Session = Depends(get_db),
+    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    connection_data: IntegrationConnectionCreate
+):
+    """
+    Connect GCP BigQuery billing integration.
+    
+    This is a convenience endpoint that:
+    1. Tests credentials
+    2. Creates integration connection
+    3. Triggers initial sync
+    
+    Equivalent to POST /integrations/connect with provider=gcp_billing_bigquery
+    but with additional validation and automatic initial sync.
+    """
+    from app.integrations.providers.gcp_billing_bigquery import GCPBillingBigQueryIntegration
+    
+    # Force provider to gcp_billing_bigquery
+    connection_data.provider = "gcp_billing_bigquery"
+    
+    # Test credentials first
+    try:
+        integration = GCPBillingBigQueryIntegration(connection_data.config)
+        health_result = await integration.health()
+        
+        if health_result["status"] != "healthy":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"GCP credentials test failed: {health_result['message']}"
+            )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid configuration: {str(e)}"
+        )
+    
+    # Create connection using encryption
+    from app.integrations.encryption import get_encryption
+    
+    # Encrypt configuration
+    encryption = get_encryption()
+    encrypted_config = encryption.encrypt_config(connection_data.config)
+    
+    # Create connection
+    connection = IntegrationConnection(
+        team_id=api_key.team_id,
+        provider=IntegrationProvider.GCP_BILLING_BIGQUERY,
+        name=connection_data.name,
+        description=connection_data.description,
+        config_encrypted=encrypted_config,
+        status=IntegrationStatus.PENDING,
+        auto_sync_enabled=connection_data.auto_sync_enabled,
+        sync_interval_minutes=connection_data.sync_interval_minutes
+    )
+    
+    db.add(connection)
+    db.commit()
+    db.refresh(connection)
+    
+    logger.info(f"Created GCP integration connection {connection.id} for team {api_key.team_id}")
+    
+    # Trigger initial sync
+    from app.tasks.integration_tasks import run_integration_sync
+    from app.integrations.models import IntegrationSyncRun
+    from datetime import datetime
+    
+    sync_run = IntegrationSyncRun(
+        connection_id=connection.id,
+        started_at=datetime.utcnow(),
+        status=SyncStatus.RUNNING,
+        triggered_by="initial"
+    )
+    
+    db.add(sync_run)
+    db.commit()
+    db.refresh(sync_run)
+    
+    # Trigger async sync
+    run_integration_sync.delay(str(connection.id), str(sync_run.id))
+    
+    # Return response with masked config
+    decrypted_config = encryption.decrypt_config(connection.config_encrypted)
+    safe_config = integration.get_display_config(decrypted_config)
+    
+    return IntegrationConnectionResponse(
+        id=connection.id,
+        team_id=connection.team_id,
+        provider=connection.provider.value,
+        name=connection.name,
+        description=connection.description,
+        config=safe_config,
+        status=connection.status.value,
+        last_error=connection.last_error,
+        last_sync_at=connection.last_sync_at,
+        last_successful_sync_at=connection.last_successful_sync_at,
+        auto_sync_enabled=connection.auto_sync_enabled,
+        sync_interval_minutes=connection.sync_interval_minutes,
+        created_at=connection.created_at,
+        updated_at=connection.updated_at
+    )

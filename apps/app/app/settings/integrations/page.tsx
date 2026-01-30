@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { fetchJson } from "@/lib/api";
 import AWSIntegrationForm from "@/components/AWSIntegrationForm";
+import GCPIntegrationForm from "@/components/GCPIntegrationForm";
 
 interface AvailableIntegration {
   provider: string;
@@ -46,6 +47,7 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
   const [showAWSForm, setShowAWSForm] = useState(false);
+  const [showGCPForm, setShowGCPForm] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -170,6 +172,8 @@ export default function IntegrationsPage() {
                     onClick={() => {
                       if (integration.provider === "aws") {
                         setShowAWSForm(true);
+                      } else if (integration.provider === "gcp_billing_bigquery") {
+                        setShowGCPForm(true);
                       } else {
                         alert("Connect modal coming soon");
                       }
@@ -247,6 +251,18 @@ export default function IntegrationsPage() {
                       </div>
                     </div>
                   )}
+                  {connection.provider === "gcp_billing_bigquery" && connection.config?.gcp_project_id && (
+                    <div>
+                      <span className="text-gray-600">GCP Project:</span>
+                      <div className="font-medium text-xs">{connection.config.gcp_project_id}</div>
+                    </div>
+                  )}
+                  {connection.provider === "gcp_billing_bigquery" && connection.config?.bigquery_dataset && (
+                    <div>
+                      <span className="text-gray-600">BigQuery Dataset:</span>
+                      <div className="font-medium text-xs">{connection.config.bigquery_dataset}</div>
+                    </div>
+                  )}
                 </div>
 
                 {connection.last_error && (
@@ -282,7 +298,7 @@ export default function IntegrationsPage() {
         </section>
       )}
 
-      {connections.length === 0 && !showAWSForm && (
+      {connections.length === 0 && !showAWSForm && !showGCPForm && (
         <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
           <p className="text-gray-600 mb-4">No integrations connected yet.</p>
           <p className="text-sm text-gray-500">
@@ -300,6 +316,19 @@ export default function IntegrationsPage() {
               loadData();
             }}
             onCancel={() => setShowAWSForm(false)}
+          />
+        </div>
+      )}
+
+      {/* GCP Connection Form */}
+      {showGCPForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <GCPIntegrationForm
+            onSuccess={() => {
+              setShowGCPForm(false);
+              loadData();
+            }}
+            onCancel={() => setShowGCPForm(false)}
           />
         </div>
       )}

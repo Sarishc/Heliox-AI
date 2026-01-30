@@ -626,6 +626,48 @@ Heliox can automatically sync GPU costs from AWS Cost Explorer.
 
 For detailed setup, see `AWS_INTEGRATION_GUIDE.md`.
 
+### Setup GCP Integration (Optional)
+
+Heliox can automatically sync GPU costs from GCP BigQuery billing export.
+
+1. **Enable BigQuery Billing Export**:
+   - GCP Console > Billing > Billing Export
+   - Enable "BigQuery Export"
+   - Select or create dataset (e.g., `billing_export`)
+
+2. **Create Service Account** with BigQuery permissions:
+
+   ```bash
+   # Create service account
+   gcloud iam service-accounts create heliox-billing-reader
+
+   # Grant required roles
+   gcloud projects add-iam-policy-binding MY_PROJECT_ID \
+     --member="serviceAccount:heliox-billing-reader@MY_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/bigquery.dataViewer"
+
+   gcloud projects add-iam-policy-binding MY_PROJECT_ID \
+     --member="serviceAccount:heliox-billing-reader@MY_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/bigquery.jobUser"
+
+   # Create JSON key
+   gcloud iam service-accounts keys create heliox-sa-key.json \
+     --iam-account=heliox-billing-reader@MY_PROJECT_ID.iam.gserviceaccount.com
+   ```
+
+3. **Connect in Heliox**:
+   - Go to Settings > Integrations
+   - Click "Connect" on GCP BigQuery Billing
+   - Enter project ID, dataset, table name
+   - Paste service account JSON key
+   - Test credentials → Connect & Sync
+
+4. **Verify**:
+   - Check sync status (should show "Active" after 1-2 min)
+   - View dashboard - GCP costs should appear
+
+For detailed setup, see `GCP_INTEGRATION_GUIDE.md`.
+
 ---
 
 ## Support & Resources

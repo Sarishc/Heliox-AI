@@ -12,6 +12,7 @@ class IntegrationProvider(str, Enum):
     """Supported integration providers."""
     AWS = "aws"
     GCP = "gcp"
+    GCP_BILLING_BIGQUERY = "gcp_billing_bigquery"
     AZURE = "azure"
     STRIPE = "stripe"
     SSO_GOOGLE = "sso_google"

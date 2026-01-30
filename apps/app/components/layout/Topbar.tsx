@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { Search, Bell, ChevronDown, Moon, Sun, Menu } from "lucide-react";
 import { Button } from "../ui/Button";
+import { DemoModeToggle } from "../ui/DemoModeToggle";
 
 interface TopbarProps {
   teamName?: string;
@@ -62,6 +63,9 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
             <span className="max-w-[120px] truncate">{teamName}</span>
             <ChevronDown className="w-4 h-4 text-muted-foreground" />
           </button>
+
+          {/* Demo Mode Toggle */}
+          <DemoModeToggle />
 
           {/* Dark Mode Toggle */}
           <button

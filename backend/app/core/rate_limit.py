@@ -15,9 +15,9 @@ from app.core.cache import get_redis
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Rate limit configuration
-RATE_LIMIT_WINDOW_SECONDS = 60  # 1 minute window
-RATE_LIMIT_MAX_REQUESTS = 100  # Max requests per window per client
+# Rate limit configuration (can be overridden via env vars)
+RATE_LIMIT_WINDOW_SECONDS = int(getattr(settings, "RATE_LIMIT_WINDOW_SECONDS", 60))  # 1 minute window
+RATE_LIMIT_MAX_REQUESTS = int(getattr(settings, "RATE_LIMIT_MAX_REQUESTS", 1000))  # Max requests per window per client
 _LOCAL_LIMITS: dict[str, tuple[int, int]] = {}
 
 

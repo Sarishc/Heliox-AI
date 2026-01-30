@@ -90,6 +90,16 @@ class Settings(BaseSettings):
         description="Sampling rate for API usage metering (1.0 = 100%, 0.1 = 10%)"
     )
     
+    # Rate Limiting
+    RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        description="Time window for rate limiting (seconds)"
+    )
+    RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=1000,
+        description="Maximum requests per window per client (set high for development)"
+    )
+    
     # Stripe Billing
     STRIPE_SECRET_KEY: str = Field(
         default="",

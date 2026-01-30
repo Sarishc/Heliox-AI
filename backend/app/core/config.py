@@ -78,6 +78,12 @@ class Settings(BaseSettings):
         description="API key for admin endpoints (REQUIRED - set via environment variable)"
     )
     
+    # Integrations
+    INTEGRATIONS_ENCRYPTION_KEY: str = Field(
+        default="",
+        description="Encryption key for integration configs (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+    )
+    
     # Slack Notifications
     SLACK_WEBHOOK_URL: str = Field(
         default="",

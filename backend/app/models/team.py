@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.job import Job
     from app.models.team_api_key import TeamAPIKey
     from app.models.team_member import TeamMember
+    from app.integrations.models import IntegrationConnection
 
 
 class Team(Base, UUIDMixin, TimestampMixin):
@@ -60,6 +61,12 @@ class Team(Base, UUIDMixin, TimestampMixin):
     )
     members: Mapped[List["TeamMember"]] = relationship(
         "TeamMember",
+        back_populates="team",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    integration_connections: Mapped[List["IntegrationConnection"]] = relationship(
+        "IntegrationConnection",
         back_populates="team",
         cascade="all, delete-orphan",
         lazy="selectin"

@@ -71,5 +71,10 @@ celery_app.conf.beat_schedule = {
             minute=0
         ),
     },
+    # Integration syncs every 5 minutes
+    "integration-syncs": {
+        "task": "app.tasks.integration_tasks.run_scheduled_syncs",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 

@@ -1,0 +1,16 @@
+[run]
+source = app
+omit =
+    */tests/*
+    */migrations/*
+    */alembic/*
+    */__init__.py
+    */celery_app.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:

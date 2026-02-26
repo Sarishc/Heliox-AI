@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
 from app.crud.base import CRUDBase
+from app.crud.tenant_mixin import TenantScopedMixin
 from app.models.cost import CostSnapshot, UsageSnapshot
 from app.schemas.cost import CostSnapshotCreate, UsageSnapshotCreate
 
 
-class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
+class CRUDCostSnapshot(TenantScopedMixin, CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
     """CRUD operations for CostSnapshot model."""
     
     def get_multi(
@@ -127,7 +128,7 @@ class CRUDCostSnapshot(CRUDBase[CostSnapshot, CostSnapshotCreate, None]):
         return float(result) if result else 0.0
 
 
-class CRUDUsageSnapshot(CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
+class CRUDUsageSnapshot(TenantScopedMixin, CRUDBase[UsageSnapshot, UsageSnapshotCreate, None]):
     """CRUD operations for UsageSnapshot model."""
     
     def get_multi(

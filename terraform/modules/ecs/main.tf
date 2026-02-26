@@ -430,6 +430,67 @@ resource "aws_ecs_service" "beat" {
   }
 }
 
+# CloudWatch Alarms: CPU > 80%, Memory > 80%, 5xx errors
+resource "aws_cloudwatch_metric_alarm" "api_cpu_high" {
+  alarm_name          = "heliox-${var.environment}-api-cpu-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 80
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.main.name
+    ServiceName = aws_ecs_service.api.name
+  }
+
+  alarm_description = "API service CPU utilization > 80%"
+  alarm_actions      = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  ok_actions         = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+}
+
+resource "aws_cloudwatch_metric_alarm" "api_memory_high" {
+  alarm_name          = "heliox-${var.environment}-api-memory-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "MemoryUtilization"
+  namespace           = "AWS/ECS"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 80
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.main.name
+    ServiceName = aws_ecs_service.api.name
+  }
+
+  alarm_description = "API service memory utilization > 80%"
+  alarm_actions      = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  ok_actions         = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+}
+
+resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  count               = var.alb_arn_suffix != "" ? 1 : 0
+  alarm_name          = "heliox-${var.environment}-alb-5xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 5
+
+  dimensions = {
+    LoadBalancer = var.alb_arn_suffix
+  }
+
+  alarm_description = "ALB 5xx error rate elevated"
+  alarm_actions      = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+  ok_actions         = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
+}
+
 # Auto Scaling for API Service
 resource "aws_appautoscaling_target" "api" {
   max_capacity       = var.api_desired_count * 3

@@ -1,17 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import {
-  clearStoredAccessToken,
-  clearStoredApiKey,
-  fetchJson,
-  getStoredAccessToken,
-  getStoredApiKey,
-  setStoredAccessToken,
-  setStoredApiKey,
-} from "@/lib/api";
+import { fetchJson } from "@/lib/api";
 
 interface MeResponse {
   team_id: string;
@@ -48,8 +39,6 @@ const RUNWAY_EXPAND_FLAG = "heliox_runway_expand_after_budget";
 export default function SettingsPage() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [meError, setMeError] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState("");
-  const [token, setToken] = useState("");
   const [keys, setKeys] = useState<TeamApiKey[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newKeyName, setNewKeyName] = useState("Founder key");
@@ -61,13 +50,6 @@ export default function SettingsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const existingKey = getStoredApiKey();
-    const existingToken = getStoredAccessToken();
-    if (existingKey) setApiKey(existingKey);
-    if (existingToken) setToken(existingToken);
-  }, []);
-
-  useEffect(() => {
     const loadMe = async () => {
       try {
         const result = await fetchJson<MeResponse>("/api/v1/me");
@@ -75,11 +57,11 @@ export default function SettingsPage() {
         setMeError(null);
       } catch (err) {
         setMe(null);
-        setMeError("Unable to load team context. Set API key or access token.");
+        setMeError("Unable to load team context. Please log in.");
       }
     };
     loadMe();
-  }, [apiKey, token]);
+  }, []);
 
   const teamId = me?.team_id;
   const canManageKeys = me?.role && me.role !== "unknown" && me.role !== "api_key";
@@ -138,28 +120,6 @@ export default function SettingsPage() {
     };
     loadAudit();
   }, [teamId, canManageKeys, rotationKeyValue]);
-
-  const handleSaveApiKey = () => {
-    if (!apiKey.trim()) return;
-    setStoredApiKey(apiKey.trim());
-    setInfoMessage("API key saved.");
-  };
-
-  const handleSaveToken = () => {
-    if (!token.trim()) return;
-    setStoredAccessToken(token.trim());
-    setInfoMessage("Access token saved.");
-  };
-
-  const handleClearApiKey = () => {
-    clearStoredApiKey();
-    setApiKey("");
-  };
-
-  const handleClearToken = () => {
-    clearStoredAccessToken();
-    setToken("");
-  };
 
   const createApiKey = async () => {
     if (!teamId) return;
@@ -262,7 +222,7 @@ export default function SettingsPage() {
         <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900">Team Context</h2>
           <p className="text-sm text-gray-500 mt-1">
-            Shows the active team derived from your API key or access token.
+            Shows the active team from your session (cookie-based auth).
           </p>
           {me ? (
             <div className="mt-4 text-sm text-gray-700 space-y-1">
@@ -273,67 +233,6 @@ export default function SettingsPage() {
           ) : (
             <p className="text-sm text-gray-500 mt-4">{meError}</p>
           )}
-        </section>
-
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Access Token</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Required to manage API keys and audit logs.
-          </p>
-          <div className="mt-4 flex flex-col gap-3">
-            <input
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Paste JWT access token"
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveToken}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm"
-              >
-                Save token
-              </button>
-              <button
-                onClick={handleClearToken}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                Clear token
-              </button>
-              <Link href="/login" className="text-sm text-blue-600 self-center">
-                Get token
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">API Key</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Used for ingestion, analytics, and forecast requests.
-          </p>
-          <div className="mt-4 flex flex-col gap-3">
-            <input
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Paste team API key"
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveApiKey}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm"
-              >
-                Save API key
-              </button>
-              <button
-                onClick={handleClearApiKey}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm"
-              >
-                Clear API key
-              </button>
-            </div>
-          </div>
         </section>
 
         <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">

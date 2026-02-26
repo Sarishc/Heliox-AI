@@ -97,20 +97,14 @@ def verify_admin_api_key(x_api_key: Optional[str] = Header(None)) -> str:
     """
     request_id = get_request_id()
     
-    # Check if admin API key is configured
-    admin_api_key = getattr(settings, "ADMIN_API_KEY", None)
+    # Admin API key is optional (prefer RBAC via is_platform_admin)
+    admin_api_key = getattr(settings, "ADMIN_API_KEY", None) or ""
     
     if not admin_api_key:
-        logger.error(
-            "Admin API key not configured on server",
-            extra={"request_id": request_id}
-        )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Admin API key not configured on server"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin API key not configured. Use platform admin (is_platform_admin) instead.",
         )
-    
-    # Check if API key was provided
     if not x_api_key:
         logger.warning(
             "Admin API key authentication failed: missing X-API-Key header",

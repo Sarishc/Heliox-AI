@@ -25,6 +25,11 @@ class UsageTrackingMiddleware(BaseHTTPMiddleware):
     # Paths to exclude from metering
     EXCLUDED_PATHS = {
         "/health",
+        "/health/db",
+        "/ready",
+        "/readiness",
+        "/liveness",
+        "/metrics",
         "/",
         "/docs",
         "/redoc",

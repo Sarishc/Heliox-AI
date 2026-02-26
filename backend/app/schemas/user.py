@@ -26,8 +26,10 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    """Schema for updating a user."""
-    
+    """Schema for updating a user. OWASP: extra='forbid' prevents mass assignment."""
+
+    model_config = ConfigDict(extra="forbid")
+
     email: Optional[EmailStr] = None
     full_name: Optional[str] = Field(None, max_length=255)
     password: Optional[str] = Field(None, min_length=8, max_length=72)

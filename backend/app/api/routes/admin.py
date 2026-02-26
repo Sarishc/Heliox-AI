@@ -1,19 +1,23 @@
 """Admin API endpoints for system management and data ingestion."""
 import logging
+from datetime import date
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.security import verify_admin_api_key
+from app.core.feature_flags import get_all_flags
+from app.auth.admin_auth import require_admin
 from app.services.cost_ingestion import CostIngestionService, IngestionResult
 from app.services.job_ingestion import JobIngestionService
 from app.models.team import Team
 from app.models.team_api_key import TeamAPIKey
+from app.models.api_usage import ApiUsage
+from sqlalchemy import func
 from app.schemas.team_api_key import (
     TeamAPIKeyCreate,
     TeamAPIKeyResponse,
@@ -45,7 +49,7 @@ class IngestionResponse(BaseModel):
 )
 def list_all_teams(
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> Any:
     teams = db.query(Team).all()
     return teams
@@ -60,7 +64,7 @@ def list_all_teams(
 def admin_onboard_team(
     payload: OnboardingRequest,
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> Any:
     team = db.query(Team).filter(Team.name == payload.team_name).first()
     if team:
@@ -106,7 +110,7 @@ def admin_onboard_team(
 def list_team_api_keys(
     team_id: UUID,
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> Any:
     """
     List API keys for a given team.
@@ -135,7 +139,7 @@ def create_team_api_key(
     team_id: UUID,
     payload: TeamAPIKeyCreate,
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> Any:
     """
     Create a new API key for a team.
@@ -192,6 +196,68 @@ def create_team_api_key(
     )
 
 
+class APIKeyRotateRequest(BaseModel):
+    """Request body for API key rotation."""
+    new_key_name: str = Field(..., min_length=1, max_length=255)
+
+
+@router.post(
+    "/teams/{team_id}/api-keys/{key_id}/rotate",
+    response_model=TeamAPIKeyCreateResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rotate team API key",
+    description="Create new API key, revoke old. Returns new key once.",
+)
+def rotate_team_api_key(
+    team_id: UUID,
+    key_id: UUID,
+    payload: APIKeyRotateRequest,
+    db: Session = Depends(get_db),
+    _: Any = Depends(require_admin),
+) -> Any:
+    """
+    Rotate API key: create new key, deactivate old.
+    Returns the new raw API key value only once.
+    """
+    old_key = db.query(TeamAPIKey).filter(
+        TeamAPIKey.id == key_id,
+        TeamAPIKey.team_id == team_id
+    ).first()
+    if not old_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found for team"
+        )
+    old_key.is_active = False
+    raw_key = TeamAPIKey.generate_key()
+    new_key = TeamAPIKey(
+        team_id=team_id,
+        key_name=payload.new_key_name,
+        key_hash=TeamAPIKey.hash_key(raw_key),
+        is_active=True
+    )
+    db.add(new_key)
+    db.commit()
+    db.refresh(new_key)
+    record_audit_event(
+        db,
+        team_id=team_id,
+        actor_type="admin",
+        actor_id=None,
+        action="api_key_rotated",
+        metadata={"old_key_id": str(key_id), "new_key_name": payload.new_key_name}
+    )
+    logger.info("Rotated team API key", extra={"team_id": team_id, "key_id": key_id, "new_key_name": payload.new_key_name})
+    return TeamAPIKeyCreateResponse(
+        id=new_key.id,
+        team_id=team_id,
+        key_name=new_key.key_name,
+        api_key=raw_key,
+        is_active=new_key.is_active,
+        created_at=new_key.created_at
+    )
+
+
 @router.delete(
     "/teams/{team_id}/api-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -202,7 +268,7 @@ def revoke_team_api_key(
     team_id: UUID,
     key_id: UUID,
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> None:
     """
     Revoke (deactivate) an API key for a team.
@@ -251,7 +317,7 @@ def ingest_mock_cost_data(
         None,
         description="Team ID to associate with ingested cost data"
     ),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> Any:
     """
     Ingest mock cost data into the database.
@@ -371,7 +437,7 @@ def ingest_mock_cost_data(
 def ingest_mock_job_data(
     *,
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> Any:
     """
     Ingest mock job metadata into the database.
@@ -507,7 +573,7 @@ def import_cost_csv(
         description="Team ID to associate with ingested cost data"
     ),
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> Any:
     """
     Import GPU cost data from CSV file.
@@ -647,13 +713,69 @@ def import_cost_csv(
 
 
 @router.get(
+    "/analytics/usage",
+    response_model=list,
+    summary="Usage analytics dashboard (admin)",
+    description="Aggregated API usage by team and date for analytics dashboard.",
+)
+def get_usage_analytics(
+    from_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    to_date: date | None = Query(None, description="End date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    _: Any = Depends(require_admin),
+) -> Any:
+    """Usage analytics: API calls by team and date."""
+    from datetime import datetime, timedelta
+    to_d = to_date or datetime.utcnow().date()
+    from_d = from_date or (to_d - timedelta(days=30))
+    rows = (
+        db.query(
+            Team.name,
+            ApiUsage.team_id,
+            ApiUsage.date,
+            ApiUsage.endpoint,
+            func.sum(ApiUsage.count).label("count"),
+        )
+        .join(Team, Team.id == ApiUsage.team_id)
+        .filter(ApiUsage.date >= from_d, ApiUsage.date <= to_d)
+        .group_by(Team.name, ApiUsage.team_id, ApiUsage.date, ApiUsage.endpoint)
+        .order_by(ApiUsage.date.desc(), func.sum(ApiUsage.count).desc())
+        .limit(1000)
+        .all()
+    )
+    return [
+        {
+            "team_name": r[0],
+            "team_id": str(r[1]),
+            "date": r[2].isoformat() if r[2] else None,
+            "endpoint": r[3],
+            "count": r[4],
+        }
+        for r in rows
+    ]
+
+
+@router.get(
+    "/feature-flags",
+    response_model=dict,
+    summary="Feature flags (admin)",
+    description="Return all feature flags and their current state.",
+)
+def get_feature_flags(
+    _: Any = Depends(require_admin),
+) -> dict:
+    """Return all feature flags for admin visibility."""
+    return get_all_flags()
+
+
+@router.get(
     "/health",
     status_code=status.HTTP_200_OK,
     summary="Admin health check",
     description="Verify admin API is accessible and API key authentication is working.",
 )
 def admin_health_check(
-    api_key: str = Depends(verify_admin_api_key),
+    _: Any = Depends(require_admin),
 ) -> dict:
     """
     Admin health check endpoint.

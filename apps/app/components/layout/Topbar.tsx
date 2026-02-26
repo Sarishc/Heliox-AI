@@ -6,7 +6,8 @@
  */
 
 import { useState } from "react";
-import { Search, Bell, ChevronDown, Moon, Sun, Menu } from "lucide-react";
+import { Search, Bell, ChevronDown, Moon, Sun, Menu, LogOut } from "lucide-react";
+import { fetchJson } from "@/lib/api";
 import { Button } from "../ui/Button";
 import { DemoModeToggle } from "../ui/DemoModeToggle";
 
@@ -17,6 +18,17 @@ interface TopbarProps {
 
 export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
   const [darkMode, setDarkMode] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
+
+  const handleLogout = async () => {
+    setUserOpen(false);
+    try {
+      await fetchJson("/api/v1/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    window.location.href = "/login";
+  };
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
@@ -86,13 +98,36 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-danger-500 rounded-full border-2 border-background" />
           </button>
 
-          {/* User Avatar */}
-          <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-sm font-semibold">
-              U
-            </div>
-            <ChevronDown className="w-4 h-4 text-muted-foreground hidden sm:block" />
-          </button>
+          {/* User Avatar + Logout */}
+          <div className="relative">
+            <button
+              onClick={() => setUserOpen(!userOpen)}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors"
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-sm font-semibold">
+                U
+              </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground hidden sm:block" />
+            </button>
+            {userOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setUserOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="absolute right-0 top-full mt-1 py-1 w-48 bg-background border border-border rounded-lg shadow-lg z-50">
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-foreground hover:bg-muted"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Log out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </header>

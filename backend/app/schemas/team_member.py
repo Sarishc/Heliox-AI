@@ -14,6 +14,7 @@ class TeamMemberCreate(BaseModel):
 
 
 class TeamMemberUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     role: TeamRole = Field(..., description="Updated role")
 
 

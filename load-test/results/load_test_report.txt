@@ -1,0 +1,34 @@
+
+================================================================================
+HELIOX LOAD TEST REPORT — Day 4 (P1-2, P1-3)
+================================================================================
+
+Configuration:
+  - 100 concurrent users
+  - ~500 requests/minute target
+  - Duration: 5 minutes
+
+Results:
+  Success Rate:  29.1%  (target ≥95%)  ❌ FAIL
+  p99 Latency:   69ms   (target <200ms)  ✅ PASS
+  Memory Peak:   85.9%  (target <75%)  ❌ FAIL
+  CPU Peak:      65.8%  (target <75%)  ✅ PASS
+
+Additional Metrics:
+  Total Requests: 9244
+  Failures:        6555
+  Median (ms):     8.0
+  p95 (ms):        21.0
+  Memory Avg:      84.1%
+  CPU Avg:         33.8%
+
+================================================================================
+VERDICT: ❌ FAIL
+================================================================================
+
+Expected Score After Fixes:
+  Security: 85–88
+  Performance: 80+
+  Enterprise readiness: 85–90
+
+  Beta → GO | Paid → GO | Enterprise → Conditional GO

@@ -1,15 +1,17 @@
 """
 Heliox AI Load Testing Suite
-Simulates 50 startups with realistic usage patterns
+Simulates 100 concurrent users at 500 req/min target.
 """
+import os
 import random
 import time
 from locust import HttpUser, task, between, events
 from datetime import datetime, timedelta
 
-# Test configuration
-API_KEY = "hlx_jjN3llgYZZIHY63Qk0JdhqSNvra8JG4k4u3SAs_wKvY"  # Demo team API key
-ADMIN_API_KEY = "heliox-admin-dev-key-change-in-production"
+# Test configuration - use env vars for CI/load-test compatibility
+API_KEY = os.environ.get("HELIOX_LOAD_TEST_API_KEY", "hlx_loadtest_placeholder")
+ADMIN_API_KEY = os.environ.get("HELIOX_ADMIN_API_KEY", "dev-admin-key-change-me")
+API_PREFIX = "/api/v1"
 
 # Realistic model and team names
 MODELS = [
@@ -25,11 +27,17 @@ TEAMS = [
 PROVIDERS = ["aws", "gcp", "azure", "lambda-labs", "runpod"]
 
 
+# Target: 500 req/min with 100 users = 5 req/min per user = 1 req every 12 sec
+# wait_time between(10, 14) yields ~12s avg → ~500 req/min total
+LOAD_TEST_WAIT_MIN = int(os.environ.get("HELIOX_LOAD_WAIT_MIN", "10"))
+LOAD_TEST_WAIT_MAX = int(os.environ.get("HELIOX_LOAD_WAIT_MAX", "14"))
+
+
 class HelioxAPIUser(HttpUser):
     """
     Simulates a typical Heliox user
     """
-    wait_time = between(1, 3)  # Wait 1-3 seconds between tasks
+    wait_time = between(LOAD_TEST_WAIT_MIN, LOAD_TEST_WAIT_MAX)  # ~500 req/min with 100 users
     
     def on_start(self):
         """Initialize user session"""
@@ -44,10 +52,10 @@ class HelioxAPIUser(HttpUser):
     def view_dashboard_costs(self):
         """Most common action: view costs"""
         with self.client.get(
-            "/api/costs/snapshots",
+            f"{API_PREFIX}/costs/",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/costs/snapshots"
+            name="GET /api/v1/costs/"
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -58,10 +66,10 @@ class HelioxAPIUser(HttpUser):
     def view_forecasts(self):
         """View GPU cost forecasts"""
         with self.client.get(
-            "/api/forecasts",
+            f"{API_PREFIX}/forecast/usage",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/forecasts"
+            name="GET /api/v1/forecast/usage"
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -70,12 +78,12 @@ class HelioxAPIUser(HttpUser):
     
     @task(5)
     def view_teams(self):
-        """View team list"""
+        """View team context (me)"""
         with self.client.get(
-            "/api/teams",
+            f"{API_PREFIX}/me",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/teams"
+            name="GET /api/v1/me"
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -85,24 +93,24 @@ class HelioxAPIUser(HttpUser):
     @task(3)
     def ingest_cost_data(self):
         """Simulate cost data ingestion"""
+        from datetime import date
+        today = date.today()
         payload = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "total_cost": round(random.uniform(100, 5000), 2),
-            "gpu_hours": round(random.uniform(10, 500), 2),
-            "breakdown": {
-                "model": random.choice(MODELS),
-                "provider": random.choice(PROVIDERS),
-                "region": random.choice(["us-east-1", "us-west-2", "eu-west-1"]),
-                "team": random.choice(TEAMS)
-            }
+            "records": [
+                {
+                    "date": today.isoformat(),
+                    "provider": random.choice(PROVIDERS),
+                    "gpu_type": random.choice(["a100", "h100", "v100", "a10g"]),
+                    "cost_usd": round(random.uniform(10, 500), 2)
+                }
+            ]
         }
-        
         with self.client.post(
-            "/api/costs/ingest",
+            f"{API_PREFIX}/ingest/cost",
             json=payload,
             headers=self.headers,
             catch_response=True,
-            name="POST /api/costs/ingest"
+            name="POST /api/v1/ingest/cost"
         ) as response:
             if response.status_code in [200, 201]:
                 response.success()
@@ -113,10 +121,10 @@ class HelioxAPIUser(HttpUser):
     def view_optimization_recommendations(self):
         """Check optimization opportunities"""
         with self.client.get(
-            "/api/optimizations/recommendations",
+            f"{API_PREFIX}/optimize/recommendations",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/optimizations/recommendations"
+            name="GET /api/v1/optimize/recommendations"
         ) as response:
             if response.status_code in [200, 404]:  # 404 acceptable if no data
                 response.success()
@@ -127,10 +135,10 @@ class HelioxAPIUser(HttpUser):
     def view_budgets(self):
         """View budget alerts"""
         with self.client.get(
-            "/api/budgets",
+            f"{API_PREFIX}/budgets/",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/budgets"
+            name="GET /api/v1/budgets/"
         ) as response:
             if response.status_code in [200, 404]:
                 response.success()
@@ -141,10 +149,10 @@ class HelioxAPIUser(HttpUser):
     def view_integrations(self):
         """View integrations status"""
         with self.client.get(
-            "/api/integrations",
+            f"{API_PREFIX}/integrations",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/integrations"
+            name="GET /api/v1/integrations"
         ) as response:
             if response.status_code == 200:
                 response.success()
@@ -154,22 +162,22 @@ class HelioxAPIUser(HttpUser):
     @task(1)
     def trigger_sync(self):
         """Simulate integration sync (expensive operation)"""
-        # First get integrations
         response = self.client.get(
-            "/api/integrations",
+            f"{API_PREFIX}/integrations",
             headers=self.headers,
             catch_response=False
         )
-        
-        if response.status_code == 200 and response.json():
-            integrations = response.json()
-            if integrations:
-                integration_id = integrations[0].get("id")
+        data = response.json() if response.status_code == 200 else {}
+        connections = data.get("connections", []) if isinstance(data, dict) else []
+        if connections:
+            conn = connections[0] if isinstance(connections[0], dict) else {"id": str(connections[0])}
+            integration_id = conn.get("id")
+            if integration_id:
                 with self.client.post(
-                    f"/api/integrations/{integration_id}/sync",
+                    f"{API_PREFIX}/integrations/{integration_id}/sync",
                     headers=self.headers,
                     catch_response=True,
-                    name="POST /api/integrations/{id}/sync"
+                    name="POST /api/v1/integrations/{id}/sync"
                 ) as sync_response:
                     if sync_response.status_code in [200, 202, 404]:
                         sync_response.success()
@@ -181,7 +189,7 @@ class HelioxAdminUser(HttpUser):
     """
     Simulates admin operations (less frequent)
     """
-    wait_time = between(5, 10)
+    wait_time = between(12, 18)  # Slower than API users to keep ~500 req/min total
     weight = 1  # Less admin users
     
     def on_start(self):
@@ -195,10 +203,10 @@ class HelioxAdminUser(HttpUser):
     def view_all_teams(self):
         """Admin: view all teams"""
         with self.client.get(
-            "/api/admin/teams",
+            f"{API_PREFIX}/admin/teams",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/admin/teams"
+            name="GET /api/v1/admin/teams"
         ) as response:
             if response.status_code in [200, 404]:
                 response.success()
@@ -207,12 +215,12 @@ class HelioxAdminUser(HttpUser):
     
     @task(2)
     def view_system_stats(self):
-        """Admin: system statistics"""
+        """Admin: health check (stats proxy)"""
         with self.client.get(
-            "/api/admin/stats",
+            f"{API_PREFIX}/admin/health",
             headers=self.headers,
             catch_response=True,
-            name="GET /api/admin/stats"
+            name="GET /api/v1/admin/health"
         ) as response:
             if response.status_code in [200, 404]:
                 response.success()
@@ -221,18 +229,12 @@ class HelioxAdminUser(HttpUser):
     
     @task(1)
     def seed_demo_data(self):
-        """Admin: seed demo data"""
-        payload = {
-            "team_name": f"LoadTest-{random.randint(1000, 9999)}",
-            "days_back": 30
-        }
-        
+        """Admin: seed demo data (creates load test key when requested)"""
         with self.client.post(
-            "/api/admin/demo/seed",
-            json=payload,
+            f"{API_PREFIX}/admin/demo/seed?create_load_test_key=true",
             headers=self.headers,
             catch_response=True,
-            name="POST /api/admin/demo/seed"
+            name="POST /api/v1/admin/demo/seed"
         ) as response:
             if response.status_code in [200, 201]:
                 response.success()

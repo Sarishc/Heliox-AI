@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import get_api_key
+from app.auth.admin_auth import require_admin
 from app.models.alert_settings import AlertSettings
 from app.models.team import Team
 from app.schemas.alert_settings import (
@@ -35,7 +35,7 @@ def _mask_webhook(url: str | None) -> str | None:
 )
 def list_alert_settings(
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key)
+    _: Any = Depends(require_admin)
 ) -> Any:
     """
     List alert settings for all teams.
@@ -57,7 +57,7 @@ def list_alert_settings(
 def get_alert_settings(
     team_id: UUID,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key)
+    _: Any = Depends(require_admin)
 ) -> Any:
     """
     Get alert settings for a specific team.
@@ -107,7 +107,7 @@ def get_alert_settings(
 def create_alert_settings(
     settings_in: AlertSettingsCreate,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key)
+    _: Any = Depends(require_admin)
 ) -> Any:
     """
     Create alert settings for a team.
@@ -155,7 +155,7 @@ def update_alert_settings(
     team_id: UUID,
     settings_update: AlertSettingsUpdate,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key)
+    _: Any = Depends(require_admin)
 ) -> Any:
     """
     Update alert settings for a team.
@@ -204,7 +204,7 @@ def update_alert_settings(
 def delete_alert_settings(
     team_id: UUID,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key)
+    _: Any = Depends(require_admin)
 ) -> None:
     """
     Delete alert settings for a team.

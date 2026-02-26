@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     setup_logging()
+    from app.core.observability import init_sentry, init_opentelemetry
+    init_sentry()
+    init_opentelemetry()
     logger.info("=" * 60)
     logger.info(f"Starting {settings.APP_NAME}")
     logger.info(f"Environment: {settings.ENV}")
@@ -81,7 +84,19 @@ app = FastAPI(
 )
 
 
-# Rate Limiting (applied before other middleware)
+# Security headers (HTTPS redirect, HSTS, CSP, etc.)
+from app.middleware.security_headers import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CSRF protection for cookie-authenticated state-changing requests
+from app.middleware.csrf import CSRFMiddleware
+app.add_middleware(CSRFMiddleware)
+
+# Tenant context (injects tenant_id into request.state when resolved by auth)
+from app.middleware.tenant_context import TenantContextMiddleware
+app.add_middleware(TenantContextMiddleware)
+
+# Rate Limiting (100/min per user, IP fallback)
 app.add_middleware(RateLimitMiddleware)
 logger.info("Rate limiting middleware enabled")
 
@@ -100,52 +115,99 @@ logger.info("Entitlement check middleware enabled")
 
 # CORS Configuration
 if settings.CORS_ENABLED:
+    origins = settings.CORS_ORIGINS
+    if not origins and settings.ENV == "dev":
+        origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    logger.info(f"CORS enabled for origins: {settings.CORS_ORIGINS}")
+    logger.info(f"CORS enabled for origins: {origins}")
+
+
+SLOW_QUERY_THRESHOLD_MS = 200
 
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     """
-    Middleware for request ID tracking and request/response logging.
-    
-    Generates a unique request ID and logs request/response for observability.
+    Middleware for correlation ID, Prometheus metrics, request logging, and slow query profiling.
     """
-    # Get or generate request ID
-    request_id = request.headers.get("X-Request-ID", get_request_id())
-    set_request_id(request_id)
+    import time
+    start_time = time.perf_counter()
+    # Correlation ID: X-Correlation-ID or X-Request-ID (Kubernetes/standard)
+    correlation_id = (
+        request.headers.get("X-Correlation-ID")
+        or request.headers.get("X-Request-ID")
+        or get_request_id()
+    )
+    set_request_id(correlation_id)
     
-    # Log request (skip health checks to reduce noise)
-    if request.url.path not in ["/health", "/health/db"]:
+    if request.url.path not in ["/health", "/health/db", "/metrics"]:
         logger.debug(
             f"Request: {request.method} {request.url.path}",
-            extra={"request_id": request_id, "method": request.method, "path": request.url.path}
+            extra={"correlation_id": correlation_id, "method": request.method, "path": request.url.path}
         )
     
-    # Process request
     response = await call_next(request)
     
-    # Log response status (skip health checks to reduce noise)
-    if request.url.path not in ["/health", "/health/db"]:
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    elapsed_sec = elapsed_ms / 1000.0
+
+    # Prometheus metrics (skip /metrics to avoid recursion)
+    if request.url.path != "/metrics":
+        from app.core.metrics import (
+            REQUEST_COUNT,
+            REQUEST_LATENCY,
+            ERROR_COUNT,
+            get_status_class,
+            normalize_path,
+        )
+        path_template = normalize_path(request.url.path)
+        status_class = get_status_class(response.status_code)
+        REQUEST_COUNT.labels(
+            method=request.method,
+            path_template=path_template,
+            status_class=status_class,
+        ).inc()
+        REQUEST_LATENCY.labels(
+            method=request.method,
+            path_template=path_template,
+        ).observe(elapsed_sec)
+        if status_class == "5xx":
+            ERROR_COUNT.labels(
+                method=request.method,
+                path_template=path_template,
+            ).inc()
+
+    if elapsed_ms > SLOW_QUERY_THRESHOLD_MS:
+        logger.warning(
+            f"SLOW REQUEST: {request.method} {request.url.path} took {elapsed_ms:.0f}ms (threshold: {SLOW_QUERY_THRESHOLD_MS}ms)",
+            extra={
+                "correlation_id": correlation_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": round(elapsed_ms),
+                "status_code": response.status_code,
+            }
+        )
+    elif request.url.path not in ["/health", "/health/db", "/metrics"]:
         logger.debug(
             f"Response: {request.method} {request.url.path} {response.status_code}",
             extra={
-                "request_id": request_id,
+                "correlation_id": correlation_id,
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": response.status_code
             }
         )
     
-    # Add request ID to response headers
-    response.headers["X-Request-ID"] = request_id
-    
+    response.headers["X-Request-ID"] = correlation_id
+    response.headers["X-Correlation-ID"] = correlation_id
+    response.headers["X-Response-Time-Ms"] = str(round(elapsed_ms))
     return response
 
 
@@ -153,17 +215,20 @@ async def request_logging_middleware(request: Request, call_next):
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Global exception handler for unhandled errors.
-    
-    Returns consistent JSON error response with request ID.
+    Reports to Sentry and returns consistent JSON error response.
     """
     request_id = get_request_id()
-    
     logger.error(
         f"Unhandled exception: {str(exc)}",
         exc_info=True,
-        extra={"request_id": request_id, "path": request.url.path}
+        extra={"correlation_id": request_id, "path": request.url.path}
     )
-    
+    if settings.SENTRY_DSN:
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -243,12 +308,26 @@ async def validation_exception_handler(
 @app.get("/health", tags=["Health"])
 async def health_check() -> Dict[str, str]:
     """
-    Basic health check endpoint.
-    
-    Returns:
-        dict: Status indicating service is running
+    Basic health check endpoint (liveness).
+    Returns 200 if the process is running.
     """
     return {"status": "ok"}
+
+
+@app.get("/liveness", tags=["Health"])
+async def liveness_check() -> Dict[str, str]:
+    """
+    Kubernetes liveness probe: process is alive.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/readiness", tags=["Health"])
+async def readiness_alias() -> Dict[str, str]:
+    """
+    Alias for /ready - Kubernetes readiness probe.
+    """
+    return await readiness_check()
 
 
 @app.get("/ready", tags=["Health"])
@@ -335,6 +414,20 @@ from app.api.routes import share
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(share.router)
+
+
+@app.get("/metrics", tags=["Observability"])
+async def metrics():
+    """Prometheus metrics endpoint."""
+    from app.core.metrics import get_metrics
+    data, content_type = get_metrics()
+    from fastapi.responses import Response
+    return Response(content=data, media_type=content_type)
+
+
+# OpenTelemetry instrumentation (after routes)
+from app.core.observability import instrument_app
+instrument_app(app)
 
 
 if __name__ == "__main__":

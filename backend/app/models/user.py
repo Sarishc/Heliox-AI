@@ -47,6 +47,13 @@ class User(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Whether the user account is active"
     )
+    is_platform_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+        comment="Platform admin can access admin endpoints (replaces global API key)"
+    )
     
     if TYPE_CHECKING:
         from app.models.team_member import TeamMember

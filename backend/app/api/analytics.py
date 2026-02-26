@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
+from app.auth.team_resolution import TeamContext, get_team_api_key_or_session_optional
 from app.core.db import get_db
 from app.core.usage_tracking import record_api_usage
-from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.team_api_key import TeamAPIKey
 from app.schemas.savings import SavingsSummaryResponse
@@ -80,8 +80,7 @@ def get_cost_by_model(
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
-    # Public endpoint for demo - no authentication required
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     """
     Get total cost aggregated by ML model for a date range.
@@ -274,7 +273,7 @@ def get_cost_by_team(
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
     # Public endpoint for demo - no authentication required
 ) -> Any:
     """
@@ -397,7 +396,7 @@ def get_savings_summary(
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     if end < start:
         raise HTTPException(
@@ -523,7 +522,7 @@ def get_total_spend(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     if end < start:
         raise HTTPException(status_code=400, detail="end_date must be >= start_date")
@@ -558,7 +557,7 @@ def get_idle_waste(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     if end < start:
         raise HTTPException(status_code=400, detail="end_date must be >= start_date")
@@ -619,7 +618,7 @@ def get_idle_waste(
 def ingest_business_metrics(
     payload: BusinessMetricIngestRequest,
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     team_id = get_effective_team_id(team_api_key)
     results = []
@@ -660,7 +659,7 @@ def get_business_efficiency(
     window_days: int = Query(7, ge=1, le=30, description="Smoothing window in days"),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     if end and start and end < start:
         raise HTTPException(

@@ -1,8 +1,11 @@
 /**
  * API utility functions for consistent API calls across the application.
  *
- * Centralizes API base URL handling and provides type-safe API methods.
+ * Centralizes API base URL handling, cookie-based auth, retry logic, and error handling.
+ * Uses httpOnly cookies for auth - no token storage in localStorage.
  */
+
+const MAX_RETRIES = 2;
 
 /**
  * Get the API base URL from environment variables.
@@ -24,7 +27,6 @@ export function getApiBaseUrl(): string {
   }
 
   // Fallback to localhost only in development
-  // In production, empty string will cause clear errors (better than silent failures)
   if (!apiBaseUrl && process.env.NODE_ENV === "production") {
     return "";
   }
@@ -47,8 +49,33 @@ export function getApiUrl(path: string): string {
   return `${baseUrl}${normalizedPath}`;
 }
 
+/** CSRF cookie name (must match backend). */
+const CSRF_COOKIE = "heliox_csrf";
+
+/** Get CSRF token from cookie for OWASP CSRF protection. */
+function getCsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(^| )${CSRF_COOKIE}=([^;]+)`));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
 /**
- * Fetch from API with consistent error handling.
+ * Redirect to login on 401 (expired/missing session).
+ */
+function redirectToLogin(): void {
+  if (typeof window === "undefined") return;
+  const current = window.location.pathname;
+  if (current !== "/login" && current !== "/signup") {
+    window.location.href = `/login?redirect=${encodeURIComponent(current)}`;
+  }
+}
+
+/**
+ * Fetch from API with credentials (cookies), retry logic, and error handling.
+ *
+ * - credentials: 'include' sends httpOnly auth cookie (no tokens in localStorage)
+ * - 401 triggers redirect to login
+ * - Retries up to MAX_RETRIES on network/5xx errors
  *
  * @param endpoint - API endpoint path
  * @param options - Fetch options
@@ -56,187 +83,132 @@ export function getApiUrl(path: string): string {
  */
 export async function fetchApi(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit & { skipAuthRedirect?: boolean }
 ): Promise<Response> {
   const url = getApiUrl(endpoint);
-  const apiKey = getStoredApiKey();
-  const devApiKey = "hlx_jjN3llgYZZIHY63Qk0JdhqSNvra8JG4k4u3SAs_wKvY"; // Dev API key for localhost
-  const accessToken = getStoredAccessToken();
-  const isLocalhost = typeof window !== 'undefined' && 
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const skipAuthRedirect = options?.skipAuthRedirect ?? false;
+  const { skipAuthRedirect: _, ...fetchOptions } = options ?? {};
 
-  try {
+  const doFetch = async (attempt: number): Promise<Response> => {
+    const method = (fetchOptions?.method ?? "GET").toUpperCase();
+    const isStateChange = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
+    const csrfToken = isStateChange ? getCsrfToken() : null;
+
     const response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        // Use stored API key if available, otherwise use dev key on localhost
-        ...(apiKey ? { "X-API-Key": apiKey } : (isLocalhost ? { "X-API-Key": devApiKey } : {})),
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        ...options?.headers
+        ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        ...fetchOptions?.headers,
       },
     });
 
-    return response;
-  } catch (error) {
-    // Network error - API is unreachable
-    if (error instanceof TypeError && error.message.includes("fetch")) {
-      throw new Error(
-        "Unable to connect to API. Please check your connection and ensure the backend is running."
-      );
+    if (response.status === 401 && !skipAuthRedirect) {
+      redirectToLogin();
+      throw new Error("Session expired. Redirecting to login.");
     }
-    throw error;
-  }
-}
 
-const API_KEY_STORAGE = "heliox_api_key";
-const ACCESS_TOKEN_STORAGE = "heliox_access_token";
-const DEV_BOOTSTRAP_STORAGE = "heliox_dev_bootstrap_done";
-
-export function getStoredApiKey(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(API_KEY_STORAGE);
-}
-
-export function setStoredApiKey(key: string) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(API_KEY_STORAGE, key);
-}
-
-export function clearStoredApiKey() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(API_KEY_STORAGE);
-}
-
-export function getStoredAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(ACCESS_TOKEN_STORAGE);
-}
-
-export function setStoredAccessToken(token: string) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(ACCESS_TOKEN_STORAGE, token);
-}
-
-export function clearStoredAccessToken() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(ACCESS_TOKEN_STORAGE);
-}
-
-export async function bootstrapDevApiKey(): Promise<void> {
-  if (typeof window === "undefined") return;
-  if (getStoredApiKey()) return;
-  if (localStorage.getItem(DEV_BOOTSTRAP_STORAGE) === "done") return;
-
-  const hostname = window.location.hostname;
-  const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
-  if (!isLocalhost) return;
-
-  const devAdminKey = "dev-admin-key-change-me";
-
-  const baseUrl = getApiBaseUrl();
-  const adminHeaders = {
-    "Content-Type": "application/json",
-    "X-API-Key": devAdminKey,
+    return response;
   };
 
-  try {
-    console.log("[Bootstrap] Starting dev environment bootstrap...");
-    
-    const teamsResponse = await fetch(`${baseUrl}/api/v1/admin/teams`, {
-      headers: adminHeaders,
-    });
-
-    if (!teamsResponse.ok) {
-      console.error("[Bootstrap] Failed to fetch teams:", teamsResponse.status);
-      return;
-    }
-
-    const teams = await teamsResponse.json();
-    let teamId: string | null = teams?.[0]?.id ?? null;
-    let apiKey: string | null = null;
-
-    if (!teamId) {
-      console.log("[Bootstrap] No teams found, creating demo team...");
-      const onboardResponse = await fetch(`${baseUrl}/api/v1/admin/onboard`, {
-        method: "POST",
-        headers: adminHeaders,
-        body: JSON.stringify({
-          team_name: "Demo Team",
-          api_key_name: "Local Dev Key",
-          monthly_budget_usd: 25000,
-        }),
-      });
-
-      if (onboardResponse.ok) {
-        const onboardPayload = await onboardResponse.json();
-        teamId = onboardPayload.team_id ?? null;
-        apiKey = onboardPayload.api_key ?? null;
-        console.log("[Bootstrap] Demo team created:", teamId);
-      } else {
-        console.error("[Bootstrap] Failed to create team:", onboardResponse.status);
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await doFetch(attempt);
+      // Retry on 5xx or network failure
+      if (response.status >= 500 && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+        continue;
       }
-    } else {
-      console.log("[Bootstrap] Found existing team:", teamId);
-    }
-
-    if (!apiKey && teamId) {
-      console.log("[Bootstrap] Creating API key for team...");
-      const keyResponse = await fetch(`${baseUrl}/api/v1/admin/teams/${teamId}/api-keys`, {
-        method: "POST",
-        headers: adminHeaders,
-        body: JSON.stringify({ team_id: teamId, key_name: "Local Dev Key" }),
-      });
-
-      if (keyResponse.ok) {
-        const keyPayload = await keyResponse.json();
-        apiKey = keyPayload.api_key ?? null;
-        console.log("[Bootstrap] API key created");
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof Error && error.message.includes("Redirecting to login")) throw error;
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
       } else {
-        console.error("[Bootstrap] Failed to create API key:", keyResponse.status);
+        break;
       }
     }
-
-    if (apiKey) {
-      setStoredApiKey(apiKey);
-      localStorage.setItem(DEV_BOOTSTRAP_STORAGE, "done");
-      console.log("[Bootstrap] API key saved to localStorage");
-
-      console.log("[Bootstrap] Seeding demo data...");
-      const seedResponse = await fetch(`${baseUrl}/api/v1/admin/demo/seed`, {
-        method: "POST",
-        headers: adminHeaders,
-      });
-      
-      if (seedResponse.ok) {
-        console.log("[Bootstrap] Demo data seeded successfully");
-      } else {
-        console.error("[Bootstrap] Failed to seed demo data:", seedResponse.status);
-      }
-    }
-  } catch (error) {
-    console.error("[Bootstrap] Bootstrap failed:", error);
-    // Ignore bootstrap failures to avoid blocking the UI.
   }
+
+  // Detect network/fetch failures (Chrome: "Failed to fetch", Safari: "Load failed", etc.)
+  const errMsg = lastError instanceof Error ? lastError.message : String(lastError);
+  const isNetworkError =
+    lastError instanceof TypeError ||
+    /fetch|load failed|network|connection refused|cors/i.test(errMsg);
+  if (isNetworkError) {
+    throw new Error(
+      "Unable to connect to API. Please check your connection and ensure the backend is running."
+    );
+  }
+  throw lastError;
+}
+
+/**
+ * No API key or token storage - auth is cookie-only (httpOnly).
+ * API keys are for programmatic access (CLI); copy from Settings when created.
+ */
+export function getStoredApiKey(): string | null {
+  return null;
+}
+
+/** No-op: API keys must not be stored in JS-accessible storage. */
+export function setStoredApiKey(_key: string) {
+  // No-op: use cookie auth only
+}
+
+/** No-op: no stored API key to clear. */
+export function clearStoredApiKey() {
+  // No-op
+}
+
+/** @deprecated Auth uses httpOnly cookies - no token storage. */
+export function getStoredAccessToken(): string | null {
+  return null;
+}
+
+/** @deprecated Auth uses httpOnly cookies - no-op. */
+export function setStoredAccessToken(_token: string) {
+  // No-op: auth is cookie-based
+}
+
+/** @deprecated Auth uses httpOnly cookies - no-op. Use logout endpoint. */
+export function clearStoredAccessToken() {
+  // No-op
+}
+
+/**
+ * No-op: Dev bootstrap removed for security.
+ * Users must sign up and log in; use onboarding to create a team.
+ */
+export async function bootstrapDevApiKey(): Promise<void> {
+  // No-op: cookie-only auth; no API key storage
 }
 
 /**
  * Fetch JSON from API with error handling.
  *
  * @param endpoint - API endpoint path
- * @param options - Fetch options
+ * @param options - Fetch options (skipAuthRedirect to avoid redirect on 401)
  * @returns Parsed JSON response
  */
 export async function fetchJson<T = unknown>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit & { skipAuthRedirect?: boolean }
 ): Promise<T> {
   const response = await fetchApi(endpoint, options);
 
   if (!response.ok) {
-    throw new Error(
-      `API request failed: ${response.status} ${response.statusText}`
-    );
+    let detail = response.statusText;
+    try {
+      const body = await response.json();
+      detail = body?.detail ?? body?.message ?? detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
   }
 
   return response.json();

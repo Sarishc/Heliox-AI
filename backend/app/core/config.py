@@ -75,7 +75,8 @@ class Settings(BaseSettings):
     )
     
     ADMIN_API_KEY: str = Field(
-        description="API key for admin endpoints (REQUIRED - set via environment variable)"
+        default="",
+        description="Deprecated: API key for admin endpoints. Prefer RBAC (is_platform_admin). Empty = use platform admin only."
     )
     
     # Integrations
@@ -90,14 +91,26 @@ class Settings(BaseSettings):
         description="Sampling rate for API usage metering (1.0 = 100%, 0.1 = 10%)"
     )
     
-    # Rate Limiting
+    # Rate Limiting (OWASP)
     RATE_LIMIT_WINDOW_SECONDS: int = Field(
         default=60,
         description="Time window for rate limiting (seconds)"
     )
     RATE_LIMIT_MAX_REQUESTS: int = Field(
-        default=1000,
-        description="Maximum requests per window per client (set high for development)"
+        default=600,
+        description="Max requests per window per user/IP (500 req/min target for 100 users)"
+    )
+    RATE_LIMIT_LOGIN_ATTEMPTS: int = Field(
+        default=5,
+        description="Max login attempts per minute per IP (OWASP: 5/min)"
+    )
+    LOGIN_LOCKOUT_AFTER: int = Field(
+        default=5,
+        description="Account lockout after N failed attempts"
+    )
+    LOGIN_LOCKOUT_MINUTES: int = Field(
+        default=15,
+        description="Lockout duration in minutes"
     )
     
     # Stripe Billing
@@ -139,7 +152,65 @@ class Settings(BaseSettings):
         default="http://localhost:3000",
         description="Frontend URL for OAuth redirects"
     )
+
+    # CSRF (enabled in production; set CSRF_PROTECTION_ENABLED=true for staging)
+    CSRF_PROTECTION_ENABLED: bool = Field(
+        default=False,
+        description="Enable CSRF validation for cookie-authenticated requests.",
+    )
+
+    # hCaptcha (CAPTCHA verification)
+    HCAPTCHA_SECRET_KEY: str = Field(
+        default="",
+        description="hCaptcha secret key for server-side verification. Required when CAPTCHA is enforced. For local dev with test keys use 0x0000000000000000000000000000000000000000"
+    )
+    HCAPTCHA_SITE_KEY: str = Field(
+        default="",
+        description="hCaptcha site key (public) for frontend widget. Expose via NEXT_PUBLIC_HCAPTCHA_SITE_KEY."
+    )
+
+    # Auth cookie settings
+    AUTH_COOKIE_NAME: str = Field(
+        default="heliox_session",
+        description="Name of the httpOnly auth cookie"
+    )
+    AUTH_COOKIE_MAX_AGE: int = Field(
+        default=60 * 60 * 24 * 7,  # 7 days in seconds
+        description="Auth cookie max age in seconds"
+    )
+    AUTH_COOKIE_SECURE: bool = Field(
+        default=False,
+        description="Set Secure flag (True in production over HTTPS)"
+    )
     
+    # Observability
+    SENTRY_DSN: str = Field(
+        default="",
+        description="Sentry DSN for error monitoring. Empty = disabled."
+    )
+    SENTRY_ENVIRONMENT: str = Field(
+        default="",
+        description="Sentry environment (defaults to ENV if empty)"
+    )
+    OTEL_ENABLED: bool = Field(
+        default=False,
+        description="Enable OpenTelemetry tracing"
+    )
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = Field(
+        default="http://localhost:4317",
+        description="OTLP exporter endpoint (Jaeger, etc.)"
+    )
+    LOG_JSON_FORMAT: bool = Field(
+        default=True,
+        description="Use JSON format for logs (structured logging)"
+    )
+
+    # Feature flags (JSON or comma-separated key=value)
+    FEATURE_FLAGS: str = Field(
+        default="",
+        description="Feature flags JSON or key=value pairs. Empty = all enabled."
+    )
+
     # Slack Notifications
     SLACK_WEBHOOK_URL: str = Field(
         default="",

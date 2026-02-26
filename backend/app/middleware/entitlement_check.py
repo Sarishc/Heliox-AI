@@ -35,6 +35,11 @@ class EntitlementCheckMiddleware(BaseHTTPMiddleware):
     # Paths to skip entitlement check
     EXCLUDED_PATHS = {
         "/health",
+        "/health/db",
+        "/ready",
+        "/readiness",
+        "/liveness",
+        "/metrics",
         "/docs",
         "/redoc",
         "/openapi.json",

@@ -110,15 +110,18 @@ def read_job(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
-    Get job by ID.
+    Get job by ID. Scoped to user's teams at DB level.
     """
-    job = crud_job.get(db, id=job_id)
+    team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()]
+    if not team_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    from app.models.job import Job as JobModel
+    job = db.query(JobModel).filter(
+        JobModel.id == job_id,
+        JobModel.team_id.in_(team_ids)
+    ).first()
     if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-    require_team_access(db, user=current_user, team_id=job.team_id)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return job
 
 
@@ -131,20 +134,19 @@ def update_job(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
-    Update a job.
+    Update a job. Scoped to user's teams at DB level.
     """
-    job = crud_job.get(db, id=job_id)
+    team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()]
+    if not team_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    job = None
+    for tid in team_ids:
+        job = crud_job.get_by_team(db, id=job_id, team_id=tid)
+        if job:
+            break
     if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-    require_team_access(
-        db,
-        user=current_user,
-        team_id=job.team_id,
-        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
-    )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    require_team_access(db, user=current_user, team_id=job.team_id, allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN])
     job = crud_job.update(db, db_obj=job, obj_in=job_in)
     return job
 
@@ -157,19 +159,18 @@ def delete_job(
     current_user: User = Depends(get_current_active_user)
 ) -> None:
     """
-    Delete a job.
+    Delete a job. Scoped to user's teams at DB level. Requires owner/admin.
     """
-    job = crud_job.get(db, id=job_id)
+    team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()]
+    if not team_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    job = None
+    for tid in team_ids:
+        job = crud_job.get_by_team(db, id=job_id, team_id=tid)
+        if job:
+            break
     if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-    require_team_access(
-        db,
-        user=current_user,
-        team_id=job.team_id,
-        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
-    )
-    crud_job.delete(db, id=job_id)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    require_team_access(db, user=current_user, team_id=job.team_id, allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN])
+    crud_job.delete_by_team(db, id=job_id, team_id=job.team_id)
 

@@ -15,9 +15,10 @@ from app.core.cache import get_redis
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Rate limit configuration (can be overridden via env vars)
-RATE_LIMIT_WINDOW_SECONDS = int(getattr(settings, "RATE_LIMIT_WINDOW_SECONDS", 60))  # 1 minute window
-RATE_LIMIT_MAX_REQUESTS = int(getattr(settings, "RATE_LIMIT_MAX_REQUESTS", 1000))  # Max requests per window per client
+# Rate limit configuration (OWASP: 100/min per user, 5/min for login)
+RATE_LIMIT_WINDOW_SECONDS = int(getattr(settings, "RATE_LIMIT_WINDOW_SECONDS", 60))
+RATE_LIMIT_MAX_REQUESTS = int(getattr(settings, "RATE_LIMIT_MAX_REQUESTS", 100))
+LOGIN_PATH = "/api/v1/auth/login"
 _LOCAL_LIMITS: dict[str, tuple[int, int]] = {}
 
 
@@ -97,13 +98,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     
     async def dispatch(self, request: Request, call_next):
         # Skip rate limiting for health checks and public endpoints
-        if request.url.path in ["/health", "/health/db", "/", "/docs", "/openapi.json", "/redoc"]:
+        if request.url.path in ["/health", "/health/db", "/ready", "/readiness", "/liveness", "/metrics", "/", "/docs", "/openapi.json", "/redoc"]:
             return await call_next(request)
-        
-        # Skip rate limiting for public endpoints
         if request.url.path.startswith("/api/v1/public"):
             return await call_next(request)
-        
+
+        # Login has its own stricter limit (5/min) in auth.brute_force
+        if request.url.path == LOGIN_PATH:
+            return await call_next(request)
+
         client_id = get_client_id(request)
         path = request.url.path
         

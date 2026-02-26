@@ -5,11 +5,12 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.crud.base import CRUDBase
+from app.crud.tenant_mixin import TenantScopedMixin
 from app.models.job import Job
 from app.schemas.job import JobCreate, JobUpdate
 
 
-class CRUDJob(CRUDBase[Job, JobCreate, JobUpdate]):
+class CRUDJob(TenantScopedMixin, CRUDBase[Job, JobCreate, JobUpdate]):
     """CRUD operations for Job model."""
     
     def get_by_team(

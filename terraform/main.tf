@@ -97,10 +97,10 @@ module "s3" {
   bucket_name = var.s3_bucket_name
 }
 
-# CloudWatch Module
+# CloudWatch Module (logs, dashboard)
 module "cloudwatch" {
   source = "./modules/cloudwatch"
-  
+
   environment       = var.environment
   retention_in_days = var.log_retention_days
 }
@@ -154,9 +154,13 @@ module "ecs" {
   # Logging
   log_group_name         = module.cloudwatch.log_group_name
   log_group_arn          = module.cloudwatch.log_group_arn
-  
+
   # S3 bucket
   s3_bucket_name         = module.s3.bucket_name
+
+  # CloudWatch alarms
+  alb_arn_suffix         = module.alb.alb_arn_suffix
+  alarm_sns_topic_arn    = var.alarm_sns_topic_arn
 }
 
 # Outputs

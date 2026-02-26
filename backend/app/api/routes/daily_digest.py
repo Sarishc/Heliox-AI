@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import get_api_key
+from app.auth.admin_auth import require_admin
 from app.schemas.alert_settings import DailyDigestPayload
 from app.services.daily_digest import DailyDigestGenerator
 
@@ -29,7 +29,7 @@ def generate_daily_digest(
         example="2026-01-09"
     ),
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key)
+    _: Any = Depends(require_admin)
 ) -> Any:
     """
     Generate daily digest payload.

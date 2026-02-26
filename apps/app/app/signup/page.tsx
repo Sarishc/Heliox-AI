@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { fetchJson, setStoredAccessToken } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { fetchJson } from "@/lib/api";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
@@ -23,17 +25,21 @@ export default function SignupPage() {
           full_name: fullName,
         }),
       });
-      const response = await fetchJson<{ access_token: string }>("/api/v1/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({ username: email, password }).toString(),
-      });
-      setStoredAccessToken(response.access_token);
-      setSuccess("Signup successful. Token saved.");
-    } catch (err) {
-      setError("Signup failed. Check details and try again.");
+      await fetchJson<{ user: { id: string; email: string; full_name: string }; message: string }>(
+        "/api/v1/auth/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({ username: email, password }).toString(),
+        }
+      );
+      setSuccess("Account created. Redirecting...");
+      setTimeout(() => router.push("/"), 500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Signup failed. Check details and try again.";
+      setError(msg);
     }
   };
 

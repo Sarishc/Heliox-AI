@@ -72,8 +72,9 @@ class JobCreate(JobBase):
 
 
 class JobUpdate(BaseModel):
-    """Schema for updating a job."""
-    
+    """Schema for updating a job. OWASP: extra='forbid' prevents mass assignment."""
+    model_config = ConfigDict(extra="forbid")
+
     model_name: Optional[str] = Field(None, min_length=1, max_length=255)
     gpu_type: Optional[str] = Field(None, min_length=1, max_length=100)
     provider: Optional[str] = Field(None, min_length=1, max_length=100)

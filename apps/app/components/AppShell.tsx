@@ -14,7 +14,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import DateRangePicker from "@/components/DateRangePicker";
-import { bootstrapDevApiKey, fetchJson } from "@/lib/api";
+import { fetchJson } from "@/lib/api";
 import {
   DashboardFiltersProvider,
   useDashboardFilters,
@@ -52,7 +52,6 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const loadTeam = async () => {
       try {
-        await bootstrapDevApiKey();
         const me = await fetchJson<MeResponse>("/api/v1/me");
         setTeamId(me.team_id);
         const team = await fetchJson<TeamResponse>(`/api/v1/teams/${me.team_id}`);

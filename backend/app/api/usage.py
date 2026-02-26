@@ -107,16 +107,11 @@ def read_usage_snapshot(
     api_key: TeamAPIKey = Depends(verify_team_api_key)
 ) -> Any:
     """
-    Get usage snapshot by ID.
+    Get usage snapshot by ID. Scoped by team at DB level.
     """
     team_id = get_effective_team_id(api_key)
-    snapshot = crud_usage.get(db, id=snapshot_id)
+    snapshot = crud_usage.get_by_team(db, id=snapshot_id, team_id=team_id)
     if not snapshot:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usage snapshot not found"
-        )
-    if snapshot.team_id != team_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usage snapshot not found"
@@ -132,19 +127,12 @@ def delete_usage_snapshot(
     api_key: TeamAPIKey = Depends(verify_team_api_key)
 ) -> None:
     """
-    Delete a usage snapshot.
+    Delete a usage snapshot. Scoped by team at DB level.
     """
     team_id = get_effective_team_id(api_key)
-    snapshot = crud_usage.get(db, id=snapshot_id)
-    if not snapshot:
+    if not crud_usage.delete_by_team(db, id=snapshot_id, team_id=team_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usage snapshot not found"
         )
-    if snapshot.team_id != team_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usage snapshot not found"
-        )
-    crud_usage.delete(db, id=snapshot_id)
 

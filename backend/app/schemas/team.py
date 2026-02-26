@@ -28,8 +28,9 @@ class TeamCreate(TeamBase):
 
 
 class TeamUpdate(BaseModel):
-    """Schema for updating a team."""
-    
+    """Schema for updating a team. OWASP: extra='forbid' prevents mass assignment."""
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = Field(
         None,
         min_length=1,
@@ -54,8 +55,9 @@ class Team(TeamBase):
 
 
 class TeamBudgetUpdate(BaseModel):
-    """Schema for updating team budget."""
-    
+    """Schema for updating team budget. OWASP: extra='forbid'."""
+    model_config = ConfigDict(extra="forbid")
+
     monthly_budget_usd: float = Field(
         ...,
         gt=0,

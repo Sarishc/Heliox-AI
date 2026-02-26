@@ -1,31 +1,19 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { setStoredAccessToken } from "@/lib/api";
+import { useRouter } from "next/navigation";
 
+/**
+ * OAuth callback fallback.
+ * Backend now sets httpOnly cookie and redirects directly to dashboard.
+ * This page handles legacy links or direct visits - redirect to dashboard.
+ */
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   useEffect(() => {
-    // Get token and team_id from URL params
-    const token = searchParams.get("token");
-    const teamId = searchParams.get("team_id");
-
-    if (token) {
-      // Store token in localStorage
-      setStoredAccessToken(token);
-
-      // Redirect to dashboard
-      setTimeout(() => {
-        router.push("/");
-      }, 1000);
-    } else {
-      // No token, redirect to login with error
-      router.push("/login?error=oauth_failed&message=No token received");
-    }
-  }, [router, searchParams]);
+    router.replace("/");
+  }, [router]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">

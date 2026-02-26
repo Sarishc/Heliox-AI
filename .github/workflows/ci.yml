@@ -1,0 +1,212 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  SECRET_KEY: ci-secret-key-for-testing-only
+  ENV: dev
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install black ruff
+          pip install -r requirements.txt
+
+      - name: Run Black
+        run: |
+          cd backend
+          black --check app tests
+
+      - name: Run Ruff
+        run: |
+          cd backend
+          ruff check app tests
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install mypy
+          pip install -r requirements.txt
+
+      - name: Run mypy
+        run: |
+          cd backend
+          mypy app --ignore-missing-imports --no-error-summary
+        continue-on-error: true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run pytest with coverage
+        run: |
+          cd backend
+          python -m pytest tests/ \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            -v
+        env:
+          SECRET_KEY: ci-secret-key-for-testing-only
+          ENV: dev
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: backend/coverage.xml
+          flags: backend
+        continue-on-error: true
+
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: |
+          cd backend
+          pip-audit -r requirements.txt --desc
+        continue-on-error: true
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+        continue-on-error: true
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          load: true
+          tags: heliox-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "heliox-api:${{ github.sha }}"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+        continue-on-error: true
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: success() || failure()
+        with:
+          sarif_file: trivy-results.sarif
+        continue-on-error: true
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start services
+        run: docker compose build api && docker compose up -d postgres redis api
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for API..."
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8000/health && echo " API ready" && break
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: docker compose exec -T api alembic upgrade head
+
+      - name: Smoke test
+        run: |
+          curl -sf http://localhost:8000/health
+          curl -sf http://localhost:8000/ready
+          curl -sf http://localhost:8000/metrics | head -5
+
+      - name: Seed demo data
+        run: |
+          curl -s -X POST "http://localhost:8000/api/v1/admin/demo/seed?create_load_test_key=true" \
+            -H "X-API-Key: dev-admin-key-change-me" -H "Content-Type: application/json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('load_test_api_key', ''))
+" > /tmp/api_key.txt
+
+      - name: Run load test
+        run: |
+          pip install locust
+          export HELIOX_LOAD_TEST_API_KEY=$(cat /tmp/api_key.txt)
+          export HELIOX_ADMIN_API_KEY=dev-admin-key-change-me
+          cd load-test && locust --headless -u 10 -r 2 --run-time 30s -f locustfile.py --host http://localhost:8000

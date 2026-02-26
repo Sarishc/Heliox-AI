@@ -10,6 +10,7 @@ import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { DashboardFiltersProvider } from "../DashboardFiltersContext";
 import { PageTransition } from "../ui/PageTransition";
+import { TeamGuard } from "../TeamGuard";
 
 interface EnterpriseLayoutProps {
   children: ReactNode;
@@ -18,8 +19,9 @@ interface EnterpriseLayoutProps {
 
 export function EnterpriseLayout({ children, teamName }: EnterpriseLayoutProps) {
   return (
-    <DashboardFiltersProvider>
-      <div className="min-h-screen bg-background">
+    <TeamGuard>
+      <DashboardFiltersProvider>
+        <div className="min-h-screen bg-background">
         {/* Sidebar */}
         <Sidebar />
 
@@ -37,5 +39,6 @@ export function EnterpriseLayout({ children, teamName }: EnterpriseLayoutProps) 
         </div>
       </div>
     </DashboardFiltersProvider>
+    </TeamGuard>
   );
 }

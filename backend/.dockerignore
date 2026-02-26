@@ -35,3 +35,10 @@ alembic/versions/*.pyc
 .git/
 .gitignore
 
+# Tests and dev (not needed in production image)
+tests/
+*.md
+!README.md
+.pytest_cache/
+.mypy_cache/
+

@@ -1,9 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { fetchJson, setStoredAccessToken } from "@/lib/api";
+import HCaptcha from "@hcaptcha/react-hcaptcha";
+import { fetchApi, fetchJson } from "@/lib/api";
+
+const HCAPTCHA_SITE_KEY =
+  process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ||
+  (process.env.NODE_ENV === "development"
+    ? "10000000-ffff-ffff-ffff-000000000001"
+    : "");
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,6 +22,36 @@ export default function LoginPage() {
   const [teamId, setTeamId] = useState("");
   const [showGoogleLogin, setShowGoogleLogin] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [captchaRequired, setCaptchaRequired] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [demoTeamId, setDemoTeamId] = useState<string | null>(null);
+  const [demoTeamLoading, setDemoTeamLoading] = useState(false);
+  const captchaRef = useRef<HCaptcha>(null);
+
+  const fetchDemoTeamId = async () => {
+    const adminKey = process.env.NEXT_PUBLIC_DEV_ADMIN_API_KEY;
+    if (!adminKey) {
+      setError("NEXT_PUBLIC_DEV_ADMIN_API_KEY not set in .env.local");
+      return;
+    }
+    setDemoTeamLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/api/v1/admin/demo/teams`,
+        { headers: { "X-API-Key": adminKey } }
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const id = data.demo_team_id || data.teams?.[0]?.id;
+      setDemoTeamId(id || null);
+      if (!id) setError("No demo team found. Run demo seed first.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to fetch demo team");
+    } finally {
+      setDemoTeamLoading(false);
+    }
+  };
 
   useEffect(() => {
     // Check for OAuth errors in URL
@@ -32,16 +69,38 @@ export default function LoginPage() {
     setError(null);
     setSuccess(null);
     try {
-      const response = await fetchJson<{ access_token: string }>("/api/v1/auth/login", {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/x-www-form-urlencoded",
+      };
+      if (captchaToken) headers["X-Captcha-Token"] = captchaToken;
+
+      const res = await fetchApi("/api/v1/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers,
         body: new URLSearchParams({ username: email, password }).toString(),
+        skipAuthRedirect: true,
       });
-      setStoredAccessToken(response.access_token);
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (body?.captcha_required || (res.status === 400 && body?.detail?.includes?.("CAPTCHA"))) {
+          setCaptchaRequired(true);
+          setCaptchaToken("");
+          captchaRef.current?.resetCaptcha?.();
+          setError("Too many attempts. Please complete the CAPTCHA below.");
+          return;
+        }
+        if (res.status === 429) {
+          setError(body?.message || "Too many attempts. Please try again later.");
+          return;
+        }
+        setError("Login failed. Check credentials and try again.");
+        return;
+      }
+
       setSuccess("Login successful. Redirecting...");
-      setTimeout(() => router.push("/"), 1000);
+      const redirect = searchParams.get("redirect") || "/";
+      setTimeout(() => router.push(redirect), 500);
     } catch (err) {
       setError("Login failed. Check credentials and try again.");
     }
@@ -63,7 +122,7 @@ export default function LoginPage() {
           method: "POST",
           body: JSON.stringify({
             team_id: teamId,
-            redirect_uri: window.location.origin + "/auth/callback",
+            redirect_uri: window.location.origin,
           }),
         }
       );
@@ -71,7 +130,12 @@ export default function LoginPage() {
       // Redirect to Google OAuth
       window.location.href = response.auth_url;
     } catch (err: any) {
-      setError(err.message || "Failed to start Google login");
+      const msg = err.message || "Failed to start Google login";
+      setError(
+        msg.includes("not configured")
+          ? "Google SSO is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend/.env — see docs/GOOGLE_OAUTH_SETUP.md"
+          : msg
+      );
       setGoogleLoading(false);
     }
   };
@@ -102,6 +166,25 @@ export default function LoginPage() {
               placeholder="Password"
               onKeyDown={(e) => e.key === "Enter" && handleLogin()}
             />
+            {captchaRequired && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm text-amber-800 mb-2">
+                  Security check: Complete the CAPTCHA to continue.
+                </p>
+                {HCAPTCHA_SITE_KEY ? (
+                  <HCaptcha
+                    ref={captchaRef}
+                    sitekey={HCAPTCHA_SITE_KEY}
+                    onVerify={(token) => setCaptchaToken(token)}
+                    onExpire={() => setCaptchaToken("")}
+                  />
+                ) : (
+                  <p className="text-sm text-amber-700">
+                    CAPTCHA not configured. Set NEXT_PUBLIC_HCAPTCHA_SITE_KEY.
+                  </p>
+                )}
+              </div>
+            )}
             <button
               onClick={handleLogin}
               className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
@@ -162,9 +245,31 @@ export default function LoginPage() {
               value={teamId}
               onChange={(e) => setTeamId(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-              placeholder="Team ID (e.g., abc123...)"
+              placeholder="Team ID (UUID, e.g. from demo seed)"
               onKeyDown={(e) => e.key === "Enter" && handleGoogleLogin()}
             />
+            {process.env.NODE_ENV === "development" && (
+              <button
+                type="button"
+                onClick={fetchDemoTeamId}
+                disabled={demoTeamLoading}
+                className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+              >
+                {demoTeamLoading ? "Fetching..." : "Get demo Team ID"}
+              </button>
+            )}
+            {demoTeamId && (
+              <p className="text-xs text-green-700">
+                Demo Team ID: <code className="bg-gray-100 px-1">{demoTeamId}</code>
+                <button
+                  type="button"
+                  onClick={() => setTeamId(demoTeamId)}
+                  className="ml-2 text-blue-600 hover:underline"
+                >
+                  Use this
+                </button>
+              </p>
+            )}
             <button
               onClick={handleGoogleLogin}
               disabled={googleLoading}
@@ -201,6 +306,30 @@ export default function LoginPage() {
         {success && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
             <p className="text-green-800 text-sm">{success}</p>
+          </div>
+        )}
+
+        {/* Development / Test Help */}
+        {process.env.NODE_ENV === "development" && (
+          <div className="mt-6 p-4 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-600">
+            <p className="font-medium text-gray-700 mb-2">🧪 Test credentials (development)</p>
+            <p className="mb-1">
+              <strong>Email login:</strong> Sign up at{" "}
+              <Link href="/signup" className="text-blue-600 hover:underline">/signup</Link> then{" "}
+              <Link href="/login" className="text-blue-600 hover:underline">login</Link> with your credentials.
+            </p>
+            <p className="mb-1">
+              <strong>Google SSO:</strong> Requires GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in backend env (see docs/GOOGLE_OAUTH_SETUP.md). Use a valid Team ID from demo seed.
+            </p>
+            <code className="block text-xs bg-gray-100 p-2 rounded mt-1 break-all">
+              curl -X POST http://localhost:8000/api/v1/admin/demo/seed -H &quot;X-API-Key: dev-admin-key-change-me&quot;
+            </code>
+            <p className="mt-2 text-xs">
+              The response includes <code className="bg-gray-100 px-1">demo_team_id</code> — use that as Team ID.
+            </p>
+            <p className="mt-2 text-xs text-amber-700">
+              Backend not running? Run: <code className="bg-gray-100 px-1">docker compose up -d</code>
+            </p>
           </div>
         )}
       </div>

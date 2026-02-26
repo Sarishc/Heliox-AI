@@ -82,7 +82,7 @@ class SystemMonitor:
             
             # Active connections
             result = subprocess.run(
-                ["docker", "exec", "heliox-postgres", "psql", "-U", "heliox", "-d", "heliox", "-t", "-c",
+                ["docker", "exec", "heliox-postgres", "psql", "-U", "postgres", "-d", "heliox", "-t", "-c",
                  "SELECT count(*) FROM pg_stat_activity WHERE state = 'active';"],
                 capture_output=True,
                 text=True,
@@ -93,7 +93,7 @@ class SystemMonitor:
             
             # Total connections
             result = subprocess.run(
-                ["docker", "exec", "heliox-postgres", "psql", "-U", "heliox", "-d", "heliox", "-t", "-c",
+                ["docker", "exec", "heliox-postgres", "psql", "-U", "postgres", "-d", "heliox", "-t", "-c",
                  "SELECT count(*) FROM pg_stat_activity;"],
                 capture_output=True,
                 text=True,
@@ -104,7 +104,7 @@ class SystemMonitor:
             
             # Database size
             result = subprocess.run(
-                ["docker", "exec", "heliox-postgres", "psql", "-U", "heliox", "-d", "heliox", "-t", "-c",
+                ["docker", "exec", "heliox-postgres", "psql", "-U", "postgres", "-d", "heliox", "-t", "-c",
                  "SELECT pg_database_size('heliox') / (1024 * 1024);"],
                 capture_output=True,
                 text=True,
@@ -115,7 +115,7 @@ class SystemMonitor:
             
             # Lock count
             result = subprocess.run(
-                ["docker", "exec", "heliox-postgres", "psql", "-U", "heliox", "-d", "heliox", "-t", "-c",
+                ["docker", "exec", "heliox-postgres", "psql", "-U", "postgres", "-d", "heliox", "-t", "-c",
                  "SELECT count(*) FROM pg_locks;"],
                 capture_output=True,
                 text=True,

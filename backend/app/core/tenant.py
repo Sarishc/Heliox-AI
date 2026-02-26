@@ -1,9 +1,10 @@
 """Tenant scoping helpers for multi-tenant safety."""
-from typing import Optional
+from typing import Optional, Union
 from uuid import UUID
 
 from fastapi import HTTPException, status
 
+from app.auth.team_resolution import TeamContext
 from app.core.config import get_settings
 from app.models.team_api_key import TeamAPIKey
 from app.models.team_member import TeamRole, TeamMember
@@ -13,18 +14,18 @@ from sqlalchemy.orm import Session
 settings = get_settings()
 
 
-def get_effective_team_id(api_key: Optional[TeamAPIKey]) -> UUID:
+def get_effective_team_id(api_key: Optional[Union[TeamAPIKey, TeamContext]]) -> UUID:
     """
     Resolve the effective team_id for a request.
-    
-    - If MULTI_TENANT is enabled, requires a valid team API key.
+    Accepts TeamAPIKey or TeamContext (from session) - both have team_id.
+    - If MULTI_TENANT is enabled, requires a valid team API key or session.
     - If MULTI_TENANT is disabled, always returns SINGLE_TENANT_TEAM_ID.
     """
     if settings.MULTI_TENANT:
         if not api_key:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing X-API-Key header",
+                detail="Missing X-API-Key header or valid session",
                 headers={"WWW-Authenticate": "ApiKey"},
             )
         try:

@@ -134,3 +134,15 @@ variable "s3_bucket_name" {
   description = "S3 bucket name"
   type        = string
 }
+
+variable "alb_arn_suffix" {
+  description = "ALB ARN suffix for 5xx alarm (app/name/id)"
+  type        = string
+  default     = ""
+}
+
+variable "alarm_sns_topic_arn" {
+  description = "SNS topic ARN for alarm notifications"
+  type        = string
+  default     = ""
+}

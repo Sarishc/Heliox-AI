@@ -52,32 +52,49 @@ export default function SpendTrendChart({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Generate mock daily spend data
-    // In production, this would call: GET /analytics/cost/daily?start=&end=
-    const generateMockData = () => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    const loadData = async () => {
       try {
+        const { fetchJson } = await import("@/lib/api");
+        const snapshots = await fetchJson<
+          Array<{ date: string; cost_usd: number; provider?: string; gpu_type?: string }>
+        >(
+          `/api/v1/costs/?start_date=${startDate}&end_date=${endDate}`
+        );
+        if (cancelled) return;
+        const byDate: Record<string, number> = {};
+        for (const s of snapshots) {
+          const d = s.date;
+          byDate[d] = (byDate[d] || 0) + Number(s.cost_usd);
+        }
         const days = eachDayOfInterval({
           start: parseISO(startDate),
           end: parseISO(endDate),
         });
-
-        const mockData = days.map((day) => ({
-          date: format(day, "MMM dd"),
-          cost: Math.random() * 2000 + 1000, // Random cost between $1000-$3000
-        }));
-
-        setData(mockData);
-        setLoading(false);
+        const chartData = days.map((day) => {
+          const d = format(day, "yyyy-MM-dd");
+          return {
+            date: format(day, "MMM dd"),
+            cost: byDate[d] ?? 0,
+          };
+        });
+        setData(chartData);
       } catch (err) {
-        setError("Failed to generate chart data");
-        setLoading(false);
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load chart data");
+        setData([]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
 
-    setLoading(true);
-    // Simulate API delay
-    const timer = setTimeout(generateMockData, 500);
-    return () => clearTimeout(timer);
+    loadData();
+    return () => {
+      cancelled = true;
+    };
   }, [startDate, endDate]);
 
   const explain = useMemo<MetricExplain>(

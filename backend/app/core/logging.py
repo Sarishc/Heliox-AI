@@ -38,9 +38,10 @@ class StructuredFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
         
-        # Add request ID if present
+        # Add correlation ID if present (request_id / X-Correlation-ID)
         if request_id:
             log_data["request_id"] = request_id
+            log_data["correlation_id"] = request_id
         
         # Add exception info if present
         if record.exc_info:

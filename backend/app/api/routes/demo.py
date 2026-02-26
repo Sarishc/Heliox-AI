@@ -3,7 +3,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.security import verify_admin_api_key
+from app.auth.admin_auth import require_admin
 from app.models.cost import CostSnapshot, UsageSnapshot
 from app.models.job import Job
 from app.models.team import Team
+from app.models.team_api_key import TeamAPIKey
 from app.services.cost_ingestion import CostIngestionService
 from app.services.job_ingestion import JobIngestionService
 
@@ -30,6 +31,8 @@ class SeedResponse(BaseModel):
     status: str
     message: str
     results: dict
+    load_test_api_key: str | None = None  # API key for load testing (when create_load_test_key=true)
+    demo_team_id: str | None = None  # Team ID for Google SSO testing (Demo Team)
 
 
 @router.post(
@@ -42,7 +45,8 @@ class SeedResponse(BaseModel):
 def seed_demo_data(
     *,
     db: Session = Depends(get_db),
-    api_key: str = Depends(verify_admin_api_key),
+    create_load_test_key: bool = Query(False, description="Create LoadTest team with API key for load testing"),
+    _: Any = Depends(require_admin),
 ) -> Any:
     """
     Seed database with demo data for presentations and testing.
@@ -138,10 +142,12 @@ def seed_demo_data(
                 db.add(team_for_costs)
                 db.commit()
                 db.refresh(team_for_costs)
+            # Enable SSO for demo/testing (dev only)
+            team_for_costs.sso_enabled = True
+            db.commit()
             
             cost_response = ingest_mock_cost_data(
                 db=db,
-                api_key=api_key,
                 team_id=team_for_costs.id
             )
             cost_result = cost_response.result if hasattr(cost_response, 'result') else cost_response
@@ -167,7 +173,7 @@ def seed_demo_data(
             logger.info("Step 3: Ingesting mock job data...")
             from app.api.routes.admin import ingest_mock_job_data
             
-            job_response = ingest_mock_job_data(db=db, api_key=api_key)
+            job_response = ingest_mock_job_data(db=db)
             job_result = job_response.result if hasattr(job_response, 'result') else job_response
             results["job_ingestion"] = {
                 "teams_created": job_result.get("teams", {}).get("created", 0),
@@ -236,10 +242,45 @@ def seed_demo_data(
         if results["steps_failed"]:
             message += f" Note: {len(results['steps_failed'])} step(s) failed. Check results for details."
         
+        # Step 6: Create LoadTest team + API key for load testing (optional)
+        load_test_api_key = None
+        if create_load_test_key:
+            try:
+                load_test_team = db.query(Team).filter(Team.name == "LoadTest").first()
+                if not load_test_team:
+                    load_test_team = Team(name="LoadTest")
+                    db.add(load_test_team)
+                    db.commit()
+                    db.refresh(load_test_team)
+                # Deactivate old load-test keys, create fresh one
+                db.query(TeamAPIKey).filter(
+                    TeamAPIKey.team_id == load_test_team.id,
+                    TeamAPIKey.key_name == "load-test"
+                ).update({"is_active": False})
+                raw_key = TeamAPIKey.generate_key()
+                new_key = TeamAPIKey(
+                    team_id=load_test_team.id,
+                    key_name="load-test",
+                    key_hash=TeamAPIKey.hash_key(raw_key),
+                    is_active=True
+                )
+                db.add(new_key)
+                db.commit()
+                load_test_api_key = raw_key
+                logger.info("Created LoadTest team API key for load testing")
+            except Exception as e:
+                logger.warning(f"Failed to create load test API key: {e}")
+        
+        # Get Demo Team ID for Google SSO testing
+        demo_team = db.query(Team).filter(Team.name == "Demo Team").first()
+        demo_team_id = str(demo_team.id) if demo_team else None
+
         return SeedResponse(
             status=status,
             message=message,
             results=results,
+            load_test_api_key=load_test_api_key,
+            demo_team_id=demo_team_id,
         )
         
     except Exception as e:
@@ -369,5 +410,34 @@ def get_demo_status(
         "environment": settings.ENV,
         "demo_mode_available": settings.ENV == "dev",
         "data": summary,
+    }
+
+
+@router.get(
+    "/teams",
+    summary="Get demo team IDs for SSO testing",
+    description="Returns team IDs for Google SSO. DEV ONLY - Requires admin API key.",
+)
+def get_demo_teams(
+    *,
+    db: Session = Depends(get_db),
+    _: Any = Depends(require_admin),
+) -> Any:
+    """
+    Get team IDs for development/testing (e.g. Google SSO Team ID).
+    
+    Returns:
+        List of {id, name} for teams with SSO enabled, plus demo_team_id if Demo Team exists.
+    """
+    if settings.ENV != "dev":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo teams endpoint is only available in dev environment.",
+        )
+    teams = db.query(Team).filter(Team.sso_enabled.is_(True)).all()
+    demo_team = db.query(Team).filter(Team.name == "Demo Team").first()
+    return {
+        "teams": [{"id": str(t.id), "name": t.name} for t in teams],
+        "demo_team_id": str(demo_team.id) if demo_team else None,
     }
 

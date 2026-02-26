@@ -37,3 +37,9 @@ output "http_listener_arn" {
   description = "ARN of the HTTP listener"
   value       = aws_lb_listener.http.arn
 }
+
+# ARN suffix for CloudWatch ALB metrics (LoadBalancer dimension)
+output "alb_arn_suffix" {
+  description = "ALB ARN suffix for CloudWatch dimensions (app/name/id)"
+  value       = replace(aws_lb.main.arn, "/^arn:aws:elasticloadbalancing:[^:]+:[^:]+:loadbalancer\\//", "")
+}

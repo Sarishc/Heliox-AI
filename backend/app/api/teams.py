@@ -236,8 +236,8 @@ def update_team_member(
         team_id=team_id,
         allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
     )
-    membership = crud_team_member.get(db, id=member_id)
-    if not membership or membership.team_id != team_id:
+    membership = crud_team_member.get_by_team(db, id=member_id, team_id=team_id)
+    if not membership:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Team member not found"

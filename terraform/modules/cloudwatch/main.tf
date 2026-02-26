@@ -13,10 +13,10 @@ resource "aws_cloudwatch_log_group" "ecs" {
   }
 }
 
-# CloudWatch Dashboard (optional)
+# CloudWatch Dashboard
 resource "aws_cloudwatch_dashboard" "main" {
   dashboard_name = "heliox-${var.environment}"
-  
+
   dashboard_body = jsonencode({
     widgets = [
       {
@@ -43,6 +43,19 @@ resource "aws_cloudwatch_dashboard" "main" {
           stat   = "Average"
           region = data.aws_region.current.name
           title  = "ALB Metrics"
+        }
+      },
+      {
+        type = "metric"
+        properties = {
+          metrics = [
+            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", { stat = "Sum" }],
+            [".", "HTTPCode_ELB_5XX_Count", { stat = "Sum" }]
+          ]
+          period = 300
+          stat   = "Sum"
+          region = data.aws_region.current.name
+          title  = "5xx Error Rate"
         }
       }
     ]

@@ -40,20 +40,28 @@ def generate_state_nonce() -> Tuple[str, str]:
     return state, nonce
 
 
-def store_oauth_state(state: str, team_id: str, nonce: str, redirect_uri: str):
+def store_oauth_state(
+    state: str,
+    team_id: str,
+    nonce: str,
+    redirect_uri: str,
+    frontend_redirect: Optional[str] = None,
+):
     """
     Store OAuth state for validation.
-    
+
     Args:
         state: OAuth state token
         team_id: Team ID for this OAuth flow
         nonce: Nonce for validation
-        redirect_uri: Redirect URI after OAuth
+        redirect_uri: Backend redirect URI (where Google redirects)
+        frontend_redirect: Frontend URL to redirect user after success
     """
     _state_cache[state] = {
         "team_id": team_id,
         "nonce": nonce,
         "redirect_uri": redirect_uri,
+        "frontend_redirect": frontend_redirect or redirect_uri,
         "created_at": datetime.utcnow()
     }
     
@@ -88,22 +96,27 @@ def validate_and_pop_state(state: str) -> Optional[dict]:
     return state_data
 
 
-def build_google_auth_url(team_id: str, redirect_uri: str) -> Tuple[str, str]:
+def build_google_auth_url(
+    team_id: str,
+    redirect_uri: str,
+    frontend_redirect: Optional[str] = None,
+) -> Tuple[str, str]:
     """
     Build Google OAuth authorization URL.
-    
+
     Args:
         team_id: Team ID for this OAuth flow
-        redirect_uri: Redirect URI after OAuth
-        
+        redirect_uri: Backend redirect URI (where Google redirects)
+        frontend_redirect: Frontend URL to redirect user after success
+
     Returns:
         Tuple of (auth_url, state)
     """
     # Generate state and nonce
     state, nonce = generate_state_nonce()
-    
+
     # Store state for validation
-    store_oauth_state(state, team_id, nonce, redirect_uri)
+    store_oauth_state(state, team_id, nonce, redirect_uri, frontend_redirect)
     
     # Build authorization URL
     params = {

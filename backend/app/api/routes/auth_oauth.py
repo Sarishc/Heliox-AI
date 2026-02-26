@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import create_access_token
+from app.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from app.models.team import Team
 from app.auth.oauth_google import (
     build_google_auth_url,
@@ -63,6 +65,12 @@ async def google_oauth_start(
     3. Build Google OAuth URL
     4. Return redirect URL
     """
+    # Validate Google OAuth is configured
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google SSO is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the backend environment. See backend/.env.example for setup.",
+        )
     # Validate team
     team = db.query(Team).filter(Team.id == request_data.team_id).first()
     
@@ -81,11 +89,11 @@ async def google_oauth_start(
     # Build OAuth URL
     frontend_redirect = request_data.redirect_uri or settings.FRONTEND_URL or "http://localhost:3000"
     backend_redirect = settings.GOOGLE_REDIRECT_URI
-    
-    # Store frontend redirect in state for later
+
     auth_url, state = build_google_auth_url(
         team_id=str(team.id),
-        redirect_uri=backend_redirect
+        redirect_uri=backend_redirect,
+        frontend_redirect=frontend_redirect.rstrip("/"),
     )
     
     logger.info(f"Started Google OAuth flow for team {team.id}")
@@ -125,7 +133,7 @@ async def google_oauth_callback(
     
     team_id = state_data["team_id"]
     redirect_uri = settings.GOOGLE_REDIRECT_URI
-    frontend_redirect = state_data.get("redirect_uri", "http://localhost:3000")
+    frontend_redirect = state_data.get("frontend_redirect") or state_data.get("redirect_uri") or settings.FRONTEND_URL or "http://localhost:3000"
     
     # Get team
     team = db.query(Team).filter(Team.id == team_id).first()
@@ -191,20 +199,28 @@ async def google_oauth_callback(
             expires_in=expires_in
         )
         
-        # Create JWT token for Heliox
-        jwt_token = create_access_token(
-            data={
-                "sub": str(user.id),
-                "email": user.email,
-                "team_id": str(team.id)
-            }
+        # Create session JWT (sub=email for consistency with cookie auth)
+        session_token = create_access_token(
+            data={"sub": user.email},
+            expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
         )
-        
+
         logger.info(f"Google OAuth successful for user {user.id}, team {team.id}")
-        
-        # Redirect to frontend with token
-        success_url = f"{frontend_redirect}/auth/callback?token={jwt_token}&team_id={team.id}"
-        return RedirectResponse(url=success_url)
+
+        # Set httpOnly cookie and redirect to dashboard (no token in URL)
+        dashboard_url = f"{frontend_redirect.rstrip('/')}/"
+        response = RedirectResponse(url=dashboard_url, status_code=302)
+        secure = settings.ENV in ("production", "staging")
+        response.set_cookie(
+            key=settings.AUTH_COOKIE_NAME,
+            value=session_token,
+            max_age=settings.AUTH_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=secure,
+            samesite="strict",
+            path="/",
+        )
+        return response
     
     except Exception as e:
         logger.error(f"Google OAuth callback failed: {e}", exc_info=True)

@@ -48,6 +48,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: heliox-api
+    env_file:
+      - ./backend/.env
     environment:
       # Application
       ENV: dev
@@ -65,6 +67,8 @@ services:
       CORS_ENABLED: "true"
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:8000"]'
       MULTI_TENANT: "true"
+      # Performance: 600 req/min supports 100 concurrent users @ 500 req/min target
+      RATE_LIMIT_MAX_REQUESTS: "600"
     ports:
       - "8000:8000"
     depends_on:

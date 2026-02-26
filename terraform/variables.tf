@@ -151,6 +151,12 @@ variable "log_retention_days" {
   default     = 30
 }
 
+variable "alarm_sns_topic_arn" {
+  description = "SNS topic ARN for CloudWatch alarm notifications (optional)"
+  type        = string
+  default     = ""
+}
+
 # SSL Certificate
 variable "acm_certificate_arn" {
   description = "ARN of ACM certificate for HTTPS"

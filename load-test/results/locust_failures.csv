@@ -1,0 +1,16 @@
+Method,Name,Error,Occurrences
+GET,/api/integrations,HTTPError('404 Client Error: Not Found for url: /api/integrations'),138
+GET,GET /api/integrations,CatchResponseError('Status 429'),119
+GET,GET /api/teams,CatchResponseError('Status 429'),270
+GET,GET /api/costs/snapshots,CatchResponseError('Status 429'),539
+GET,GET /api/integrations,CatchResponseError('Status 404'),293
+GET,GET /api/budgets,CatchResponseError('Status 429'),115
+GET,GET /api/optimizations/recommendations,CatchResponseError('Status 429'),220
+POST,POST /api/costs/ingest,CatchResponseError('Status 404'),465
+GET,/api/integrations,HTTPError('429 Client Error: Too Many Requests for url: /api/integrations'),56
+GET,GET /api/teams,CatchResponseError('Status 404'),752
+GET,GET /api/forecasts,CatchResponseError('Status 404'),1230
+GET,GET /api/costs/snapshots,CatchResponseError('Status 404'),1466
+GET,GET /api/forecasts,CatchResponseError('Status 429'),455
+POST,POST /api/costs/ingest,CatchResponseError('Status 429'),197
+POST,POST /api/admin/demo/seed,CatchResponseError('Status 404'),240

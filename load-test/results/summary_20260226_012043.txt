@@ -1,0 +1,25 @@
+================================================================================
+HELIOX PERFORMANCE TEST SUMMARY
+================================================================================
+
+CPU Usage:
+  Average: 33.8%
+  Peak: 65.8%
+  Min: 13.8%
+
+Memory Usage:
+  Average: 84.1%
+  Peak: 85.9%
+  Min: 81.0%
+
+Database Connections:
+  Average Active: 0.0
+  Peak Active: 0
+
+Slow Queries (>500ms): 0
+
+Redis Operations/sec:
+  Average: 31.4
+  Peak: 39.0
+
+================================================================================

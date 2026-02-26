@@ -1,0 +1,1770 @@
+[
+  {
+    "timestamp": "2026-02-26T01:15:38.744594",
+    "system": {
+      "cpu_percent": 65.8,
+      "memory_percent": 85.4,
+      "memory_available_mb": 1192.40625,
+      "disk_io": {
+        "read_count": 13770097,
+        "write_count": 2918573,
+        "read_bytes": 382783012864,
+        "write_bytes": 117175291904,
+        "read_time": 11341752,
+        "write_time": 192667
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "0.82%",
+        "memory_usage": "209.2MiB / 3.827GiB",
+        "memory_percent": "5.34%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.93%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.07MiB / 3.827GiB",
+        "memory_percent": "1.30%"
+      },
+      "heliox-redis": {
+        "cpu": "1.23%",
+        "memory_usage": "21.65MiB / 3.827GiB",
+        "memory_percent": "0.55%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.6670608520507812,
+      "connected_clients": 16,
+      "total_commands_processed": 4053,
+      "instantaneous_ops_per_sec": 2,
+      "keyspace_hits": 22,
+      "keyspace_misses": 64
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:15:48.193016",
+    "system": {
+      "cpu_percent": 49.7,
+      "memory_percent": 85.3,
+      "memory_available_mb": 1206.3125,
+      "disk_io": {
+        "read_count": 13821677,
+        "write_count": 2932998,
+        "read_bytes": 384270774272,
+        "write_bytes": 117980872704,
+        "read_time": 11439453,
+        "write_time": 192968
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "13.12%",
+        "memory_usage": "211.3MiB / 3.827GiB",
+        "memory_percent": "5.39%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.10%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.91%",
+        "memory_usage": "21.73MiB / 3.827GiB",
+        "memory_percent": "0.55%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7103118896484375,
+      "connected_clients": 16,
+      "total_commands_processed": 4214,
+      "instantaneous_ops_per_sec": 25,
+      "keyspace_hits": 22,
+      "keyspace_misses": 64
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:15:56.974422",
+    "system": {
+      "cpu_percent": 61.0,
+      "memory_percent": 84.7,
+      "memory_available_mb": 1250.65625,
+      "disk_io": {
+        "read_count": 13853941,
+        "write_count": 2939846,
+        "read_bytes": 385323249664,
+        "write_bytes": 118349271040,
+        "read_time": 11460550,
+        "write_time": 193120
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "11.22%",
+        "memory_usage": "211.9MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.38%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.17%",
+        "memory_usage": "21.99MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7104949951171875,
+      "connected_clients": 16,
+      "total_commands_processed": 4506,
+      "instantaneous_ops_per_sec": 32,
+      "keyspace_hits": 22,
+      "keyspace_misses": 64
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:16:05.635552",
+    "system": {
+      "cpu_percent": 33.3,
+      "memory_percent": 84.7,
+      "memory_available_mb": 1252.65625,
+      "disk_io": {
+        "read_count": 13872906,
+        "write_count": 2944556,
+        "read_bytes": 385883009024,
+        "write_bytes": 118639820800,
+        "read_time": 11467743,
+        "write_time": 193218
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "12.74%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.04%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.17%",
+        "memory_usage": "21.74MiB / 3.827GiB",
+        "memory_percent": "0.55%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7104949951171875,
+      "connected_clients": 16,
+      "total_commands_processed": 4791,
+      "instantaneous_ops_per_sec": 31,
+      "keyspace_hits": 22,
+      "keyspace_misses": 64
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:16:14.527795",
+    "system": {
+      "cpu_percent": 34.6,
+      "memory_percent": 85.7,
+      "memory_available_mb": 1170.46875,
+      "disk_io": {
+        "read_count": 13892390,
+        "write_count": 2946979,
+        "read_bytes": 386442416128,
+        "write_bytes": 118745292800,
+        "read_time": 11476337,
+        "write_time": 193264
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.35%",
+        "memory_usage": "211.5MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.55%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.08%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.04%",
+        "memory_usage": "21.97MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7104949951171875,
+      "connected_clients": 16,
+      "total_commands_processed": 5106,
+      "instantaneous_ops_per_sec": 33,
+      "keyspace_hits": 22,
+      "keyspace_misses": 64
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:16:23.652986",
+    "system": {
+      "cpu_percent": 26.5,
+      "memory_percent": 83.2,
+      "memory_available_mb": 1373.875,
+      "disk_io": {
+        "read_count": 13906477,
+        "write_count": 2948181,
+        "read_bytes": 386882330624,
+        "write_bytes": 118802776064,
+        "read_time": 11480179,
+        "write_time": 193292
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "13.07%",
+        "memory_usage": "212.2MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "1.63%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.10%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.36%",
+        "memory_usage": "21.74MiB / 3.827GiB",
+        "memory_percent": "0.55%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7104949951171875,
+      "connected_clients": 16,
+      "total_commands_processed": 5391,
+      "instantaneous_ops_per_sec": 25,
+      "keyspace_hits": 22,
+      "keyspace_misses": 64
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:16:32.665242",
+    "system": {
+      "cpu_percent": 28.0,
+      "memory_percent": 83.4,
+      "memory_available_mb": 1360.03125,
+      "disk_io": {
+        "read_count": 13910199,
+        "write_count": 2950456,
+        "read_bytes": 386994335744,
+        "write_bytes": 118931554304,
+        "read_time": 11480933,
+        "write_time": 193348
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.19%",
+        "memory_usage": "212.2MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "1.16%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.21%",
+        "memory_usage": "21.75MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7104949951171875,
+      "connected_clients": 16,
+      "total_commands_processed": 5698,
+      "instantaneous_ops_per_sec": 33,
+      "keyspace_hits": 22,
+      "keyspace_misses": 64
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:16:41.716616",
+    "system": {
+      "cpu_percent": 27.2,
+      "memory_percent": 84.5,
+      "memory_available_mb": 1273.078125,
+      "disk_io": {
+        "read_count": 13926867,
+        "write_count": 2957347,
+        "read_bytes": 387516964864,
+        "write_bytes": 119356649472,
+        "read_time": 11487051,
+        "write_time": 193481
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "12.65%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.47%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.49%",
+        "memory_usage": "21.75MiB / 3.827GiB",
+        "memory_percent": "0.55%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7107391357421875,
+      "connected_clients": 16,
+      "total_commands_processed": 6010,
+      "instantaneous_ops_per_sec": 32,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:16:50.703537",
+    "system": {
+      "cpu_percent": 13.8,
+      "memory_percent": 82.6,
+      "memory_available_mb": 1423.796875,
+      "disk_io": {
+        "read_count": 13930510,
+        "write_count": 2957579,
+        "read_bytes": 387621355520,
+        "write_bytes": 119358660608,
+        "read_time": 11487942,
+        "write_time": 193490
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "10.94%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.27%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "1.76%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "2.48%",
+        "memory_usage": "22.02MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7107391357421875,
+      "connected_clients": 16,
+      "total_commands_processed": 6304,
+      "instantaneous_ops_per_sec": 28,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:16:59.645241",
+    "system": {
+      "cpu_percent": 16.1,
+      "memory_percent": 83.1,
+      "memory_available_mb": 1385.984375,
+      "disk_io": {
+        "read_count": 13932660,
+        "write_count": 2957808,
+        "read_bytes": 387683385344,
+        "write_bytes": 119360872448,
+        "read_time": 11488346,
+        "write_time": 193501
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "14.69%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.07%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.29%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109222412109375,
+      "connected_clients": 16,
+      "total_commands_processed": 6601,
+      "instantaneous_ops_per_sec": 30,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:17:08.587422",
+    "system": {
+      "cpu_percent": 22.2,
+      "memory_percent": 83.1,
+      "memory_available_mb": 1383.78125,
+      "disk_io": {
+        "read_count": 13936014,
+        "write_count": 2958025,
+        "read_bytes": 387777110016,
+        "write_bytes": 119363330048,
+        "read_time": 11489386,
+        "write_time": 193509
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "14.60%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.06%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.84%",
+        "memory_usage": "22.01MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109222412109375,
+      "connected_clients": 16,
+      "total_commands_processed": 6890,
+      "instantaneous_ops_per_sec": 29,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:17:17.523540",
+    "system": {
+      "cpu_percent": 48.3,
+      "memory_percent": 84.3,
+      "memory_available_mb": 1280.03125,
+      "disk_io": {
+        "read_count": 13942409,
+        "write_count": 2958715,
+        "read_bytes": 387935375360,
+        "write_bytes": 119369609216,
+        "read_time": 11491595,
+        "write_time": 193535
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.18%",
+        "memory_usage": "212MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.42%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.27%",
+        "memory_usage": "22.02MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109222412109375,
+      "connected_clients": 16,
+      "total_commands_processed": 7178,
+      "instantaneous_ops_per_sec": 31,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:17:26.353998",
+    "system": {
+      "cpu_percent": 19.8,
+      "memory_percent": 83.6,
+      "memory_available_mb": 1341.859375,
+      "disk_io": {
+        "read_count": 13958407,
+        "write_count": 2962409,
+        "read_bytes": 388770516992,
+        "write_bytes": 119597371392,
+        "read_time": 11495350,
+        "write_time": 193609
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.99%",
+        "memory_usage": "212.7MiB / 3.827GiB",
+        "memory_percent": "5.43%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.10%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.04%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.62%",
+        "memory_usage": "22.01MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109222412109375,
+      "connected_clients": 16,
+      "total_commands_processed": 7481,
+      "instantaneous_ops_per_sec": 31,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:17:35.450623",
+    "system": {
+      "cpu_percent": 31.0,
+      "memory_percent": 83.2,
+      "memory_available_mb": 1377.828125,
+      "disk_io": {
+        "read_count": 13966688,
+        "write_count": 2964952,
+        "read_bytes": 389014880256,
+        "write_bytes": 119749382144,
+        "read_time": 11498083,
+        "write_time": 193669
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "34.91%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "16.05%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "16.28%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.02%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "0.77%",
+        "memory_usage": "21.76MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7304458618164062,
+      "connected_clients": 16,
+      "total_commands_processed": 7801,
+      "instantaneous_ops_per_sec": 36,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:17:44.489536",
+    "system": {
+      "cpu_percent": 22.4,
+      "memory_percent": 84.3,
+      "memory_available_mb": 1287.546875,
+      "disk_io": {
+        "read_count": 13974774,
+        "write_count": 2965614,
+        "read_bytes": 389250195456,
+        "write_bytes": 119756677120,
+        "read_time": 11500360,
+        "write_time": 193689
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.46%",
+        "memory_usage": "212.5MiB / 3.827GiB",
+        "memory_percent": "5.42%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.47%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.32%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.54%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7107391357421875,
+      "connected_clients": 16,
+      "total_commands_processed": 8096,
+      "instantaneous_ops_per_sec": 31,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:17:53.418813",
+    "system": {
+      "cpu_percent": 18.2,
+      "memory_percent": 83.8,
+      "memory_available_mb": 1331.796875,
+      "disk_io": {
+        "read_count": 13979413,
+        "write_count": 2967027,
+        "read_bytes": 389358542848,
+        "write_bytes": 119812481024,
+        "read_time": 11501630,
+        "write_time": 193726
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "11.70%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.03%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.26%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7107391357421875,
+      "connected_clients": 16,
+      "total_commands_processed": 8395,
+      "instantaneous_ops_per_sec": 32,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:18:02.396125",
+    "system": {
+      "cpu_percent": 26.8,
+      "memory_percent": 83.9,
+      "memory_available_mb": 1318.203125,
+      "disk_io": {
+        "read_count": 13995402,
+        "write_count": 2969804,
+        "read_bytes": 389766905856,
+        "write_bytes": 119946125312,
+        "read_time": 11513930,
+        "write_time": 193781
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.55%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.53%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.47%",
+        "memory_usage": "22.02MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7107391357421875,
+      "connected_clients": 16,
+      "total_commands_processed": 8694,
+      "instantaneous_ops_per_sec": 35,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:18:11.453687",
+    "system": {
+      "cpu_percent": 46.3,
+      "memory_percent": 85.2,
+      "memory_available_mb": 1211.96875,
+      "disk_io": {
+        "read_count": 14002607,
+        "write_count": 2972436,
+        "read_bytes": 389964595200,
+        "write_bytes": 120086200320,
+        "read_time": 11516487,
+        "write_time": 193838
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "22.25%",
+        "memory_usage": "211.9MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.36%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.95%",
+        "memory_usage": "21.8MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7107391357421875,
+      "connected_clients": 16,
+      "total_commands_processed": 9000,
+      "instantaneous_ops_per_sec": 39,
+      "keyspace_hits": 23,
+      "keyspace_misses": 65
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:18:20.555548",
+    "system": {
+      "cpu_percent": 15.7,
+      "memory_percent": 81.0,
+      "memory_available_mb": 1556.25,
+      "disk_io": {
+        "read_count": 14006638,
+        "write_count": 2974684,
+        "read_bytes": 390069116928,
+        "write_bytes": 120214761472,
+        "read_time": 11517669,
+        "write_time": 193890
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "16.56%",
+        "memory_usage": "211.9MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "1.44%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "1.71%",
+        "memory_usage": "51.96MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "2.30%",
+        "memory_usage": "22.02MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 9300,
+      "instantaneous_ops_per_sec": 34,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:18:29.499174",
+    "system": {
+      "cpu_percent": 56.5,
+      "memory_percent": 84.2,
+      "memory_available_mb": 1290.921875,
+      "disk_io": {
+        "read_count": 14034466,
+        "write_count": 2976165,
+        "read_bytes": 390899179520,
+        "write_bytes": 120242388992,
+        "read_time": 11540034,
+        "write_time": 193929
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "18.63%",
+        "memory_usage": "212MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.16%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.02%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.17%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 9606,
+      "instantaneous_ops_per_sec": 32,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:18:38.644968",
+    "system": {
+      "cpu_percent": 62.4,
+      "memory_percent": 85.7,
+      "memory_available_mb": 1172.84375,
+      "disk_io": {
+        "read_count": 14062052,
+        "write_count": 2988594,
+        "read_bytes": 391610982400,
+        "write_bytes": 120985403392,
+        "read_time": 11555290,
+        "write_time": 194177
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "10.06%",
+        "memory_usage": "212.2MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.72%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.04%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 9914,
+      "instantaneous_ops_per_sec": 30,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:18:47.872911",
+    "system": {
+      "cpu_percent": 27.5,
+      "memory_percent": 84.3,
+      "memory_available_mb": 1278.96875,
+      "disk_io": {
+        "read_count": 14082935,
+        "write_count": 2992080,
+        "read_bytes": 392166526976,
+        "write_bytes": 121134546944,
+        "read_time": 11565096,
+        "write_time": 194250
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "13.57%",
+        "memory_usage": "211.5MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.16%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.40%",
+        "memory_usage": "22.02MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 10204,
+      "instantaneous_ops_per_sec": 27,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:18:56.698576",
+    "system": {
+      "cpu_percent": 59.1,
+      "memory_percent": 85.9,
+      "memory_available_mb": 1155.953125,
+      "disk_io": {
+        "read_count": 14104150,
+        "write_count": 3001204,
+        "read_bytes": 392814354432,
+        "write_bytes": 121672855552,
+        "read_time": 11579847,
+        "write_time": 194433
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "17.40%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "2.62%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.08%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.89%",
+        "memory_usage": "21.78MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 10492,
+      "instantaneous_ops_per_sec": 32,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:19:05.564196",
+    "system": {
+      "cpu_percent": 30.4,
+      "memory_percent": 84.1,
+      "memory_available_mb": 1299.515625,
+      "disk_io": {
+        "read_count": 14129062,
+        "write_count": 3005422,
+        "read_bytes": 393554366464,
+        "write_bytes": 121886101504,
+        "read_time": 11597978,
+        "write_time": 194510
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "13.43%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.29%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.18%",
+        "memory_usage": "22.01MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 10781,
+      "instantaneous_ops_per_sec": 34,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:19:14.278228",
+    "system": {
+      "cpu_percent": 21.4,
+      "memory_percent": 84.0,
+      "memory_available_mb": 1310.28125,
+      "disk_io": {
+        "read_count": 14131828,
+        "write_count": 3005895,
+        "read_bytes": 393634406400,
+        "write_bytes": 121891450880,
+        "read_time": 11598620,
+        "write_time": 194525
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.44%",
+        "memory_usage": "212MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.14%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.02%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.18%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 11071,
+      "instantaneous_ops_per_sec": 32,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:19:23.204212",
+    "system": {
+      "cpu_percent": 26.1,
+      "memory_percent": 83.9,
+      "memory_available_mb": 1320.828125,
+      "disk_io": {
+        "read_count": 14138515,
+        "write_count": 3006005,
+        "read_bytes": 393810833408,
+        "write_bytes": 121892872192,
+        "read_time": 11602288,
+        "write_time": 194529
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "17.41%",
+        "memory_usage": "211.7MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.49%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.22%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 11377,
+      "instantaneous_ops_per_sec": 37,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:19:32.386802",
+    "system": {
+      "cpu_percent": 32.9,
+      "memory_percent": 83.3,
+      "memory_available_mb": 1367.828125,
+      "disk_io": {
+        "read_count": 14143029,
+        "write_count": 3008474,
+        "read_bytes": 393930276864,
+        "write_bytes": 121988198400,
+        "read_time": 11603172,
+        "write_time": 194583
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.59%",
+        "memory_usage": "212.7MiB / 3.827GiB",
+        "memory_percent": "5.43%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.20%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "2.36%",
+        "memory_usage": "21.78MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 11672,
+      "instantaneous_ops_per_sec": 34,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:19:41.320664",
+    "system": {
+      "cpu_percent": 22.0,
+      "memory_percent": 83.8,
+      "memory_available_mb": 1325.46875,
+      "disk_io": {
+        "read_count": 14144321,
+        "write_count": 3009311,
+        "read_bytes": 393965793280,
+        "write_bytes": 122028384256,
+        "read_time": 11603428,
+        "write_time": 194607
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "9.23%",
+        "memory_usage": "212.2MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.54%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "1.63%",
+        "memory_usage": "52MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.20%",
+        "memory_usage": "21.79MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7305068969726562,
+      "connected_clients": 16,
+      "total_commands_processed": 11963,
+      "instantaneous_ops_per_sec": 34,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:19:50.233603",
+    "system": {
+      "cpu_percent": 52.2,
+      "memory_percent": 85.1,
+      "memory_available_mb": 1225.015625,
+      "disk_io": {
+        "read_count": 14153154,
+        "write_count": 3014814,
+        "read_bytes": 394212118528,
+        "write_bytes": 122347905024,
+        "read_time": 11608858,
+        "write_time": 194719
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "13.11%",
+        "memory_usage": "212.4MiB / 3.827GiB",
+        "memory_percent": "5.42%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "1.45%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.98%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7109832763671875,
+      "connected_clients": 16,
+      "total_commands_processed": 12271,
+      "instantaneous_ops_per_sec": 32,
+      "keyspace_hits": 24,
+      "keyspace_misses": 66
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:19:59.420796",
+    "system": {
+      "cpu_percent": 20.2,
+      "memory_percent": 82.9,
+      "memory_available_mb": 1403.140625,
+      "disk_io": {
+        "read_count": 14157393,
+        "write_count": 3017006,
+        "read_bytes": 394329325568,
+        "write_bytes": 122470703104,
+        "read_time": 11609851,
+        "write_time": 194767
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.46%",
+        "memory_usage": "211.5MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.20%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.01%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "2.85%",
+        "memory_usage": "22.03MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7116546630859375,
+      "connected_clients": 16,
+      "total_commands_processed": 12593,
+      "instantaneous_ops_per_sec": 39,
+      "keyspace_hits": 25,
+      "keyspace_misses": 68
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:20:08.407460",
+    "system": {
+      "cpu_percent": 40.3,
+      "memory_percent": 85.2,
+      "memory_available_mb": 1215.8125,
+      "disk_io": {
+        "read_count": 14169652,
+        "write_count": 3017468,
+        "read_bytes": 394714333184,
+        "write_bytes": 122494730240,
+        "read_time": 11612863,
+        "write_time": 194783
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "14.59%",
+        "memory_usage": "212.2MiB / 3.827GiB",
+        "memory_percent": "5.41%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.60%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.17%",
+        "memory_usage": "21.78MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7116546630859375,
+      "connected_clients": 16,
+      "total_commands_processed": 12866,
+      "instantaneous_ops_per_sec": 31,
+      "keyspace_hits": 25,
+      "keyspace_misses": 68
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:20:16.449161",
+    "system": {
+      "cpu_percent": 29.1,
+      "memory_percent": 84.1,
+      "memory_available_mb": 1300.421875,
+      "disk_io": {
+        "read_count": 14177430,
+        "write_count": 3018619,
+        "read_bytes": 394923991040,
+        "write_bytes": 122506838016,
+        "read_time": 11615468,
+        "write_time": 194808
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "21.40%",
+        "memory_usage": "211.5MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.75%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.46%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7116546630859375,
+      "connected_clients": 16,
+      "total_commands_processed": 13164,
+      "instantaneous_ops_per_sec": 33,
+      "keyspace_hits": 25,
+      "keyspace_misses": 68
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:20:25.438737",
+    "system": {
+      "cpu_percent": 25.6,
+      "memory_percent": 84.2,
+      "memory_available_mb": 1296.28125,
+      "disk_io": {
+        "read_count": 14191610,
+        "write_count": 3019151,
+        "read_bytes": 395364478976,
+        "write_bytes": 122511695872,
+        "read_time": 11618718,
+        "write_time": 194821
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "14.77%",
+        "memory_usage": "212.4MiB / 3.827GiB",
+        "memory_percent": "5.42%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.13%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.00%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.00%",
+        "memory_usage": "21.77MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7116546630859375,
+      "connected_clients": 16,
+      "total_commands_processed": 13462,
+      "instantaneous_ops_per_sec": 35,
+      "keyspace_hits": 25,
+      "keyspace_misses": 68
+    }
+  },
+  {
+    "timestamp": "2026-02-26T01:20:34.476696",
+    "system": {
+      "cpu_percent": 35.8,
+      "memory_percent": 84.5,
+      "memory_available_mb": 1272.5625,
+      "disk_io": {
+        "read_count": 14199790,
+        "write_count": 3019515,
+        "read_bytes": 395630014464,
+        "write_bytes": 122530844672,
+        "read_time": 11621073,
+        "write_time": 194834
+      }
+    },
+    "docker": {
+      "heliox-api": {
+        "cpu": "15.27%",
+        "memory_usage": "211.5MiB / 3.827GiB",
+        "memory_percent": "5.40%"
+      },
+      "heliox-beat": {
+        "cpu": "0.00%",
+        "memory_usage": "60.74MiB / 3.827GiB",
+        "memory_percent": "1.55%"
+      },
+      "heliox-worker": {
+        "cpu": "0.15%",
+        "memory_usage": "293.2MiB / 3.827GiB",
+        "memory_percent": "7.48%"
+      },
+      "heliox-postgres": {
+        "cpu": "0.03%",
+        "memory_usage": "51.95MiB / 3.827GiB",
+        "memory_percent": "1.33%"
+      },
+      "heliox-redis": {
+        "cpu": "1.19%",
+        "memory_usage": "21.78MiB / 3.827GiB",
+        "memory_percent": "0.56%"
+      }
+    },
+    "database": {},
+    "redis": {
+      "used_memory_mb": 1.7116546630859375,
+      "connected_clients": 16,
+      "total_commands_processed": 13762,
+      "instantaneous_ops_per_sec": 38,
+      "keyspace_hits": 25,
+      "keyspace_misses": 68
+    }
+  }
+]

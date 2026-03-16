@@ -11,12 +11,65 @@ from app.crud import team as crud_team
 from app.crud import team_member as crud_team_member
 from app.models.user import User
 from app.models.team_api_key import TeamAPIKey
-from app.models.team_member import TeamRole
-from app.schemas.onboarding import OnboardingRequest, OnboardingResponse
+from app.models.team_member import TeamMember, TeamRole
+from app.integrations.models import IntegrationConnection
+from app.services.webhook_secrets import is_webhook_configured
+from app.schemas.onboarding import OnboardingRequest, OnboardingResponse, OnboardingStatusResponse
 from app.schemas.team import TeamCreate
 from app.schemas.team_member import TeamMemberCreate
 
 router = APIRouter()
+
+
+@router.get("/status", response_model=OnboardingStatusResponse, summary="Get onboarding checklist state")
+def get_onboarding_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Derive onboarding progress from existing data. No new tables.
+    Used by the wizard to show progress and skip completed steps.
+    """
+    membership = (
+        db.query(TeamMember)
+        .filter(TeamMember.user_id == current_user.id)
+        .first()
+    )
+    if not membership:
+        return OnboardingStatusResponse(
+            has_team=False,
+            has_api_key=False,
+            has_integration=False,
+            has_slack_webhook=False,
+            can_manage=False,
+            role="unknown",
+        )
+
+    can_manage = membership.role in (TeamRole.OWNER, TeamRole.ADMIN)
+    team_id = membership.team_id
+
+    has_api_key = (
+        db.query(TeamAPIKey)
+        .filter(TeamAPIKey.team_id == team_id, TeamAPIKey.is_active == True)
+        .first()
+        is not None
+    )
+    has_integration = (
+        db.query(IntegrationConnection)
+        .filter(IntegrationConnection.team_id == team_id)
+        .first()
+        is not None
+    )
+    has_slack = is_webhook_configured(db, team_id)
+
+    return OnboardingStatusResponse(
+        has_team=True,
+        has_api_key=has_api_key,
+        has_integration=has_integration,
+        has_slack_webhook=has_slack,
+        can_manage=can_manage,
+        role=membership.role.value,
+    )
 
 
 @router.post(

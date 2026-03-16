@@ -264,10 +264,9 @@ class BudgetGuardrailsService:
             self.db.commit()
 
     def _get_team_webhook(self, team_id: UUID) -> Optional[str]:
-        settings = self.db.execute(
-            select(AlertSettings.slack_webhook_url).where(AlertSettings.team_id == team_id)
-        ).scalar_one_or_none()
-        return settings
+        from app.services.webhook_secrets import get_webhook_url
+
+        return get_webhook_url(self.db, team_id)
 
     @staticmethod
     def _send_budget_alert(

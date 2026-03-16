@@ -47,7 +47,7 @@ def record_usage_event(
             team_id=team_id,
             event_type=event_type,
             quantity=quantity,
-            metadata=metadata or {}
+            event_metadata=metadata or {}
         )
         
         db.add(usage_event)

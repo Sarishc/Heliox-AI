@@ -135,6 +135,7 @@ SLOW_QUERY_THRESHOLD_MS = 200
 async def request_logging_middleware(request: Request, call_next):
     """
     Middleware for correlation ID, Prometheus metrics, request logging, and slow query profiling.
+    Records metrics even when handlers raise (5xx); excludes health/probe paths.
     """
     import time
     start_time = time.perf_counter()
@@ -145,66 +146,88 @@ async def request_logging_middleware(request: Request, call_next):
         or get_request_id()
     )
     set_request_id(correlation_id)
-    
-    if request.url.path not in ["/health", "/health/db", "/metrics"]:
-        logger.debug(
-            f"Request: {request.method} {request.url.path}",
-            extra={"correlation_id": correlation_id, "method": request.method, "path": request.url.path}
-        )
-    
-    response = await call_next(request)
-    
-    elapsed_ms = (time.perf_counter() - start_time) * 1000
-    elapsed_sec = elapsed_ms / 1000.0
 
-    # Prometheus metrics (skip /metrics to avoid recursion)
-    if request.url.path != "/metrics":
+    path = request.url.path
+    from app.core.metrics import METRICS_EXCLUDED_PATHS
+    record_metrics = path not in METRICS_EXCLUDED_PATHS
+
+    if record_metrics:
+        logger.debug(
+            f"Request: {request.method} {path}",
+            extra={"correlation_id": correlation_id, "method": request.method, "path": path}
+        )
+
+    # Prometheus: increment in-flight for non-excluded paths
+    path_template = None
+    if record_metrics:
         from app.core.metrics import (
-            REQUEST_COUNT,
-            REQUEST_LATENCY,
-            ERROR_COUNT,
-            get_status_class,
+            IN_FLIGHT_REQUESTS,
             normalize_path,
         )
-        path_template = normalize_path(request.url.path)
-        status_class = get_status_class(response.status_code)
-        REQUEST_COUNT.labels(
-            method=request.method,
-            path_template=path_template,
-            status_class=status_class,
-        ).inc()
-        REQUEST_LATENCY.labels(
-            method=request.method,
-            path_template=path_template,
-        ).observe(elapsed_sec)
-        if status_class == "5xx":
-            ERROR_COUNT.labels(
-                method=request.method,
-                path_template=path_template,
-            ).inc()
+        path_template = normalize_path(path)
+        IN_FLIGHT_REQUESTS.labels(method=request.method, path_template=path_template).inc()
 
-    if elapsed_ms > SLOW_QUERY_THRESHOLD_MS:
-        logger.warning(
-            f"SLOW REQUEST: {request.method} {request.url.path} took {elapsed_ms:.0f}ms (threshold: {SLOW_QUERY_THRESHOLD_MS}ms)",
-            extra={
-                "correlation_id": correlation_id,
-                "method": request.method,
-                "path": request.url.path,
-                "duration_ms": round(elapsed_ms),
-                "status_code": response.status_code,
-            }
-        )
-    elif request.url.path not in ["/health", "/health/db", "/metrics"]:
-        logger.debug(
-            f"Response: {request.method} {request.url.path} {response.status_code}",
-            extra={
-                "correlation_id": correlation_id,
-                "method": request.method,
-                "path": request.url.path,
-                "status_code": response.status_code
-            }
-        )
-    
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception:
+        # Handler raised - exception handler will return 500; record as 5xx
+        status_code = 500
+        raise
+    finally:
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        elapsed_sec = elapsed_ms / 1000.0
+
+        # Prometheus metrics (always record for API paths, including 5xx from exceptions)
+        if record_metrics and path_template is not None:
+            from app.core.metrics import (
+                IN_FLIGHT_REQUESTS,
+                REQUEST_COUNT,
+                REQUEST_LATENCY,
+                ERROR_COUNT,
+                get_status_class,
+                normalize_path,
+            )
+            pt = path_template or normalize_path(path)
+            IN_FLIGHT_REQUESTS.labels(method=request.method, path_template=pt).dec()
+            status_class = get_status_class(status_code)
+            REQUEST_COUNT.labels(
+                method=request.method,
+                path_template=pt,
+                status_class=status_class,
+            ).inc()
+            REQUEST_LATENCY.labels(
+                method=request.method,
+                path_template=pt,
+            ).observe(elapsed_sec)
+            if status_class == "5xx":
+                ERROR_COUNT.labels(
+                    method=request.method,
+                    path_template=pt,
+                ).inc()
+
+        if elapsed_ms > SLOW_QUERY_THRESHOLD_MS:
+            logger.warning(
+                f"SLOW REQUEST: {request.method} {path} took {elapsed_ms:.0f}ms (threshold: {SLOW_QUERY_THRESHOLD_MS}ms)",
+                extra={
+                    "correlation_id": correlation_id,
+                    "method": request.method,
+                    "path": path,
+                    "duration_ms": round(elapsed_ms),
+                    "status_code": status_code,
+                }
+            )
+        elif record_metrics:
+            logger.debug(
+                f"Response: {request.method} {path} {status_code}",
+                extra={
+                    "correlation_id": correlation_id,
+                    "method": request.method,
+                    "path": path,
+                    "status_code": status_code
+                }
+            )
+
     response.headers["X-Request-ID"] = correlation_id
     response.headers["X-Correlation-ID"] = correlation_id
     response.headers["X-Response-Time-Ms"] = str(round(elapsed_ms))
@@ -223,13 +246,16 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         exc_info=True,
         extra={"correlation_id": request_id, "path": request.url.path}
     )
-    if settings.SENTRY_DSN:
+    if settings.SENTRY_DSN and settings.ENV != "test":
         try:
             import sentry_sdk
-            sentry_sdk.capture_exception(exc)
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("request_id", request_id)
+                scope.set_tag("correlation_id", request_id)
+                sentry_sdk.capture_exception(exc)
         except Exception:
             pass
-    return JSONResponse(
+    response = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "Internal server error",
@@ -237,6 +263,9 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
             "request_id": request_id,
         }
     )
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Correlation-ID"] = request_id
+    return response
 
 
 @app.exception_handler(HTTPException)

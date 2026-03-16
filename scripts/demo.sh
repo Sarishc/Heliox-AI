@@ -11,9 +11,9 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Configuration
-ADMIN_API_KEY="heliox-admin-key-change-in-production"
-API_URL="http://localhost:8000"
+# Configuration (ADMIN_API_KEY must match backend .env)
+ADMIN_API_KEY="${ADMIN_API_KEY:?ADMIN_API_KEY required - set from backend .env}"
+API_URL="${API_URL:-http://localhost:8000}"
 FRONTEND_URL="http://localhost:3000"
 
 echo -e "${BLUE}🚀 Heliox-AI Demo Setup${NC}"

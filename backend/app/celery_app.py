@@ -1,8 +1,21 @@
 """Celery application for async tasks and scheduled jobs."""
-from celery import Celery
+from celery import Celery, signals
 from celery.schedules import crontab
 
 from app.core.config import get_settings
+
+# Initialize Sentry when worker starts (must run before tasks are loaded)
+@signals.worker_init.connect
+def _init_sentry_on_worker(**kwargs):
+    from app.core.observability import init_sentry_celery
+    init_sentry_celery()
+
+# Import all task modules so Beat schedule and workers can resolve task names
+import app.tasks.budget_tasks  # noqa: F401
+import app.tasks.integration_tasks  # noqa: F401
+import app.tasks.rollup_tasks  # noqa: F401
+import app.tasks.slack_tasks  # noqa: F401
+import app.tasks.usage_tasks  # noqa: F401
 
 settings = get_settings()
 

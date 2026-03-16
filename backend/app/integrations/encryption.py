@@ -101,6 +101,44 @@ class IntegrationEncryption:
             logger.error(f"Failed to parse decrypted config as JSON: {e}")
             raise ValueError("Decrypted configuration is not valid JSON")
     
+    def encrypt_string(self, value: str) -> str:
+        """
+        Encrypt a single string (e.g. webhook URL).
+        
+        Args:
+            value: Plaintext string to encrypt
+            
+        Returns:
+            Encrypted string (base64)
+        """
+        if not value:
+            return ""
+        encrypted_bytes = self.fernet.encrypt(value.encode())
+        return encrypted_bytes.decode()
+
+    def decrypt_string(self, encrypted: str) -> str:
+        """
+        Decrypt a single string.
+        
+        Args:
+            encrypted: Encrypted string from encrypt_string
+            
+        Returns:
+            Decrypted plaintext string
+            
+        Raises:
+            ValueError: If decryption fails
+        """
+        if not encrypted:
+            return ""
+        try:
+            decrypted_bytes = self.fernet.decrypt(encrypted.encode())
+            return decrypted_bytes.decode()
+        except InvalidToken:
+            raise ValueError(
+                "Failed to decrypt. The encryption key may have changed or the data is corrupted."
+            )
+
     def rotate_key(self, old_encrypted: str, new_key: bytes) -> str:
         """
         Re-encrypt config with a new key (for key rotation).

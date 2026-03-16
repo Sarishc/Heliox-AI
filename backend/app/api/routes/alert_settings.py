@@ -15,16 +15,27 @@ from app.schemas.alert_settings import (
     AlertSettingsResponse,
     AlertSettingsUpdate
 )
+from app.services.webhook_secrets import get_webhook_url, mask_webhook, set_webhook_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-def _mask_webhook(url: str | None) -> str | None:
-    if not url:
-        return None
-    return f"***{url[-8:]}"
+def _to_response(settings: AlertSettings, db: Session) -> dict:
+    """Build response dict with masked webhook (never expose full URL)."""
+    data = {
+        "id": settings.id,
+        "team_id": settings.team_id,
+        "burn_rate_threshold_usd_per_day": settings.burn_rate_threshold_usd_per_day,
+        "enable_slack": settings.enable_slack,
+        "enable_email": settings.enable_email,
+        "email_recipients": settings.email_recipients,
+        "slack_webhook_url": mask_webhook(get_webhook_url(db, settings.team_id)),
+        "created_at": settings.created_at,
+        "updated_at": settings.updated_at,
+    }
+    return data
 
 
 @router.get(
@@ -43,9 +54,7 @@ def list_alert_settings(
     Requires admin API key.
     """
     settings = db.query(AlertSettings).all()
-    for item in settings:
-        item.slack_webhook_url = _mask_webhook(item.slack_webhook_url)
-    return settings
+    return [AlertSettingsResponse(**_to_response(item, db)) for item in settings]
 
 
 @router.get(
@@ -93,8 +102,7 @@ def get_alert_settings(
             "updated_at": datetime.utcnow()
         }
     
-    settings.slack_webhook_url = _mask_webhook(settings.slack_webhook_url)
-    return settings
+    return AlertSettingsResponse(**_to_response(settings, db))
 
 
 @router.post(
@@ -133,16 +141,20 @@ def create_alert_settings(
             detail=f"Alert settings already exist for team {settings_in.team_id}"
         )
     
-    # Create settings
-    settings = AlertSettings(**settings_in.model_dump())
+    # Create settings (exclude slack_webhook_url - handled via set_webhook_url)
+    data = settings_in.model_dump(exclude={"slack_webhook_url"})
+    webhook_url = settings_in.slack_webhook_url
+    settings = AlertSettings(**data)
     db.add(settings)
     db.commit()
     db.refresh(settings)
-    
+    if webhook_url:
+        set_webhook_url(db, settings_in.team_id, webhook_url)
+        db.refresh(settings)
+
     logger.info(f"Created alert settings for team {settings_in.team_id}")
-    
-    settings.slack_webhook_url = _mask_webhook(settings.slack_webhook_url)
-    return settings
+
+    return AlertSettingsResponse(**_to_response(settings, db))
 
 
 @router.put(
@@ -181,18 +193,19 @@ def update_alert_settings(
         settings = AlertSettings(team_id=team_id)
         db.add(settings)
     
-    # Update fields
+    # Update fields (handle slack_webhook_url via set_webhook_url)
     update_data = settings_update.model_dump(exclude_unset=True)
+    webhook_url = update_data.pop("slack_webhook_url", None)
     for field, value in update_data.items():
         setattr(settings, field, value)
-    
+    if webhook_url is not None:
+        set_webhook_url(db, team_id, webhook_url if webhook_url else None)
     db.commit()
     db.refresh(settings)
-    
+
     logger.info(f"Updated alert settings for team {team_id}")
-    
-    settings.slack_webhook_url = _mask_webhook(settings.slack_webhook_url)
-    return settings
+
+    return AlertSettingsResponse(**_to_response(settings, db))
 
 
 @router.delete(

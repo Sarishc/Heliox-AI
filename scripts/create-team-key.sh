@@ -2,7 +2,7 @@
 set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-http://localhost:8000}"
-ADMIN_API_KEY="${ADMIN_API_KEY:-dev-admin-key-change-me}"
+ADMIN_API_KEY="${ADMIN_API_KEY:?ADMIN_API_KEY required - set from backend .env}"
 TEAM_NAME="${TEAM_NAME:-Acme AI}"
 KEY_NAME="${KEY_NAME:-Founder key}"
 

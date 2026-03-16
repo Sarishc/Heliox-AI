@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 # Test configuration - use env vars for CI/load-test compatibility
 API_KEY = os.environ.get("HELIOX_LOAD_TEST_API_KEY", "hlx_loadtest_placeholder")
-ADMIN_API_KEY = os.environ.get("HELIOX_ADMIN_API_KEY", "dev-admin-key-change-me")
+ADMIN_API_KEY = os.environ.get("HELIOX_ADMIN_API_KEY") or os.environ.get("ADMIN_API_KEY") or ""
 API_PREFIX = "/api/v1"
 
 # Realistic model and team names

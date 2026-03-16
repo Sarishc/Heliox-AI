@@ -1,12 +1,14 @@
 """API routes for integrations."""
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.auth.rbac import require_team_admin_or_api_key
+from app.auth.team_resolution import TeamContext
 from app.core.db import get_db
 from app.core.security import verify_team_api_key
 from app.integrations.base import IntegrationProvider, IntegrationStatus, SyncStatus
@@ -32,7 +34,7 @@ logger = logging.getLogger(__name__)
 async def test_aws_credentials(
     *,
     config: Dict[str, Any],
-    api_key: TeamAPIKey = Depends(verify_team_api_key)
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key)
 ):
     """
     Test AWS credentials before saving.
@@ -77,7 +79,7 @@ async def test_aws_credentials(
 async def connect_aws(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     connection_data: IntegrationConnectionCreate
 ):
     """
@@ -122,7 +124,7 @@ async def connect_aws(
     
     # Create connection
     connection = IntegrationConnection(
-        team_id=api_key.team_id,
+        team_id=auth_ctx.team_id,
         provider=IntegrationProvider.AWS,
         name=connection_data.name,
         description=connection_data.description,
@@ -136,7 +138,7 @@ async def connect_aws(
     db.commit()
     db.refresh(connection)
     
-    logger.info(f"Created AWS integration connection {connection.id} for team {api_key.team_id}")
+    logger.info(f"Created AWS integration connection {connection.id} for team {auth_ctx.team_id}")
     
     # Trigger initial sync
     from app.tasks.integration_tasks import run_integration_sync
@@ -196,7 +198,7 @@ def list_available_integrations():
 def create_integration_connection(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     connection_create: IntegrationConnectionCreate
 ):
     """
@@ -242,7 +244,7 @@ def create_integration_connection(
     
     # Create connection
     connection = IntegrationConnection(
-        team_id=api_key.team_id,
+        team_id=auth_ctx.team_id,
         provider=provider,
         name=connection_create.name,
         description=connection_create.description,
@@ -256,7 +258,7 @@ def create_integration_connection(
     db.commit()
     db.refresh(connection)
     
-    logger.info(f"Created integration connection {connection.id} for team {api_key.team_id}")
+    logger.info(f"Created integration connection {connection.id} for team {auth_ctx.team_id}")
     
     # Convert to response (decrypt config for display)
     decrypted_config = encryption.decrypt_config(connection.config_encrypted)
@@ -331,7 +333,7 @@ def list_integrations(
 async def trigger_sync(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     connection_id: UUID
 ):
     """
@@ -346,7 +348,7 @@ async def trigger_sync(
     # Get connection
     connection = db.query(IntegrationConnection).filter(
         IntegrationConnection.id == connection_id,
-        IntegrationConnection.team_id == api_key.team_id
+        IntegrationConnection.team_id == auth_ctx.team_id
     ).first()
     
     if not connection:
@@ -508,7 +510,7 @@ def get_sync_history(
 def delete_integration(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     connection_id: UUID
 ):
     """
@@ -518,7 +520,7 @@ def delete_integration(
     """
     connection = db.query(IntegrationConnection).filter(
         IntegrationConnection.id == connection_id,
-        IntegrationConnection.team_id == api_key.team_id
+        IntegrationConnection.team_id == auth_ctx.team_id
     ).first()
     
     if not connection:
@@ -530,7 +532,7 @@ def delete_integration(
     db.delete(connection)
     db.commit()
     
-    logger.info(f"Deleted integration connection {connection_id} for team {api_key.team_id}")
+    logger.info(f"Deleted integration connection {connection_id} for team {auth_ctx.team_id}")
     
     return None
 
@@ -540,7 +542,7 @@ def delete_integration(
 async def test_gcp_credentials(
     *,
     config: Dict[str, Any],
-    api_key: TeamAPIKey = Depends(verify_team_api_key)
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key)
 ):
     """
     Test GCP BigQuery credentials before saving.
@@ -586,11 +588,144 @@ async def test_gcp_credentials(
         )
 
 
+# Azure-specific routes
+@router.post("/azure/test")
+async def test_azure_credentials(
+    *,
+    config: Dict[str, Any],
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key)
+):
+    """
+    Test Azure Cost Management credentials before saving.
+
+    Validates:
+    1. Client credentials can obtain token
+    2. Cost Management API is accessible
+    3. Subscription access is valid
+
+    Returns validation results and subscription info.
+    """
+    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+
+    try:
+        integration = AzureCostManagementIntegration(config)
+        health_result = await integration.health()
+
+        return {
+            "valid": health_result["status"] == "healthy",
+            "subscription_id": health_result.get("details", {}).get("subscription_id"),
+            "subscriptions_count": health_result.get("details", {}).get("subscriptions_count"),
+            "message": health_result["message"],
+            "details": health_result["details"],
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid configuration: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(f"Azure credential test failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Credential test failed: {str(e)}",
+        )
+
+
+@router.post("/azure/connect", response_model=IntegrationConnectionResponse, status_code=status.HTTP_201_CREATED)
+async def connect_azure(
+    *,
+    db: Session = Depends(get_db),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
+    connection_data: IntegrationConnectionCreate
+):
+    """
+    Connect Azure Cost Management integration.
+
+    This is a convenience endpoint that:
+    1. Tests credentials
+    2. Creates integration connection
+    3. Triggers initial sync
+    """
+    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+
+    connection_data.provider = "azure"
+
+    try:
+        integration = AzureCostManagementIntegration(connection_data.config)
+        health_result = await integration.health()
+
+        if health_result["status"] != "healthy":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Azure credentials test failed: {health_result['message']}",
+            )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid configuration: {str(e)}",
+        )
+
+    encryption = get_encryption()
+    encrypted_config = encryption.encrypt_config(connection_data.config)
+
+    connection = IntegrationConnection(
+        team_id=auth_ctx.team_id,
+        provider=IntegrationProvider.AZURE,
+        name=connection_data.name,
+        description=connection_data.description,
+        config_encrypted=encrypted_config,
+        status=IntegrationStatus.PENDING,
+        auto_sync_enabled=connection_data.auto_sync_enabled,
+        sync_interval_minutes=connection_data.sync_interval_minutes
+    )
+
+    db.add(connection)
+    db.commit()
+    db.refresh(connection)
+
+    logger.info(f"Created Azure integration connection {connection.id} for team {auth_ctx.team_id}")
+
+    sync_run = IntegrationSyncRun(
+        connection_id=connection.id,
+        started_at=datetime.utcnow(),
+        status=SyncStatus.RUNNING,
+        triggered_by="initial"
+    )
+
+    db.add(sync_run)
+    db.commit()
+    db.refresh(sync_run)
+
+    from app.tasks.integration_tasks import run_integration_sync
+    run_integration_sync.delay(str(connection.id), str(sync_run.id))
+
+    decrypted_config = encryption.decrypt_config(connection.config_encrypted)
+    safe_config = integration.get_display_config(decrypted_config)
+
+    return IntegrationConnectionResponse(
+        id=connection.id,
+        team_id=connection.team_id,
+        provider=connection.provider.value,
+        name=connection.name,
+        description=connection.description,
+        config=safe_config,
+        status=connection.status.value,
+        last_error=connection.last_error,
+        last_sync_at=connection.last_sync_at,
+        last_successful_sync_at=connection.last_successful_sync_at,
+        auto_sync_enabled=connection.auto_sync_enabled,
+        sync_interval_minutes=connection.sync_interval_minutes,
+        created_at=connection.created_at,
+        updated_at=connection.updated_at
+    )
+
+
 @router.post("/gcp/connect", response_model=IntegrationConnectionResponse, status_code=status.HTTP_201_CREATED)
 async def connect_gcp(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     connection_data: IntegrationConnectionCreate
 ):
     """
@@ -634,7 +769,7 @@ async def connect_gcp(
     
     # Create connection
     connection = IntegrationConnection(
-        team_id=api_key.team_id,
+        team_id=auth_ctx.team_id,
         provider=IntegrationProvider.GCP_BILLING_BIGQUERY,
         name=connection_data.name,
         description=connection_data.description,
@@ -648,7 +783,7 @@ async def connect_gcp(
     db.commit()
     db.refresh(connection)
     
-    logger.info(f"Created GCP integration connection {connection.id} for team {api_key.team_id}")
+    logger.info(f"Created GCP integration connection {connection.id} for team {auth_ctx.team_id}")
     
     # Trigger initial sync
     from app.tasks.integration_tasks import run_integration_sync

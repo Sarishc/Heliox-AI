@@ -1,5 +1,16 @@
 """Prometheus metrics for request latency, error rate, and throughput."""
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+# Paths excluded from metrics (health probes, metrics endpoint - avoid noise)
+METRICS_EXCLUDED_PATHS = frozenset({
+    "/health",
+    "/health/db",
+    "/liveness",
+    "/readiness",
+    "/ready",
+    "/metrics",
+    "/",
+})
 
 # Request count by method, path, status
 REQUEST_COUNT = Counter(
@@ -23,6 +34,13 @@ ERROR_COUNT = Counter(
     ["method", "path_template"],
 )
 
+# In-flight requests gauge
+IN_FLIGHT_REQUESTS = Gauge(
+    "heliox_http_requests_in_flight",
+    "Number of HTTP requests currently being processed",
+    ["method", "path_template"],
+)
+
 
 def get_status_class(status_code: int) -> str:
     """Return status class (2xx, 3xx, 4xx, 5xx)."""
@@ -36,20 +54,33 @@ def get_status_class(status_code: int) -> str:
 
 
 def normalize_path(path: str) -> str:
-    """Normalize path for metrics (collapse UUIDs, IDs)."""
+    """
+    Normalize path for metrics (collapse UUIDs, IDs, tokens).
+    Keeps label cardinality low and avoids sensitive path segments.
+    """
     parts = path.split("/")
     normalized = []
     for p in parts:
         if not p:
             continue
-        # Collapse UUIDs and numeric IDs
+        # Collapse UUIDs (36 chars, 4 hyphens)
         if len(p) == 36 and p.count("-") == 4:
             normalized.append("{id}")
+        # Collapse numeric IDs
         elif p.isdigit():
             normalized.append("{id}")
+        # Collapse long alphanumeric tokens (e.g. share tokens, API keys)
+        elif len(p) > 20 and p.replace("-", "").replace("_", "").isalnum():
+            normalized.append("{token}")
+        # Keep known path segments (api, v1, teams, etc.)
         else:
             normalized.append(p)
     return "/" + "/".join(normalized) if normalized else path
+
+
+def should_record_metrics(path: str) -> bool:
+    """Return True if path should be included in request metrics."""
+    return path not in METRICS_EXCLUDED_PATHS
 
 
 def get_metrics() -> tuple[bytes, str]:

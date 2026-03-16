@@ -11,6 +11,8 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.alert_settings import AlertSettings
+    from app.models.team_saml_config import TeamSamlConfig
+    from app.models.team_invite import TeamInvite
     from app.models.job import Job
     from app.models.team_api_key import TeamAPIKey
     from app.models.team_member import TeamMember
@@ -126,7 +128,20 @@ class Team(Base, UUIDMixin, TimestampMixin):
         cascade="all, delete-orphan",
         lazy="select"
     )
-    
+    saml_config: Mapped[Optional["TeamSamlConfig"]] = relationship(
+        "TeamSamlConfig",
+        back_populates="team",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+    invites: Mapped[List["TeamInvite"]] = relationship(
+        "TeamInvite",
+        back_populates="team",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
     def __repr__(self) -> str:
         return f"<Team(id={self.id}, name={self.name})>"
 

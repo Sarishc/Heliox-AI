@@ -78,9 +78,12 @@ dev-setup: ## Setup development environment
 	@echo "🔧 Setting up development environment..."
 	@if [ ! -f backend/.env ]; then \
 		cp backend/.env.example backend/.env; \
-		echo "✅ Created .env file"; \
+		echo "SECRET_KEY=dev-$$(openssl rand -hex 32)" >> backend/.env; \
+		echo "ADMIN_API_KEY=dev-admin-$$(openssl rand -hex 24)" >> backend/.env; \
+		echo "✅ Created .env with generated SECRET_KEY and ADMIN_API_KEY"; \
 	else \
-		echo "⚠️  .env file already exists"; \
+		grep -q '^SECRET_KEY=.' backend/.env || (echo "SECRET_KEY=dev-$$(openssl rand -hex 32)" >> backend/.env && echo "✅ Added SECRET_KEY to .env"); \
+		echo "⚠️  .env file exists"; \
 	fi
 	@echo "✅ Development environment ready"
 	@echo "Run 'make start' to start services"

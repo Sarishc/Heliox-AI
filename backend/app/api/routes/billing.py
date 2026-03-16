@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth.rbac import require_team_admin_or_api_key
+from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.security import verify_team_api_key
 from app.models.team_api_key import TeamAPIKey
 from app.models.billing import TeamSubscription, TeamEntitlement, BillingPlan
 from app.billing.stripe_client import (
@@ -79,7 +80,7 @@ class PricingPlan(BaseModel):
 async def create_checkout_session_endpoint(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     request_data: CreateCheckoutSessionRequest
 ):
     """
@@ -109,13 +110,13 @@ async def create_checkout_session_endpoint(
     
     # Get or create subscription record
     subscription = db.query(TeamSubscription).filter(
-        TeamSubscription.team_id == api_key.team_id
+        TeamSubscription.team_id == auth_ctx.team_id
     ).first()
     
     if not subscription:
         # Create Stripe customer
         from app.models.team import Team
-        team = db.query(Team).filter(Team.id == api_key.team_id).first()
+        team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
         
         if not team:
             raise HTTPException(
@@ -124,13 +125,13 @@ async def create_checkout_session_endpoint(
             )
         
         stripe_customer_id = create_stripe_customer(
-            team_id=api_key.team_id,
+            team_id=auth_ctx.team_id,
             team_name=team.name
         )
         
         # Create subscription record
         subscription = TeamSubscription(
-            team_id=api_key.team_id,
+            team_id=auth_ctx.team_id,
             stripe_customer_id=stripe_customer_id,
             plan=BillingPlan.FREE
         )
@@ -141,7 +142,7 @@ async def create_checkout_session_endpoint(
     # Create checkout session
     try:
         checkout_url = create_checkout_session(
-            team_id=api_key.team_id,
+            team_id=auth_ctx.team_id,
             plan=plan,
             stripe_customer_id=subscription.stripe_customer_id,
             success_url=request_data.success_url,
@@ -162,7 +163,7 @@ async def create_checkout_session_endpoint(
 async def create_portal_session_endpoint(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     request_data: CreatePortalSessionRequest
 ):
     """
@@ -176,7 +177,7 @@ async def create_portal_session_endpoint(
     """
     # Get subscription record
     subscription = db.query(TeamSubscription).filter(
-        TeamSubscription.team_id == api_key.team_id
+        TeamSubscription.team_id == auth_ctx.team_id
     ).first()
     
     if not subscription:
@@ -206,56 +207,57 @@ async def create_portal_session_endpoint(
 async def get_subscription(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key)
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session)
 ):
     """
     Get current subscription status and entitlements.
-    
+
     Returns subscription details and plan limits/features.
+    Supports both API key and session (cookie) auth.
     """
     # Get subscription
     subscription = db.query(TeamSubscription).filter(
-        TeamSubscription.team_id == api_key.team_id
+        TeamSubscription.team_id == auth_ctx.team_id
     ).first()
-    
+
     # Get entitlements
     entitlement = db.query(TeamEntitlement).filter(
-        TeamEntitlement.team_id == api_key.team_id
+        TeamEntitlement.team_id == auth_ctx.team_id
     ).first()
-    
+
     # If no subscription exists, create free tier
     if not subscription:
         from app.models.team import Team
-        team = db.query(Team).filter(Team.id == api_key.team_id).first()
-        
+        team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
+
         if not team:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Team not found"
             )
-        
+
         # Create Stripe customer
         stripe_customer_id = create_stripe_customer(
-            team_id=api_key.team_id,
+            team_id=auth_ctx.team_id,
             team_name=team.name
         )
-        
+
         # Create subscription record
         subscription = TeamSubscription(
-            team_id=api_key.team_id,
+            team_id=auth_ctx.team_id,
             stripe_customer_id=stripe_customer_id,
             plan=BillingPlan.FREE
         )
         db.add(subscription)
         db.commit()
         db.refresh(subscription)
-        
+
         # Create entitlements
-        entitlement = update_team_entitlements(db, api_key.team_id, BillingPlan.FREE)
-    
+        entitlement = update_team_entitlements(db, auth_ctx.team_id, BillingPlan.FREE)
+
     # If no entitlement exists, create it
     if not entitlement:
-        entitlement = update_team_entitlements(db, api_key.team_id, subscription.plan)
+        entitlement = update_team_entitlements(db, auth_ctx.team_id, subscription.plan)
     
     return SubscriptionResponse(
         team_id=str(subscription.team_id),

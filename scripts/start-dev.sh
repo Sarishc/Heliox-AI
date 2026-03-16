@@ -20,6 +20,13 @@ echo ""
 if [ ! -f backend/.env ]; then
     echo "📝 Creating .env file from .env.example..."
     cp backend/.env.example backend/.env
+    echo "SECRET_KEY=dev-$(openssl rand -hex 32)" >> backend/.env
+    echo "ADMIN_API_KEY=dev-admin-$(openssl rand -hex 24)" >> backend/.env
+    echo "✅ Generated SECRET_KEY and ADMIN_API_KEY"
+elif ! grep -q '^SECRET_KEY=.' backend/.env 2>/dev/null; then
+    echo "⚠️  Adding SECRET_KEY to .env (required)"
+    echo "SECRET_KEY=dev-$(openssl rand -hex 32)" >> backend/.env
+    echo "ADMIN_API_KEY=dev-admin-$(openssl rand -hex 24)" >> backend/.env
 fi
 
 echo "🐳 Starting Docker containers..."

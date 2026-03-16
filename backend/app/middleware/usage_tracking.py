@@ -77,8 +77,8 @@ class UsageTrackingMiddleware(BaseHTTPMiddleware):
         if not self._should_meter_request(request):
             return response
         
-        # Extract team_id from request state (set by auth middleware)
-        team_id = getattr(request.state, "team_id", None)
+        # Extract team_id from request state (set by auth - tenant_id is team_id)
+        team_id = getattr(request.state, "tenant_id", None)
         
         if team_id:
             try:

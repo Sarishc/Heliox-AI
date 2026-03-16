@@ -9,6 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from typing import Union
+
+from app.auth.rbac import require_team_admin_or_api_key
+from app.auth.team_resolution import TeamContext
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import get_team_api_key_optional
@@ -39,9 +43,9 @@ def _hash_token(token: str) -> str:
 def create_report(
     payload: SavedReportCreate,
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = auth_ctx.team_id
     report = SavedReport(
         team_id=team_id,
         name=payload.name,
@@ -91,9 +95,9 @@ def update_report(
     report_id: UUID,
     payload: SavedReportUpdate,
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = auth_ctx.team_id
     report = (
         db.query(SavedReport)
         .filter(SavedReport.id == report_id, SavedReport.team_id == team_id)
@@ -117,9 +121,9 @@ def update_report(
 def delete_report(
     report_id: UUID,
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> None:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = auth_ctx.team_id
     report = (
         db.query(SavedReport)
         .filter(SavedReport.id == report_id, SavedReport.team_id == team_id)

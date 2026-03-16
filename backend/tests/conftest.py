@@ -7,10 +7,17 @@ from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
 
+# Ensure all models are registered before create_all (e.g. team_invites)
+import app.models  # noqa: F401
+
 
 @pytest.fixture(scope="session")
 def db_engine():
     os.environ["ENV"] = "dev"
+    os.environ.setdefault(
+        "SECRET_KEY",
+        "test-secret-key-at-least-32-characters-long-for-pytest",
+    )
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},

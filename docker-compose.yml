@@ -51,23 +51,15 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      # Application
+      # Application (SECRET_KEY, ADMIN_API_KEY must be in .env - copy from .env.example)
       ENV: dev
       LOG_LEVEL: INFO
-      SECRET_KEY: dev-secret-key-change-me
-      ADMIN_API_KEY: dev-admin-key-change-me
-      
-      # Database
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/heliox
-      
-      # Redis
-      REDIS_URL: redis://redis:6379/0
-      
-      # CORS
+      # Database/Redis - defaults for local dev only; override via .env for production
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@postgres:5432/heliox}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CORS_ENABLED: "true"
-      CORS_ORIGINS: '["http://localhost:3000","http://localhost:8000"]'
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://localhost:8000"]}
       MULTI_TENANT: "true"
-      # Performance: 600 req/min supports 100 concurrent users @ 500 req/min target
       RATE_LIMIT_MAX_REQUESTS: "600"
     ports:
       - "8000:8000"
@@ -90,13 +82,13 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: heliox-worker
+    env_file:
+      - ./backend/.env
     environment:
       ENV: dev
       LOG_LEVEL: INFO
-      SECRET_KEY: dev-secret-key-change-me
-      ADMIN_API_KEY: dev-admin-key-change-me
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/heliox
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@postgres:5432/heliox}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       MULTI_TENANT: "true"
     depends_on:
       postgres:
@@ -114,13 +106,15 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: heliox-beat
+    user: "0"  # Run as root so entrypoint can chown volume; entrypoint drops to appuser
+    entrypoint: ["/usr/local/bin/docker-entrypoint-beat.sh"]
+    env_file:
+      - ./backend/.env
     environment:
       ENV: dev
       LOG_LEVEL: INFO
-      SECRET_KEY: dev-secret-key-change-me
-      ADMIN_API_KEY: dev-admin-key-change-me
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/heliox
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@postgres:5432/heliox}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       MULTI_TENANT: "true"
     depends_on:
       postgres:

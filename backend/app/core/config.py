@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     
     # API
     API_V1_PREFIX: str = "/api/v1"
+    API_BASE_URL: str = Field(
+        default="http://localhost:8000",
+        description="Base URL of the API (for SAML ACS, OAuth callbacks). Set in production.",
+    )
 
     # Reports
     REPORT_STORAGE_PATH: str = Field(
@@ -73,12 +77,12 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(
         description="Secret key for JWT token encoding (REQUIRED - set via environment variable)"
     )
-    
+
     ADMIN_API_KEY: str = Field(
         default="",
         description="Deprecated: API key for admin endpoints. Prefer RBAC (is_platform_admin). Empty = use platform admin only."
     )
-    
+
     # Integrations
     INTEGRATIONS_ENCRYPTION_KEY: str = Field(
         default="",
@@ -192,6 +196,10 @@ class Settings(BaseSettings):
         default="",
         description="Sentry environment (defaults to ENV if empty)"
     )
+    SENTRY_RELEASE: str = Field(
+        default="",
+        description="Release version for Sentry (e.g. git SHA, semver). Empty = auto-detect."
+    )
     OTEL_ENABLED: bool = Field(
         default=False,
         description="Enable OpenTelemetry tracing"
@@ -242,6 +250,32 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        """Reject known-insecure secret values."""
+        if not v or len(v) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters. "
+                "Generate with: openssl rand -hex 32"
+            )
+        insecure = (
+            "dev-secret-key-change-me",
+            "change-me",
+            "secret-key-change-me",
+            "ci-secret-key-for-testing-only",
+            "heliox-admin-key-change",
+            "admin-key-change",
+        )
+        v_lower = v.lower()
+        for pattern in insecure:
+            if pattern in v_lower:
+                raise ValueError(
+                    f"SECRET_KEY contains insecure pattern '{pattern}'. "
+                    "Generate a secure key: openssl rand -hex 32"
+                )
+        return v
+
     @field_validator("LOG_LEVEL")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -271,6 +305,19 @@ class Settings(BaseSettings):
     
     def model_post_init(self, __context) -> None:
         """Validate production-required settings after initialization."""
+        # Security: In production, reject unsafe default URLs
+        if self.ENV == "production":
+            if "postgres:postgres" in self.DATABASE_URL:
+                raise ValueError(
+                    "DATABASE_URL must not use default postgres:postgres credentials in production. "
+                    "Set a strong password via POSTGRES_PASSWORD."
+                )
+            if self.REDIS_URL == "redis://localhost:6379/0":
+                raise ValueError(
+                    "REDIS_URL must be explicitly set in production. "
+                    "Cannot use localhost default."
+                )
+
         # Security: In production, secrets and CORS must be explicitly configured
         if self.ENV == "production":
             # Validate CORS_ORIGINS is set and doesn't include localhost

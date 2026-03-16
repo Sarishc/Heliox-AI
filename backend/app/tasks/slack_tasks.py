@@ -44,7 +44,7 @@ def check_burn_rate_task(self, date_str: Optional[str] = None):
         team_ids = [
             UUID(row.team_id)
             for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
             .all()
         ]
         alert_sent = False
@@ -92,7 +92,7 @@ def check_idle_spend_task(self):
         team_ids = [
             UUID(row.team_id)
             for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
             .all()
         ]
         alert_sent = False
@@ -140,7 +140,7 @@ def send_daily_summary_task(self):
         team_ids = [
             UUID(row.team_id)
             for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
             .all()
         ]
         sent = False
@@ -186,7 +186,7 @@ def check_anomalies_task(self):
         team_ids = [
             UUID(row.team_id)
             for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_url.isnot(None))
+            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
             .all()
         ]
         alert_sent = False

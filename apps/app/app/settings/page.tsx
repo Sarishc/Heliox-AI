@@ -34,6 +34,27 @@ interface TeamResponse {
   monthly_budget_usd?: number | null;
 }
 
+interface TeamInvite {
+  id: string;
+  team_id: string;
+  email: string;
+  role: string;
+  invited_by_user_id: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+}
+
+interface TeamInviteCreateResponse {
+  id: string;
+  team_id: string;
+  email: string;
+  role: string;
+  expires_at: string;
+  invite_link: string;
+  created_at: string;
+}
+
 const RUNWAY_EXPAND_FLAG = "heliox_runway_expand_after_budget";
 
 export default function SettingsPage() {
@@ -48,6 +69,10 @@ export default function SettingsPage() {
   const [budgetInput, setBudgetInput] = useState("");
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [invites, setInvites] = useState<TeamInvite[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"viewer" | "admin">("viewer");
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -104,6 +129,24 @@ export default function SettingsPage() {
   }, [teamId, canManageKeys]);
 
   useEffect(() => {
+    const loadInvites = async () => {
+      if (!teamId || !canManageKeys) {
+        setInvites([]);
+        return;
+      }
+      try {
+        const result = await fetchJson<TeamInvite[]>(
+          `/api/v1/teams/${teamId}/invites`
+        );
+        setInvites(result);
+      } catch {
+        setInvites([]);
+      }
+    };
+    loadInvites();
+  }, [teamId, canManageKeys]);
+
+  useEffect(() => {
     const loadAudit = async () => {
       if (!teamId || !canManageKeys) {
         setAuditLogs([]);
@@ -141,6 +184,43 @@ export default function SettingsPage() {
     );
     setRotationKey(keyId);
     setRotationKeyValue(response.api_key);
+  };
+
+  const createInvite = async () => {
+    if (!teamId || !inviteEmail.trim()) return;
+    setErrorMessage(null);
+    setInfoMessage(null);
+    setCreatedInviteLink(null);
+    try {
+      const result = await fetchJson<TeamInviteCreateResponse>(
+        `/api/v1/teams/${teamId}/invites`,
+        { method: "POST", body: JSON.stringify({ email: inviteEmail.trim().toLowerCase(), role: inviteRole }) }
+      );
+      setCreatedInviteLink(result.invite_link);
+      setInviteEmail("");
+      setInfoMessage("Invite created. Copy the link and share it with your teammate.");
+      const updated = await fetchJson<TeamInvite[]>(`/api/v1/teams/${teamId}/invites`);
+      setInvites(updated);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to create invite");
+    }
+  };
+
+  const revokeInvite = async (inviteId: string) => {
+    if (!teamId) return;
+    try {
+      await fetchJson(`/api/v1/teams/${teamId}/invites/${inviteId}`, { method: "DELETE" });
+      setInfoMessage("Invite revoked.");
+      const updated = await fetchJson<TeamInvite[]>(`/api/v1/teams/${teamId}/invites`);
+      setInvites(updated);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to revoke invite");
+    }
+  };
+
+  const copyInviteLink = (link: string) => {
+    navigator.clipboard.writeText(link);
+    setInfoMessage("Invite link copied to clipboard.");
   };
 
   const revokeApiKey = async (keyId: string) => {
@@ -326,6 +406,82 @@ export default function SettingsPage() {
           ) : (
             <p className="text-sm text-gray-500 mt-4">
               Login with a user token to manage keys.
+            </p>
+          )}
+        </section>
+
+        <section className="bg-white border border-gray-200 rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900">Team Invites</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Invite teammates by email. They receive a link to join your team.
+          </p>
+          {canManageKeys ? (
+            <>
+              <div className="mt-4 flex flex-wrap gap-2 items-center">
+                <input
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="teammate@company.com"
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  type="email"
+                />
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as "viewer" | "admin")}
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button
+                  onClick={createInvite}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm"
+                >
+                  Create invite
+                </button>
+              </div>
+              {createdInviteLink && (
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-md text-sm">
+                  <p className="font-medium text-amber-800">Invite link (share with your teammate):</p>
+                  <div className="mt-2 flex gap-2 items-center">
+                    <code className="flex-1 break-all text-amber-900">{createdInviteLink}</code>
+                    <button
+                      onClick={() => copyInviteLink(createdInviteLink)}
+                      className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs whitespace-nowrap"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="mt-4 space-y-2">
+                <p className="text-sm font-medium text-gray-700">Pending invites</p>
+                {invites.length === 0 ? (
+                  <p className="text-sm text-gray-500">No pending invites.</p>
+                ) : (
+                  invites.map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex items-center justify-between border border-gray-200 rounded-md px-3 py-2 text-sm"
+                    >
+                      <div>
+                        <span className="font-medium text-gray-900">{inv.email}</span>
+                        <span className="text-gray-500 ml-2">({inv.role})</span>
+                      </div>
+                      <button
+                        onClick={() => revokeInvite(inv.id)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 mt-4">
+              Owner or admin can invite teammates.
             </p>
           )}
         </section>

@@ -11,7 +11,7 @@ USERS=100
 SPAWN_RATE=10  # 10 users/second
 DURATION=300   # 5 minutes
 HOST="${HELIOX_HOST:-http://localhost:8000}"
-ADMIN_API_KEY="${HELIOX_ADMIN_API_KEY:-dev-admin-key-change-me}"
+ADMIN_API_KEY="${HELIOX_ADMIN_API_KEY:?HELIOX_ADMIN_API_KEY or ADMIN_API_KEY required}"
 
 echo "Configuration:"
 echo "  Users: $USERS concurrent"

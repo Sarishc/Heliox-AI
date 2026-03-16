@@ -3,15 +3,15 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.db import get_db
-from app.core.security import verify_team_api_key
 from app.models.team_api_key import TeamAPIKey
 from app.models.usage import UsageDailyRollup, UsageEvent, UsageEventType
 
@@ -53,7 +53,7 @@ class UsageSummaryResponse(BaseModel):
 def get_usage_summary(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
     from_date: Optional[date] = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
     to_date: Optional[date] = Query(None, alias="to", description="End date (YYYY-MM-DD)")
 ):
@@ -92,14 +92,15 @@ def get_usage_summary(
             detail="Date range cannot exceed 365 days"
         )
     
-    logger.info(f"Fetching usage for team {api_key.team_id} from {from_date} to {to_date}")
-    
+    team_id = auth.team_id
+    logger.info(f"Fetching usage for team {team_id} from {from_date} to {to_date}")
+
     # Query aggregated usage from daily rollups
     rollup_query = db.query(
         UsageDailyRollup.event_type,
         func.sum(UsageDailyRollup.total_quantity).label('total_quantity')
     ).filter(
-        UsageDailyRollup.team_id == api_key.team_id,
+        UsageDailyRollup.team_id == team_id,
         UsageDailyRollup.date >= from_date,
         UsageDailyRollup.date <= to_date
     ).group_by(
@@ -148,7 +149,7 @@ def get_usage_summary(
         UsageDailyRollup.event_type,
         UsageDailyRollup.total_quantity
     ).filter(
-        UsageDailyRollup.team_id == api_key.team_id,
+        UsageDailyRollup.team_id == team_id,
         UsageDailyRollup.date >= from_date,
         UsageDailyRollup.date <= to_date
     ).order_by(
@@ -192,7 +193,7 @@ def get_usage_summary(
     ]
     
     return UsageSummaryResponse(
-        team_id=str(api_key.team_id),
+        team_id=str(team_id),
         start_date=from_date,
         end_date=to_date,
         breakdown=breakdown,
@@ -205,20 +206,20 @@ def get_usage_summary(
 def get_current_month_usage(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key)
+    auth: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session)
 ):
     """
     Get usage summary for the current month.
-    
+
     Convenience endpoint for fetching current billing period usage.
     """
     # Calculate current month date range
     today = datetime.utcnow().date()
     first_day_of_month = date(today.year, today.month, 1)
-    
+
     return get_usage_summary(
         db=db,
-        api_key=api_key,
+        auth=auth,
         from_date=first_day_of_month,
         to_date=today
     )
@@ -228,7 +229,7 @@ def get_current_month_usage(
 def get_recent_usage_events(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
     limit: int = Query(100, le=1000, description="Number of events to return"),
     event_type: Optional[UsageEventType] = Query(None, description="Filter by event type")
 ):
@@ -239,7 +240,7 @@ def get_recent_usage_events(
     Limited to last 30 days based on retention policy.
     """
     query = db.query(UsageEvent).filter(
-        UsageEvent.team_id == api_key.team_id
+        UsageEvent.team_id == auth.team_id
     )
     
     if event_type:
@@ -251,14 +252,14 @@ def get_recent_usage_events(
     ).limit(limit).all()
     
     return {
-        "team_id": str(api_key.team_id),
+        "team_id": str(auth.team_id),
         "count": len(events),
         "events": [
             {
                 "id": str(event.id),
                 "event_type": event.event_type.value,
                 "quantity": event.quantity,
-                "metadata": event.metadata,
+                "metadata": event.event_metadata,
                 "created_at": event.created_at.isoformat()
             }
             for event in events

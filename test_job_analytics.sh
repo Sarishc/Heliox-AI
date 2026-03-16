@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-API_KEY="heliox-admin-key-change-in-production"
+API_KEY="${ADMIN_API_KEY:?ADMIN_API_KEY required - set from backend .env}"
 BASE_URL="http://localhost:8000/api/v1"
 
 # Color codes
@@ -22,7 +22,7 @@ echo "╚═══════════════════════�
 echo -e "\n${BLUE}[SETUP]${NC} Getting authentication token..."
 TOKEN_RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin@heliox.ai&password=admin123")
+  -d "username=${TEST_USER:-admin@heliox.ai}&password=${TEST_PASSWORD:?TEST_PASSWORD required}")
 
 if echo "$TOKEN_RESPONSE" | grep -q "access_token"; then
     TOKEN=$(echo "$TOKEN_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")

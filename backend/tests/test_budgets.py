@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 
 from app.api.routes.budgets import list_policies
+from app.integrations.encryption import get_encryption
 from app.models.alert_settings import AlertSettings
 from app.models.budget import BudgetPolicy, BudgetEnvironment, BudgetEvent
 from app.models.cost import CostSnapshot
@@ -62,10 +63,12 @@ def test_budget_threshold_triggers_once_per_month(db_session, monkeypatch):
         is_enabled=True,
     )
     db_session.add(policy)
+    webhook_url = "https://hooks.slack.com/services/team-a"
     db_session.add(
         AlertSettings(
             team_id=team.id,
-            slack_webhook_url="https://hooks.slack.com/services/team-a"
+            enable_slack=True,
+            slack_webhook_encrypted=get_encryption().encrypt_string(webhook_url),
         )
     )
     db_session.commit()

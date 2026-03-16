@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 API_URL="http://localhost:8000"
-ADMIN_API_KEY="${ADMIN_API_KEY:-heliox-admin-key-change-in-production}"
+ADMIN_API_KEY="${ADMIN_API_KEY:?ADMIN_API_KEY required - set from backend .env}"
 MAX_WAIT_TIME=60  # seconds
 RETRY_INTERVAL=2  # seconds
 

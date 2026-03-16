@@ -28,6 +28,7 @@ import { fetchJson } from "@/lib/api";
 
 // Existing forms
 import AWSIntegrationForm from "@/components/AWSIntegrationForm";
+import AzureIntegrationForm from "@/components/AzureIntegrationForm";
 import GCPIntegrationForm from "@/components/GCPIntegrationForm";
 
 interface AvailableIntegration {
@@ -61,6 +62,7 @@ function IntegrationsContent() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
   const [showAWSForm, setShowAWSForm] = useState(false);
+  const [showAzureForm, setShowAzureForm] = useState(false);
   const [showGCPForm, setShowGCPForm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
@@ -73,12 +75,12 @@ function IntegrationsContent() {
   async function loadData() {
     setLoading(true);
     try {
-      const [availableData, connectionsData] = await Promise.all([
+      const [availableData, connectionsResponse] = await Promise.all([
         fetchJson<AvailableIntegration[]>("/api/v1/integrations/available"),
-        fetchJson<IntegrationConnection[]>("/api/v1/integrations"),
+        fetchJson<{ connections?: IntegrationConnection[]; total?: number }>("/api/v1/integrations"),
       ]);
       setAvailable(availableData);
-      setConnections(connectionsData);
+      setConnections(connectionsResponse?.connections ?? []);
     } catch (err: any) {
       console.error("Failed to load integrations:", err);
       showError("Failed to load", err.message || "Could not load integrations");
@@ -163,8 +165,10 @@ function IntegrationsContent() {
                 integration={integration}
                 isConnected={connections.some((c) => c.provider === integration.provider)}
                 onConnect={() => {
-                  if (integration.provider === "aws_cost_explorer") {
+                  if (integration.provider === "aws" || integration.provider === "aws_cost_explorer") {
                     setShowAWSForm(true);
+                  } else if (integration.provider === "azure") {
+                    setShowAzureForm(true);
                   } else if (integration.provider === "gcp_billing_bigquery") {
                     setShowGCPForm(true);
                   } else {
@@ -174,18 +178,6 @@ function IntegrationsContent() {
               />
             ))}
 
-            {/* Coming Soon Cards */}
-            <IntegrationCard
-              integration={{
-                provider: "azure_cost_management",
-                display_name: "Azure Cost Management",
-                description: "Import costs from Azure Cost Management API",
-                enabled: false,
-                config_schema: {},
-              }}
-              isConnected={false}
-              comingSoon
-            />
             <IntegrationCard
               integration={{
                 provider: "kubernetes",
@@ -268,6 +260,24 @@ function IntegrationsContent() {
         />
       </Modal>
 
+      {/* Azure Form Modal */}
+      <Modal
+        isOpen={showAzureForm}
+        onClose={() => setShowAzureForm(false)}
+        title="Connect Azure Cost Management"
+        description="Import your Azure billing data"
+        size="lg"
+      >
+        <AzureIntegrationForm
+          onSuccess={() => {
+            setShowAzureForm(false);
+            loadData();
+            showSuccess("Azure connected", "Your Azure integration is now active");
+          }}
+          onCancel={() => setShowAzureForm(false)}
+        />
+      </Modal>
+
       {/* GCP Form Modal */}
       <Modal
         isOpen={showGCPForm}
@@ -311,13 +321,15 @@ function IntegrationCard({
   onConnect?: () => void;
   comingSoon?: boolean;
 }) {
-  const providerLogos = {
+  const providerLogos: Record<string, string> = {
+    aws: "☁️",
     aws_cost_explorer: "☁️",
     gcp_billing_bigquery: "🌐",
+    azure: "🔷",
     azure_cost_management: "🔷",
     kubernetes: "☸️",
     datadog: "🐕",
-  } as const;
+  };
 
   return (
     <Card

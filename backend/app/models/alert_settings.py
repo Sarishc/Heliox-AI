@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -43,10 +43,10 @@ class AlertSettings(Base):
         default=False,
         comment="Enable email notifications for this team (future feature)"
     )
-    slack_webhook_url = Column(
-        String,
+    slack_webhook_encrypted = Column(
+        Text,
         nullable=True,
-        comment="Slack webhook URL for team-scoped alerts"
+        comment="Encrypted Slack webhook URL (use webhook helpers to read/write)"
     )
     
     # Email configuration (for future use)

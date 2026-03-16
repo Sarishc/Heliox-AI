@@ -449,27 +449,43 @@ function DashboardContent() {
         </>
       )}
 
-      {/* Call to Action if NOT in demo mode */}
+      {/* Empty state / Getting started when NOT in demo mode */}
       {!isDemo && (
         <Card className="border-2 border-dashed border-heliox-border">
-          <CardContent className="py-12 text-center">
-            <AlertTriangle className="w-12 h-12 text-heliox-text-muted mx-auto mb-4" />
-            <h3 className="text-enterprise-h2 text-heliox-text mb-2">
-              Enable Demo Mode for Full Experience
-            </h3>
-            <p className="text-enterprise-body text-heliox-text-secondary max-w-md mx-auto mb-6">
-              See realistic enterprise-scale data with $2.4M monthly spend, 847 GPUs, and detailed
-              team/model breakdowns. Perfect for presentations and demos.
-            </p>
-            <Button
-              variant="primary"
-              onClick={() => {
-                localStorage.setItem("heliox_demo_mode", "true");
-                window.location.reload();
-              }}
-            >
-              Enable Demo Mode
-            </Button>
+          <CardContent className="py-10">
+            <div className="flex flex-col sm:flex-row items-center gap-6">
+              <div className="flex-1 text-center sm:text-left">
+                <h3 className="text-enterprise-h2 text-heliox-text mb-2">
+                  Get your first data flowing
+                </h3>
+                <p className="text-enterprise-body text-heliox-text-secondary max-w-md mb-4">
+                  Connect AWS or GCP in Settings → Integrations to import GPU costs, or enable demo
+                  mode to explore the full dashboard with sample data.
+                </p>
+                <div className="flex flex-wrap gap-3 justify-center sm:justify-start">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => (window.location.href = "/settings/integrations")}
+                  >
+                    Connect cloud data
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      localStorage.setItem("heliox_demo_mode", "true");
+                      window.location.reload();
+                    }}
+                  >
+                    Enable demo mode
+                  </Button>
+                </div>
+              </div>
+              <div className="shrink-0 rounded-lg bg-slate-100 p-4">
+                <AlertTriangle className="w-10 h-10 text-heliox-text-muted" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

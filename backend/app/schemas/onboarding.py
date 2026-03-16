@@ -2,6 +2,17 @@
 from pydantic import BaseModel, Field
 
 
+class OnboardingStatusResponse(BaseModel):
+    """Checklist state derived from existing product data (no new tables)."""
+
+    has_team: bool = False
+    has_api_key: bool = False
+    has_integration: bool = False
+    has_slack_webhook: bool = False
+    can_manage: bool = False
+    role: str = "unknown"
+
+
 class OnboardingRequest(BaseModel):
     team_name: str = Field(..., min_length=1, max_length=255)
     api_key_name: str = Field(default="Default key")

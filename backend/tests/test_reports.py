@@ -35,7 +35,7 @@ def _seed_report(db_session, team_id):
         ],
     )
     payload = SavedReportCreate(name="Board Report", description="Q1 summary", config=config)
-    report = create_report(payload=payload, db=db_session, team_api_key=_api_key(team_id))
+    report = create_report(payload=payload, db=db_session, auth_ctx=_api_key(team_id))
     return report
 
 

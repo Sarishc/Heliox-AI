@@ -1,12 +1,14 @@
 """Budget policy and guardrail endpoints."""
 from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.auth.rbac import require_team_admin_or_api_key
+from app.auth.team_resolution import TeamContext
 from app.core.db import get_db
 from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
@@ -56,9 +58,9 @@ def list_policies(
 def create_policy(
     payload: BudgetPolicyCreate,
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = auth_ctx.team_id
     thresholds = _normalize_thresholds(payload.alert_thresholds)
     existing = (
         db.query(BudgetPolicy)
@@ -93,9 +95,9 @@ def update_policy(
     policy_id: UUID,
     payload: BudgetPolicyUpdate,
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = auth_ctx.team_id
     policy = (
         db.query(BudgetPolicy)
         .filter(BudgetPolicy.id == policy_id, BudgetPolicy.team_id == team_id)
@@ -125,9 +127,9 @@ def update_policy(
 def disable_policy(
     policy_id: UUID,
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> None:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = auth_ctx.team_id
     policy = (
         db.query(BudgetPolicy)
         .filter(BudgetPolicy.id == policy_id, BudgetPolicy.team_id == team_id)

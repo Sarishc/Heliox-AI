@@ -11,6 +11,8 @@ from app.models.job import Job
 from app.models.reporting import SavedReport, ReportShareLink, ReportRun
 from app.models.team import Team
 from app.models.team_api_key import TeamAPIKey
+from app.models.team_saml_config import TeamSamlConfig
+from app.models.team_invite import TeamInvite
 from app.models.team_member import TeamMember
 from app.models.team_rollup import TeamDailyRollup
 from app.models.user import User
@@ -23,6 +25,8 @@ __all__ = [
     "UUIDMixin",
     "Team",
     "TeamAPIKey",
+    "TeamSamlConfig",
+    "TeamInvite",
     "TeamMember",
     "Job",
     "CostSnapshot",

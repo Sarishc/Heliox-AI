@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main, develop]
 
-env:
-  SECRET_KEY: ci-secret-key-for-testing-only
-  ENV: dev
-
 jobs:
   lint:
     name: Lint
@@ -77,6 +73,11 @@ jobs:
           cd backend
           pip install -r requirements.txt
 
+      - name: Generate ephemeral secrets for tests
+        run: |
+          echo "SECRET_KEY=ci-$(openssl rand -hex 32)" >> $GITHUB_ENV
+          echo "ENV=dev" >> $GITHUB_ENV
+
       - name: Run pytest with coverage
         run: |
           cd backend
@@ -86,9 +87,6 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -v
-        env:
-          SECRET_KEY: ci-secret-key-for-testing-only
-          ENV: dev
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -175,6 +173,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create backend .env with ephemeral secrets
+        run: |
+          mkdir -p backend
+          echo "SECRET_KEY=ci-$(openssl rand -hex 32)" >> backend/.env
+          echo "ADMIN_API_KEY=ci-admin-$(openssl rand -hex 24)" >> backend/.env
+          echo "ENV=dev" >> backend/.env
+          echo "DATABASE_URL=postgresql+psycopg2://postgres:postgres@postgres:5432/heliox" >> backend/.env
+          echo "REDIS_URL=redis://redis:6379/0" >> backend/.env
+
       - name: Build and start services
         run: docker compose build api && docker compose up -d postgres redis api
 
@@ -197,8 +204,9 @@ jobs:
 
       - name: Seed demo data
         run: |
+          ADMIN_KEY=$(grep ADMIN_API_KEY backend/.env | cut -d= -f2-)
           curl -s -X POST "http://localhost:8000/api/v1/admin/demo/seed?create_load_test_key=true" \
-            -H "X-API-Key: dev-admin-key-change-me" -H "Content-Type: application/json" | python3 -c "
+            -H "X-API-Key: ${ADMIN_KEY}" -H "Content-Type: application/json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 print(d.get('load_test_api_key', ''))
@@ -208,5 +216,5 @@ print(d.get('load_test_api_key', ''))
         run: |
           pip install locust
           export HELIOX_LOAD_TEST_API_KEY=$(cat /tmp/api_key.txt)
-          export HELIOX_ADMIN_API_KEY=dev-admin-key-change-me
+          export HELIOX_ADMIN_API_KEY=$(grep ADMIN_API_KEY backend/.env | cut -d= -f2-)
           cd load-test && locust --headless -u 10 -r 2 --run-time 30s -f locustfile.py --host http://localhost:8000

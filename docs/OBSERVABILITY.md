@@ -29,7 +29,12 @@ Phase 5 — Production reliability: tracing, metrics, logging, alerting.
 heliox_http_requests_total{method, path_template, status_class}
 heliox_http_request_duration_seconds{method, path_template}
 heliox_http_errors_total{method, path_template}  # 5xx only
+heliox_http_requests_in_flight{method, path_template}  # gauge
 ```
+
+**Excluded paths** (not recorded, to avoid probe noise): `/health`, `/health/db`, `/liveness`, `/readiness`, `/ready`, `/metrics`, `/`
+
+**Path normalization:** UUIDs → `{id}`, numeric IDs → `{id}`, long tokens → `{token}` (low cardinality)
 
 **Scrape config:**
 ```yaml
@@ -58,9 +63,18 @@ Response headers include:
 |---------|---------|-------------|
 | `SENTRY_DSN` | — | Sentry DSN (empty = disabled) |
 | `SENTRY_ENVIRONMENT` | ENV | Sentry environment |
+| `SENTRY_RELEASE` | — | Release version (git SHA, semver). Enables release tracking. |
 | `OTEL_ENABLED` | false | Enable OpenTelemetry |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | http://localhost:4317 | OTLP endpoint |
 | `LOG_JSON_FORMAT` | true | Structured JSON logs |
+
+## Sentry Safety
+
+- **Disabled in test:** Sentry does not initialize when `ENV=test`
+- **Scrubbing:** `before_send` filters Authorization, X-API-Key, Cookie, and similar headers
+- **Request bodies:** `max_request_body_size="never"` to avoid sending request payloads
+- **Correlation IDs:** `request_id` and `correlation_id` attached as tags when capturing exceptions
+- **Celery:** Sentry initializes in workers via `worker_init` signal; task failures are captured
 
 ## CloudWatch Alarms (Terraform)
 

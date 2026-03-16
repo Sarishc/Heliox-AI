@@ -11,14 +11,9 @@ from app.core.tenant import require_team_access
 from app.models.alert_settings import AlertSettings
 from app.models.team_member import TeamRole
 from app.schemas.alert_settings import SlackWebhookRequest, SlackWebhookResponse
+from app.services.webhook_secrets import get_webhook_url, mask_webhook, set_webhook_url
 
 router = APIRouter()
-
-
-def _mask_webhook(url: Optional[str]) -> Optional[str]:
-    if not url:
-        return None
-    return f"***{url[-8:]}"
 
 
 @router.post("/webhook", response_model=SlackWebhookResponse, status_code=status.HTTP_201_CREATED)
@@ -39,16 +34,11 @@ def set_slack_webhook(
         .filter(AlertSettings.team_id == team_id)
         .first()
     )
-    if not settings:
-        settings = AlertSettings(team_id=payload.team_id)
-        db.add(settings)
-    settings.slack_webhook_url = payload.slack_webhook_url
-    settings.enable_slack = True
-    db.commit()
+    set_webhook_url(db, team_id, payload.slack_webhook_url)
     return SlackWebhookResponse(
         team_id=team_id,
         configured=True,
-        masked_webhook_url=_mask_webhook(payload.slack_webhook_url),
+        masked_webhook_url=mask_webhook(payload.slack_webhook_url),
     )
 
 
@@ -64,15 +54,11 @@ def get_slack_webhook(
         team_id=team_id,
         allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
     )
-    settings = (
-        db.query(AlertSettings)
-        .filter(AlertSettings.team_id == team_id)
-        .first()
-    )
+    webhook_url = get_webhook_url(db, team_id)
     return SlackWebhookResponse(
         team_id=team_id,
-        configured=bool(settings and settings.slack_webhook_url),
-        masked_webhook_url=_mask_webhook(settings.slack_webhook_url if settings else None),
+        configured=bool(webhook_url),
+        masked_webhook_url=mask_webhook(webhook_url),
     )
 
 
@@ -93,7 +79,4 @@ def delete_slack_webhook(
         .filter(AlertSettings.team_id == team_id)
         .first()
     )
-    if settings:
-        settings.slack_webhook_url = None
-        settings.enable_slack = False
-        db.commit()
+    set_webhook_url(db, team_id, None)

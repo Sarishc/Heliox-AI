@@ -22,6 +22,7 @@ export default function LoginPage() {
   const [teamId, setTeamId] = useState("");
   const [showGoogleLogin, setShowGoogleLogin] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [samlLoading, setSamlLoading] = useState(false);
   const [captchaRequired, setCaptchaRequired] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
   const [demoTeamId, setDemoTeamId] = useState<string | null>(null);
@@ -29,9 +30,17 @@ export default function LoginPage() {
   const captchaRef = useRef<HCaptcha>(null);
 
   const fetchDemoTeamId = async () => {
-    const adminKey = process.env.NEXT_PUBLIC_DEV_ADMIN_API_KEY;
+    // Dev-only: admin key for demo bootstrap. Never used in production builds.
+    const adminKey =
+      process.env.NODE_ENV === "development"
+        ? process.env.NEXT_PUBLIC_DEV_ADMIN_API_KEY
+        : undefined;
     if (!adminKey) {
-      setError("NEXT_PUBLIC_DEV_ADMIN_API_KEY not set in .env.local");
+      setError(
+        process.env.NODE_ENV === "development"
+          ? "NEXT_PUBLIC_DEV_ADMIN_API_KEY not set in .env.local (required for demo)"
+          : "Demo not available in production"
+      );
       return;
     }
     setDemoTeamLoading(true);
@@ -62,6 +71,8 @@ export default function LoginPage() {
       setError("Your email domain is not allowed for this organization. Please contact your administrator.");
     } else if (errorParam === "oauth_failed") {
       setError(`OAuth login failed: ${messageParam || "Unknown error"}`);
+    } else if (errorParam === "saml_failed") {
+      setError(`SAML login failed: ${messageParam || "Unknown error"}`);
     }
   }, [searchParams]);
 
@@ -111,10 +122,8 @@ export default function LoginPage() {
       setError("Please enter your Team ID to login with Google.");
       return;
     }
-
     setError(null);
     setGoogleLoading(true);
-
     try {
       const response = await fetchJson<{ auth_url: string; state: string }>(
         "/api/v1/auth/google/start",
@@ -126,8 +135,6 @@ export default function LoginPage() {
           }),
         }
       );
-
-      // Redirect to Google OAuth
       window.location.href = response.auth_url;
     } catch (err: any) {
       const msg = err.message || "Failed to start Google login";
@@ -137,6 +144,31 @@ export default function LoginPage() {
           : msg
       );
       setGoogleLoading(false);
+    }
+  };
+
+  const handleSamlLogin = async () => {
+    if (!teamId) {
+      setError("Please enter your Team ID to login with Okta.");
+      return;
+    }
+    setError(null);
+    setSamlLoading(true);
+    try {
+      const response = await fetchJson<{ auth_url: string; state: string }>(
+        "/api/v1/auth/saml/login",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            team_id: teamId,
+            redirect_uri: window.location.origin,
+          }),
+        }
+      );
+      window.location.href = response.auth_url;
+    } catch (err: any) {
+      setError(err.message || "Failed to start Okta login. Ensure SAML is configured for this team.");
+      setSamlLoading(false);
     }
   };
 
@@ -272,20 +304,29 @@ export default function LoginPage() {
             )}
             <button
               onClick={handleGoogleLogin}
-              disabled={googleLoading}
+              disabled={googleLoading || samlLoading}
               className="w-full flex items-center justify-center gap-3 bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {googleLoading ? (
-                "Redirecting..."
-              ) : (
+              {googleLoading ? "Redirecting..." : (
                 <>
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
-                    <path
-                      fill="currentColor"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
+                    <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                   </svg>
                   Continue with Google
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleSamlLogin}
+              disabled={googleLoading || samlLoading}
+              className="w-full flex items-center justify-center gap-3 border border-gray-300 bg-white py-2 px-4 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {samlLoading ? "Redirecting..." : (
+                <>
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.389 0 0 5.35 0 12s5.35 12 12 12 12-5.35 12-12S18.611 0 12 0zm0 2.4c5.307 0 9.6 4.293 9.6 9.6s-4.293 9.6-9.6 9.6-9.6-4.293-9.6-9.6 4.293-9.6 9.6-9.6zm0 2.4c-3.969 0-7.2 3.231-7.2 7.2s3.231 7.2 7.2 7.2 7.2-3.231 7.2-7.2-3.231-7.2-7.2-7.2z" />
+                  </svg>
+                  Continue with Okta
                 </>
               )}
             </button>
@@ -322,7 +363,7 @@ export default function LoginPage() {
               <strong>Google SSO:</strong> Requires GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in backend env (see docs/GOOGLE_OAUTH_SETUP.md). Use a valid Team ID from demo seed.
             </p>
             <code className="block text-xs bg-gray-100 p-2 rounded mt-1 break-all">
-              curl -X POST http://localhost:8000/api/v1/admin/demo/seed -H &quot;X-API-Key: dev-admin-key-change-me&quot;
+              curl -X POST http://localhost:8000/api/v1/admin/demo/seed -H &quot;X-API-Key: $ADMIN_API_KEY&quot;
             </code>
             <p className="mt-2 text-xs">
               The response includes <code className="bg-gray-100 px-1">demo_team_id</code> — use that as Team ID.

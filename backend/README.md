@@ -12,6 +12,8 @@ pip install -r requirements.txt
 
 # Set environment variables (copy from .env.example)
 cp .env.example .env
+# REQUIRED: Edit .env and set SECRET_KEY (generate: openssl rand -hex 32)
+# Optional: Set ADMIN_API_KEY for admin scripts (generate: openssl rand -hex 24)
 
 # Run migrations
 alembic upgrade head

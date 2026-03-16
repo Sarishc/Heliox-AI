@@ -11,6 +11,7 @@ from app.core.db import get_db
 from app.core.tenant import require_team_access
 from app.crud import team as crud_team
 from app.crud import team_member as crud_team_member
+from app.crud import user as crud_user
 from app.models.user import User
 from app.schemas.team import Team, TeamCreate, TeamUpdate, TeamBudgetUpdate
 from app.schemas.team_member import TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse
@@ -18,7 +19,9 @@ from app.schemas.audit import AuditLogResponse
 from app.models.audit_log import AuditLog
 from app.models.team_member import TeamRole
 from app.models.team_api_key import TeamAPIKey
+from app.models.team_invite import TeamInvite, generate_invite_token, hash_invite_token
 from app.schemas.team_api_key import TeamAPIKeyCreate, TeamAPIKeyResponse, TeamAPIKeyCreateResponse
+from app.schemas.team_invite import TeamInviteCreate, TeamInviteCreateResponse, TeamInviteResponse
 
 router = APIRouter()
 
@@ -367,6 +370,169 @@ def revoke_team_api_key(
         actor_id=str(current_user.id),
         action="api_key_revoked",
         metadata={"key_id": str(key_id)}
+    )
+
+
+# --- Team Invites ---
+
+INVITE_EXPIRY_DAYS = 7
+
+
+@router.post("/{team_id}/invites", response_model=TeamInviteCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_team_invite(
+    team_id: UUID,
+    payload: TeamInviteCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """
+    Create a team invite (owner/admin only). Returns invite link for sharing.
+    """
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
+    )
+    team = crud_team.get(db, id=team_id)
+    if not team:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    existing_member = crud_team_member.get_by_team_and_user(
+        db, team_id=team_id, user_id=current_user.id
+    )
+    if not existing_member:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a team member")
+    from datetime import datetime, timedelta, timezone
+    invited_user = crud_user.get_by_email(db, email=payload.email)
+    if invited_user:
+        existing = crud_team_member.get_by_team_and_user(
+            db, team_id=team_id, user_id=invited_user.id
+        )
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User is already a member of this team",
+            )
+    now = datetime.now(timezone.utc)
+    pending = (
+        db.query(TeamInvite)
+        .filter(
+            TeamInvite.team_id == team_id,
+            TeamInvite.email == payload.email.lower(),
+            TeamInvite.accepted_at.is_(None),
+            TeamInvite.expires_at > now,
+        )
+        .first()
+    )
+    if pending:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A pending invite already exists for this email",
+        )
+    token = generate_invite_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=INVITE_EXPIRY_DAYS)
+    invite = TeamInvite(
+        team_id=team_id,
+        email=payload.email.lower(),
+        role=payload.role.value,
+        token_hash=hash_invite_token(token),
+        invited_by_user_id=current_user.id,
+        expires_at=expires_at,
+    )
+    db.add(invite)
+    db.commit()
+    db.refresh(invite)
+    from app.core.config import get_settings
+    fe_url = get_settings().FRONTEND_URL.rstrip("/")
+    invite_link = f"{fe_url}/invite/{token}"
+    record_audit_event(
+        db,
+        team_id=team_id,
+        actor_type="user",
+        actor_id=str(current_user.id),
+        action="invite_created",
+        metadata={"invite_email": payload.email.lower(), "role": payload.role.value},
+    )
+    return TeamInviteCreateResponse(
+        id=invite.id,
+        team_id=invite.team_id,
+        email=invite.email,
+        role=invite.role,
+        expires_at=invite.expires_at,
+        invite_link=invite_link,
+        created_at=invite.created_at,
+    )
+
+
+@router.get("/{team_id}/invites", response_model=List[TeamInviteResponse])
+def list_team_invites(
+    team_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    """List pending invites for a team (owner/admin only)."""
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
+    )
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    invites = (
+        db.query(TeamInvite)
+        .filter(
+            TeamInvite.team_id == team_id,
+            TeamInvite.accepted_at.is_(None),
+            TeamInvite.expires_at > now,
+        )
+        .order_by(TeamInvite.created_at.desc())
+        .all()
+    )
+    return [TeamInviteResponse(
+        id=i.id,
+        team_id=i.team_id,
+        email=i.email,
+        role=i.role,
+        invited_by_user_id=i.invited_by_user_id,
+        expires_at=i.expires_at,
+        accepted_at=i.accepted_at,
+        created_at=i.created_at,
+    ) for i in invites]
+
+
+@router.delete("/{team_id}/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_team_invite(
+    team_id: UUID,
+    invite_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+) -> None:
+    """Revoke a pending invite (owner/admin only)."""
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN]
+    )
+    invite = (
+        db.query(TeamInvite)
+        .filter(TeamInvite.id == invite_id, TeamInvite.team_id == team_id)
+        .first()
+    )
+    if not invite:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
+    if invite.accepted_at:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite already accepted")
+    db.delete(invite)
+    db.commit()
+    record_audit_event(
+        db,
+        team_id=team_id,
+        actor_type="user",
+        actor_id=str(current_user.id),
+        action="invite_revoked",
+        metadata={"invite_id": str(invite_id), "email": invite.email},
     )
 
 

@@ -472,10 +472,12 @@ def _get_team_alert_settings(db: Session, team_id: UUID) -> Optional[AlertSettin
 
 
 def _get_team_slack_config(db: Session, team_id: UUID) -> tuple[Optional[str], float, bool]:
+    from app.services.webhook_secrets import get_webhook_url
+
     settings_record = _get_team_alert_settings(db, team_id)
     if not settings_record or not settings_record.enable_slack:
         return None, float(BURN_RATE_THRESHOLD_USD), False
-    webhook_url = settings_record.slack_webhook_url
+    webhook_url = get_webhook_url(db, team_id)
     threshold = float(settings_record.burn_rate_threshold_usd_per_day or BURN_RATE_THRESHOLD_USD)
     return webhook_url, threshold, bool(webhook_url)
 

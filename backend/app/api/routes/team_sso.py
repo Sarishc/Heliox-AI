@@ -8,10 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from typing import Union
+
+from app.auth.rbac import require_team_admin_or_api_key
+from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.db import get_db
-from app.core.security import verify_team_api_key
 from app.models.team_api_key import TeamAPIKey
 from app.models.team import Team
+from app.models.team_saml_config import TeamSamlConfig
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -25,6 +29,25 @@ class SSOSettingsResponse(BaseModel):
     sso_enforce_domain: bool
     allowed_email_domains: Optional[List[str]]
     google_oauth_configured: bool
+    saml_configured: bool = False
+
+
+class SamlConfigRequest(BaseModel):
+    """SAML IdP configuration (owner/admin only)."""
+    idp_entity_id: str = Field(..., min_length=1, max_length=512)
+    idp_sso_url: str = Field(..., min_length=1, max_length=1024)
+    idp_x509_cert: str = Field(..., min_length=1)
+    enabled: bool = True
+    default_role: str = Field(default="viewer", pattern="^(owner|admin|viewer)$")
+
+
+class SamlConfigResponse(BaseModel):
+    """SAML config response (cert not exposed)."""
+    team_id: str
+    idp_entity_id: str
+    idp_sso_url: str
+    enabled: bool
+    default_role: str
 
 
 class UpdateSSOSettingsRequest(BaseModel):
@@ -44,14 +67,14 @@ class UpdateSSOSettingsRequest(BaseModel):
 async def get_sso_settings(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key)
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ):
     """
     Get SSO settings for team.
     
     Returns current SSO configuration.
     """
-    team = db.query(Team).filter(Team.id == api_key.team_id).first()
+    team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
     
     if not team:
         raise HTTPException(
@@ -59,17 +82,21 @@ async def get_sso_settings(
             detail="Team not found"
         )
     
-    # Check if Google OAuth is configured (backend)
     from app.core.config import get_settings
     settings = get_settings()
     google_oauth_configured = bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
-    
+    saml_config = (
+        db.query(TeamSamlConfig)
+        .filter(TeamSamlConfig.team_id == team.id, TeamSamlConfig.enabled == True)
+        .first()
+    )
     return SSOSettingsResponse(
         team_id=str(team.id),
         sso_enabled=team.sso_enabled,
         sso_enforce_domain=team.sso_enforce_domain,
         allowed_email_domains=team.allowed_email_domains,
-        google_oauth_configured=google_oauth_configured
+        google_oauth_configured=google_oauth_configured,
+        saml_configured=saml_config is not None,
     )
 
 
@@ -77,7 +104,7 @@ async def get_sso_settings(
 async def update_sso_settings(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     request_data: UpdateSSOSettingsRequest
 ):
     """
@@ -88,7 +115,7 @@ async def update_sso_settings(
     - Configure domain allowlist
     - Enforce domain restrictions
     """
-    team = db.query(Team).filter(Team.id == api_key.team_id).first()
+    team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
     
     if not team:
         raise HTTPException(
@@ -124,15 +151,122 @@ async def update_sso_settings(
         f"enforce_domain={request_data.sso_enforce_domain}"
     )
     
-    # Check if Google OAuth is configured
     from app.core.config import get_settings
     settings = get_settings()
     google_oauth_configured = bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
-    
+    saml_config = (
+        db.query(TeamSamlConfig)
+        .filter(TeamSamlConfig.team_id == team.id, TeamSamlConfig.enabled == True)
+        .first()
+    )
     return SSOSettingsResponse(
         team_id=str(team.id),
         sso_enabled=team.sso_enabled,
         sso_enforce_domain=team.sso_enforce_domain,
         allowed_email_domains=team.allowed_email_domains,
-        google_oauth_configured=google_oauth_configured
+        google_oauth_configured=google_oauth_configured,
+        saml_configured=saml_config is not None,
     )
+
+
+@router.get("/saml", response_model=SamlConfigResponse)
+async def get_saml_config(
+    *,
+    db: Session = Depends(get_db),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
+):
+    """Get SAML config (owner/admin only). Cert not exposed."""
+    team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    saml_config = (
+        db.query(TeamSamlConfig)
+        .filter(TeamSamlConfig.team_id == team.id)
+        .first()
+    )
+    if not saml_config:
+        raise HTTPException(status_code=404, detail="SAML not configured")
+    return SamlConfigResponse(
+        team_id=str(team.id),
+        idp_entity_id=saml_config.idp_entity_id,
+        idp_sso_url=saml_config.idp_sso_url,
+        enabled=saml_config.enabled,
+        default_role=saml_config.default_role,
+    )
+
+
+@router.put("/saml", response_model=SamlConfigResponse)
+async def update_saml_config(
+    *,
+    db: Session = Depends(get_db),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
+    request_data: SamlConfigRequest,
+):
+    """Create or update SAML config (owner/admin only)."""
+    team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    # Normalize cert (strip whitespace, keep PEM)
+    cert = request_data.idp_x509_cert.strip()
+    if not cert.startswith("-----BEGIN"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid X.509 certificate. Paste the full PEM including BEGIN/END lines.",
+        )
+
+    saml_config = (
+        db.query(TeamSamlConfig)
+        .filter(TeamSamlConfig.team_id == team.id)
+        .first()
+    )
+    if saml_config:
+        saml_config.idp_entity_id = request_data.idp_entity_id
+        saml_config.idp_sso_url = request_data.idp_sso_url
+        saml_config.idp_x509_cert = cert
+        saml_config.enabled = request_data.enabled
+        saml_config.default_role = request_data.default_role
+    else:
+        from datetime import datetime
+        from uuid import uuid4
+        saml_config = TeamSamlConfig(
+            id=uuid4(),
+            team_id=team.id,
+            idp_entity_id=request_data.idp_entity_id,
+            idp_sso_url=request_data.idp_sso_url,
+            idp_x509_cert=cert,
+            enabled=request_data.enabled,
+            default_role=request_data.default_role,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(saml_config)
+
+    # Enable SSO on team when SAML is configured
+    team.sso_enabled = True
+    db.commit()
+    db.refresh(saml_config)
+
+    logger.info(f"SAML config updated for team {team.id}, enabled={request_data.enabled}")
+
+    return SamlConfigResponse(
+        team_id=str(team.id),
+        idp_entity_id=saml_config.idp_entity_id,
+        idp_sso_url=saml_config.idp_sso_url,
+        enabled=saml_config.enabled,
+        default_role=saml_config.default_role,
+    )
+
+
+@router.delete("/saml", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_saml_config(
+    *,
+    db: Session = Depends(get_db),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
+):
+    """Remove SAML config (owner/admin only)."""
+    team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    db.query(TeamSamlConfig).filter(TeamSamlConfig.team_id == team.id).delete()
+    db.commit()

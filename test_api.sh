@@ -21,11 +21,13 @@ curl -s $BASE_URL/health/db | python3 -m json.tool
 echo "   ✅ Health endpoints working"
 echo
 
-# Register New User
+# Register New User (use credentials from demo seed or signup)
 echo "2. Registering New User..."
+TEST_USER="${TEST_USER:?TEST_USER required (e.g. from demo seed)}"
+TEST_PASSWORD="${TEST_PASSWORD:?TEST_PASSWORD required}"
 TOKEN=$(curl -s -X POST $BASE_URL/api/v1/auth/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin@heliox.ai&password=admin12345" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
+  -d "username=${TEST_USER}&password=${TEST_PASSWORD}" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
 
 if [ -z "$TOKEN" ]; then
   echo "   ❌ Failed to get token"

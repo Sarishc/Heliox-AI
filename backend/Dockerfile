@@ -15,10 +15,13 @@ WORKDIR /app
 # Builder stage - install dependencies
 FROM base as builder
 
-# Install system dependencies
+# Install system dependencies (libxmlsec1 for SAML)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     postgresql-client \
+    libxml2-dev \
+    libxmlsec1-dev \
+    libxmlsec1-openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy production requirements (excludes pytest, black, ruff, mypy)
@@ -33,6 +36,10 @@ FROM base as runtime
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
+# Install gosu for Celery Beat entrypoint (drop root after fixing volume permissions)
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser
 
@@ -41,6 +48,10 @@ RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
 
 # Copy application code and set ownership
 COPY --chown=appuser:appuser . .
+
+# Celery Beat entrypoint: fixes volume permissions before starting (used by beat service only)
+COPY scripts/docker-entrypoint-beat.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-beat.sh
 
 # Switch to non-root user
 USER appuser

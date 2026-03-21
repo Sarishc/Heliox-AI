@@ -37,7 +37,7 @@ def _get_client_ip(request: Request) -> str:
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
-    """Set httpOnly, Secure, SameSite=Strict auth cookie."""
+    """Set httpOnly auth cookie. Use strict samesite (proxy makes requests same-origin)."""
     secure = settings.ENV in ("production", "staging")
     response.set_cookie(
         key=settings.AUTH_COOKIE_NAME,
@@ -45,7 +45,7 @@ def _set_auth_cookie(response: Response, token: str) -> None:
         max_age=settings.AUTH_COOKIE_MAX_AGE,
         httponly=True,
         secure=secure,
-        samesite="strict",
+        samesite="lax",  # Lax allows cookie on top-level nav; works with proxy
         path="/",
     )
 
@@ -56,7 +56,7 @@ def _clear_auth_cookie(response: Response) -> None:
         key=settings.AUTH_COOKIE_NAME,
         path="/",
         httponly=True,
-        samesite="strict",
+        samesite="lax",
     )
 
 

@@ -41,7 +41,7 @@ class AlertSettings(Base):
         Boolean,
         nullable=False,
         default=False,
-        comment="Enable email notifications for this team (future feature)"
+        comment="Enable email notifications for this team"
     )
     slack_webhook_encrypted = Column(
         Text,
@@ -49,7 +49,7 @@ class AlertSettings(Base):
         comment="Encrypted Slack webhook URL (use webhook helpers to read/write)"
     )
     
-    # Email configuration (for future use)
+    # Email configuration
     email_recipients = Column(
         String,
         nullable=True,

@@ -1,9 +1,8 @@
 "use client";
 
 /**
- * Enterprise Sidebar Component - Grouped & Collapsible
- * Dense, professional navigation with sections
- * Inspired by: Stripe, Datadog, Linear, Snowflake
+ * Enterprise Sidebar — Top 0.1% Design
+ * Linear / Stripe / Datadog inspired
  */
 
 import { usePathname } from "next/navigation";
@@ -21,8 +20,8 @@ import {
   Blocks,
   CreditCard,
   ChevronDown,
-  ChevronRight,
   Activity,
+  PiggyBank,
 } from "lucide-react";
 
 interface NavItem {
@@ -40,66 +39,31 @@ interface NavSection {
 
 const navigationSections: NavSection[] = [
   {
-    title: "CORE",
+    title: "Core",
     defaultOpen: true,
     items: [
-      {
-        label: "Overview",
-        href: "/",
-        icon: <LayoutDashboard className="w-4 h-4" />,
-      },
-      {
-        label: "Analytics",
-        href: "/analytics",
-        icon: <BarChart3 className="w-4 h-4" />,
-      },
-      {
-        label: "Forecasting",
-        href: "/forecast",
-        icon: <TrendingUp className="w-4 h-4" />,
-      },
+      { label: "Overview",     href: "/",          icon: <LayoutDashboard className="h-[15px] w-[15px]" /> },
+      { label: "Analytics",    href: "/analytics", icon: <BarChart3       className="h-[15px] w-[15px]" /> },
+      { label: "ROI & Savings",href: "/roi",        icon: <PiggyBank       className="h-[15px] w-[15px]" /> },
+      { label: "Forecasting",  href: "/forecast",  icon: <TrendingUp      className="h-[15px] w-[15px]" /> },
     ],
   },
   {
-    title: "OPTIMIZATION",
+    title: "Optimization",
     defaultOpen: true,
     items: [
-      {
-        label: "Proxy",
-        href: "/proxy",
-        icon: <Zap className="w-4 h-4" />,
-      },
-      {
-        label: "Opportunities",
-        href: "/optimization",
-        icon: <Sparkles className="w-4 h-4" />,
-      },
-      {
-        label: "Budgets & Alerts",
-        href: "/budgets",
-        icon: <AlertTriangle className="w-4 h-4" />,
-      },
+      { label: "Proxy",           href: "/proxy",        icon: <Zap          className="h-[15px] w-[15px]" /> },
+      { label: "Opportunities",   href: "/optimization", icon: <Sparkles     className="h-[15px] w-[15px]" /> },
+      { label: "Budgets & Alerts",href: "/budgets",      icon: <AlertTriangle className="h-[15px] w-[15px]" /> },
     ],
   },
   {
-    title: "PLATFORM",
+    title: "Platform",
     defaultOpen: true,
     items: [
-      {
-        label: "Integrations",
-        href: "/settings/integrations",
-        icon: <Blocks className="w-4 h-4" />,
-      },
-      {
-        label: "Billing",
-        href: "/billing",
-        icon: <CreditCard className="w-4 h-4" />,
-      },
-      {
-        label: "Settings",
-        href: "/settings",
-        icon: <Settings className="w-4 h-4" />,
-      },
+      { label: "Integrations", href: "/settings/integrations", icon: <Blocks     className="h-[15px] w-[15px]" /> },
+      { label: "Billing",      href: "/billing",               icon: <CreditCard  className="h-[15px] w-[15px]" /> },
+      { label: "Settings",     href: "/settings",              icon: <Settings    className="h-[15px] w-[15px]" /> },
     ],
   },
 ];
@@ -107,133 +71,179 @@ const navigationSections: NavSection[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(
-    navigationSections.reduce((acc, section) => {
-      acc[section.title] = section.defaultOpen ?? true;
-      return acc;
-    }, {} as Record<string, boolean>)
+    navigationSections.reduce((acc, s) => ({ ...acc, [s.title]: s.defaultOpen ?? true }), {})
   );
 
-  const isActive = (href: string) => {
-    if (href === "/") {
-      return pathname === "/";
-    }
-    return pathname?.startsWith(href);
-  };
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname?.startsWith(href);
 
-  const toggleSection = (sectionTitle: string) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [sectionTitle]: !prev[sectionTitle],
-    }));
-  };
+  const toggleSection = (title: string) =>
+    setExpandedSections((prev) => ({ ...prev, [title]: !prev[title] }));
 
   return (
-    <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-heliox-sidebar border-r border-heliox-border">
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-heliox-border">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-heliox-primary to-purple-700 flex items-center justify-center shadow-sm">
-          <Activity className="w-4 h-4 text-white" />
+    <aside
+      className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0"
+      style={{
+        background: "var(--sidebar)",
+        borderRight: "1px solid var(--border)",
+      }}
+    >
+      {/* ── Logo ─────────────────────────── */}
+      <div
+        className="flex items-center gap-3 px-5 py-[18px]"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg shadow-sm"
+          style={{
+            background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+          }}
+        >
+          <Activity className="h-4 w-4 text-white" />
         </div>
-        <div>
-          <h1 className="text-base font-bold text-heliox-text tracking-tight">Heliox</h1>
-          <p className="text-[11px] text-heliox-text-muted font-medium">GPU Analytics</p>
+        <div className="min-w-0">
+          <p className="text-[14px] font-bold tracking-tight text-foreground">Heliox</p>
+          <p className="text-[10px] font-medium text-muted-foreground">GPU Analytics</p>
         </div>
       </div>
 
-      {/* Navigation with Sections */}
-      <nav className="flex-1 px-3 py-3 space-y-6 overflow-y-auto">
-        {navigationSections.map((section, sectionIndex) => (
-          <div key={section.title}>
-            {/* Section Header */}
-            <button
-              onClick={() => toggleSection(section.title)}
-              className="
-                w-full flex items-center justify-between gap-2 px-3 py-1.5
-                text-[11px] font-semibold tracking-widest
-                text-heliox-text-secondary
-                hover:text-heliox-text transition-colors
-                group
-              "
-            >
-              <span>{section.title}</span>
-              <motion.div
-                animate={{ rotate: expandedSections[section.title] ? 0 : -90 }}
-                transition={{ duration: 0.2 }}
+      {/* ── Nav ──────────────────────────── */}
+      <nav className="flex-1 overflow-y-auto px-3 py-4" style={{ scrollbarWidth: "none" }}>
+        <div className="space-y-5">
+          {navigationSections.map((section) => (
+            <div key={section.title}>
+              {/* Section label */}
+              <button
+                onClick={() => toggleSection(section.title)}
+                className="group mb-1 flex w-full items-center justify-between px-2 py-1"
               >
-                <ChevronDown className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-              </motion.div>
-            </button>
-
-            {/* Section Items */}
-            <AnimatePresence initial={false}>
-              {expandedSections[section.title] && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
+                <span
+                  className="text-[10px] font-bold uppercase tracking-[0.1em]"
+                  style={{ color: "var(--heliox-text-muted)" }}
                 >
-                  <div className="space-y-0.5 mt-1">
-                    {section.items.map((item, itemIndex) => {
-                      const active = isActive(item.href);
-                      return (
-                        <motion.div
-                          key={item.href}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{
-                            duration: 0.15,
-                            delay: itemIndex * 0.03,
-                          }}
-                        >
-                          <Link
-                            href={item.href}
-                            className={`
-                              group flex items-center gap-2.5 px-3 py-2 rounded-md
-                              text-[13px] font-medium transition-all duration-150
-                              ${
-                                active
-                                  ? "bg-heliox-primary-muted text-heliox-primary"
-                                  : "text-heliox-text-secondary hover:bg-heliox-card-hover hover:text-heliox-text"
-                              }
-                            `}
+                  {section.title}
+                </span>
+                <motion.span
+                  animate={{ rotate: expandedSections[section.title] ? 0 : -90 }}
+                  transition={{ duration: 0.18 }}
+                  className="opacity-40 group-hover:opacity-70"
+                >
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </motion.span>
+              </button>
+
+              {/* Nav items */}
+              <AnimatePresence initial={false}>
+                {expandedSections[section.title] && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-[2px]">
+                      {section.items.map((item, i) => {
+                        const active = isActive(item.href);
+                        return (
+                          <motion.div
+                            key={item.href}
+                            initial={{ opacity: 0, x: -6 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.12, delay: i * 0.025 }}
                           >
-                            <span
-                              className={`
-                                ${active ? "text-heliox-primary" : "text-heliox-text-muted group-hover:text-heliox-text"}
-                                transition-colors
-                              `}
+                            <Link
+                              href={item.href}
+                              className="group relative flex items-center gap-2.5 rounded-lg px-3 py-[7px] text-[13px] font-medium transition-all duration-150"
+                              style={
+                                active
+                                  ? {
+                                      background: "rgba(99,102,241,0.08)",
+                                      color: "#4f46e5",
+                                    }
+                                  : {
+                                      color: "var(--heliox-text-secondary)",
+                                    }
+                              }
+                              onMouseEnter={(e) => {
+                                if (!active) {
+                                  (e.currentTarget as HTMLAnchorElement).style.background =
+                                    "var(--muted)";
+                                  (e.currentTarget as HTMLAnchorElement).style.color =
+                                    "var(--foreground)";
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!active) {
+                                  (e.currentTarget as HTMLAnchorElement).style.background =
+                                    "transparent";
+                                  (e.currentTarget as HTMLAnchorElement).style.color =
+                                    "var(--heliox-text-secondary)";
+                                }
+                              }}
                             >
-                              {item.icon}
-                            </span>
-                            <span className="flex-1">{item.label}</span>
-                            {item.badge && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-heliox-primary text-white rounded">
-                                {item.badge}
+                              {/* Active left indicator */}
+                              {active && (
+                                <span
+                                  className="absolute left-0 inset-y-[6px] w-[3px] rounded-full"
+                                  style={{ background: "#6366f1" }}
+                                />
+                              )}
+
+                              <span
+                                style={{
+                                  color: active ? "#6366f1" : "var(--heliox-text-muted)",
+                                }}
+                              >
+                                {item.icon}
                               </span>
-                            )}
-                          </Link>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ))}
+                              <span className="flex-1 leading-none">{item.label}</span>
+                              {item.badge && (
+                                <span
+                                  className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white"
+                                  style={{ background: "#6366f1" }}
+                                >
+                                  {item.badge}
+                                </span>
+                              )}
+                            </Link>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </div>
       </nav>
 
-      {/* Footer - Status Indicator */}
-      <div className="p-3 border-t border-heliox-border">
-        <div className="px-3 py-2.5 rounded-lg bg-heliox-bg border border-heliox-border-muted">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse" />
-            <p className="text-[11px] font-semibold text-heliox-text">All Systems Operational</p>
+      {/* ── Status footer ────────────────── */}
+      <div
+        className="px-3 py-3"
+        style={{ borderTop: "1px solid var(--border)" }}
+      >
+        <div
+          className="rounded-xl px-3 py-2.5"
+          style={{
+            background: "rgba(16,185,129,0.06)",
+            border: "1px solid rgba(16,185,129,0.15)",
+          }}
+        >
+          <div className="mb-0.5 flex items-center gap-2">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{
+                background: "#10b981",
+                boxShadow: "0 0 6px rgba(16,185,129,0.6)",
+                animation: "pulse-glow 2s ease-in-out infinite",
+              }}
+            />
+            <p className="text-[11px] font-semibold text-foreground">All Systems Operational</p>
           </div>
-          <p className="text-[11px] text-heliox-text-muted">
-            API • Data Sync • Monitoring
+          <p className="pl-[14px] text-[10px]" style={{ color: "var(--heliox-text-muted)" }}>
+            API · Data Sync · Monitoring
           </p>
         </div>
       </div>

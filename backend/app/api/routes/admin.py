@@ -1,7 +1,7 @@
 """Admin API endpoints for system management and data ingestion."""
 import logging
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
+from app.models.stripe_meter_export import StripeMeterExport
 from app.core.feature_flags import get_all_flags
 from app.auth.admin_auth import require_admin
 from app.services.cost_ingestion import CostIngestionService, IngestionResult
@@ -791,4 +792,97 @@ def admin_health_check(
         "status": "ok",
         "message": "Admin API is healthy and authenticated",
     }
+
+
+@router.post(
+    "/weekly-report/send",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger weekly report (admin)",
+    description="Queue the weekly report task for all teams with alerts enabled. For testing/demos.",
+)
+def trigger_weekly_report(
+    _: Any = Depends(require_admin),
+) -> dict:
+    """Queue weekly report task. Reports are sent to teams with Slack or email alerts configured."""
+    from app.tasks.slack_tasks import send_weekly_report_task
+
+    result = send_weekly_report_task.delay()
+    return {
+        "status": "queued",
+        "message": "Weekly report task queued",
+        "task_id": result.id,
+    }
+
+
+class StripeMeteringExportRequest(BaseModel):
+    """Request body for Stripe metering export."""
+    export_date: Optional[date] = Field(
+        default=None,
+        alias="date",
+        description="Date to export (YYYY-MM-DD). Defaults to yesterday."
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If true, do not call Stripe or persist exports. For testing."
+    )
+
+
+@router.post(
+    "/stripe-metering/export",
+    status_code=status.HTTP_200_OK,
+    summary="Export usage to Stripe metering (admin)",
+    description="Manually trigger Stripe metering export for a date. Idempotent and retry-safe.",
+)
+def export_stripe_metering(
+    payload: StripeMeteringExportRequest,
+    db: Session = Depends(get_db),
+    _: Any = Depends(require_admin),
+) -> dict:
+    """
+    Export usage rollups to Stripe Billing Meter Events.
+
+    Use for testing or backfilling. Dry run shows what would be exported without calling Stripe.
+    """
+    from datetime import timedelta
+    from app.services.stripe_metering import export_usage_to_stripe
+
+    export_date = payload.export_date or (date.today() - timedelta(days=1))
+    result = export_usage_to_stripe(db, export_date, dry_run=payload.dry_run)
+    return {
+        "status": "success" if result["failed"] == 0 else "partial",
+        "export_date": export_date.isoformat(),
+        "dry_run": payload.dry_run,
+        **result,
+    }
+
+
+@router.get(
+    "/stripe-metering/exports",
+    status_code=status.HTTP_200_OK,
+    summary="List Stripe metering exports (admin)",
+    description="Recent export attempts for debugging.",
+)
+def list_stripe_meter_exports(
+    export_date: date | None = Query(None, description="Filter by export date (YYYY-MM-DD)"),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: Any = Depends(require_admin),
+) -> list:
+    """List recent Stripe meter export records for debugging."""
+    q = db.query(StripeMeterExport).order_by(StripeMeterExport.created_at.desc())
+    if export_date:
+        q = q.filter(StripeMeterExport.export_date == export_date)
+    rows = q.limit(limit).all()
+    return [
+        {
+            "team_id": str(r.team_id),
+            "export_date": r.export_date.isoformat() if r.export_date else None,
+            "event_type": r.event_type,
+            "quantity": r.quantity,
+            "status": r.status,
+            "error_message": r.error_message[:200] + "..." if r.error_message and len(r.error_message) > 200 else r.error_message,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 

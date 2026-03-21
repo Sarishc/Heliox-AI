@@ -31,7 +31,7 @@ class TeamMember(UUIDMixin, TimestampMixin, Base):
         index=True
     )
     role: Mapped[TeamRole] = mapped_column(
-        SqlEnum(TeamRole, name="team_role"),
+        SqlEnum(TeamRole, name="team_role", values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
         default=TeamRole.VIEWER
     )

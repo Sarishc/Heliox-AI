@@ -10,15 +10,14 @@ const MAX_RETRIES = 2;
 /**
  * Get the API base URL from environment variables.
  *
- * In production, NEXT_PUBLIC_API_BASE_URL must be set.
- * Falls back to localhost for development only.
+ * - When empty in dev: use "" (relative URLs) so Next.js proxy routes to backend. Fixes cross-origin cookies.
+ * - When set: use that URL (e.g., "https://api.example.com" or "http://localhost:8001").
  *
- * @returns API base URL (e.g., "https://api.example.com" or "http://localhost:8000")
+ * @returns API base URL or "" for same-origin (proxy) in dev
  */
 export function getApiBaseUrl(): string {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-  // In production builds, warn if API URL is not set
   if (typeof window !== "undefined" && !apiBaseUrl && process.env.NODE_ENV === "production") {
     console.warn(
       "NEXT_PUBLIC_API_BASE_URL is not set. API calls will fail. " +
@@ -26,12 +25,16 @@ export function getApiBaseUrl(): string {
     );
   }
 
-  // Fallback to localhost only in development
   if (!apiBaseUrl && process.env.NODE_ENV === "production") {
     return "";
   }
 
-  return apiBaseUrl || "http://localhost:8000";
+  // Empty = use relative URLs (Next.js proxy). In dev this fixes cross-origin cookie auth.
+  if (!apiBaseUrl) {
+    return "";
+  }
+
+  return apiBaseUrl;
 }
 
 /**

@@ -5,10 +5,11 @@ import Link from "next/link";
 import {
   TrendingUp,
   Calendar,
-  AlertCircle,
   Sparkles,
   Loader2,
   Wallet,
+  BarChart3,
+  ArrowRight,
 } from "lucide-react";
 import {
   Line,
@@ -62,6 +63,8 @@ interface MetricExplain {
 
 import { fetchJson, getApiBaseUrl } from "@/lib/api";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
+import { isDemoMode } from "@/lib/demoData";
+import { generateDemoForecastApiResponse } from "@/lib/demoData";
 
 const formatLabel = (value: string) => {
   const date = new Date(value);
@@ -127,6 +130,13 @@ export default function ForecastCard() {
   const fetchForecast = async () => {
     setLoading(true);
     setError(null);
+
+    if (isDemoMode()) {
+      await new Promise((r) => setTimeout(r, 400));
+      setForecastData(generateDemoForecastApiResponse(horizonDays) as ForecastData);
+      setLoading(false);
+      return;
+    }
 
     try {
       const url = `/api/v1/forecast/spend?horizon_days=${horizonDays}&include_explain=true`;
@@ -208,16 +218,16 @@ export default function ForecastCard() {
     ]?.value;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-purple-100 rounded-lg">
-            <TrendingUp className="w-5 h-5 text-purple-600" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+            <TrendingUp className="h-5 w-5 text-primary" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-600" />
-              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                 Historical vs. Forecast
               </p>
               {forecastData?.explain && (
@@ -227,10 +237,10 @@ export default function ForecastCard() {
                 />
               )}
             </div>
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-foreground">
               Cost Forecasting
             </h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-foreground">
               {loading ? "Loading..." : `${horizonDays}-day prediction`}
             </p>
           </div>
@@ -241,10 +251,10 @@ export default function ForecastCard() {
             <button
               key={days}
               onClick={() => setHorizonDays(days)}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+              className={`rounded-xl px-3 py-1.5 text-sm font-medium transition-all ${
                 horizonDays === days
-                  ? "bg-purple-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted"
               }`}
             >
               {days}d
@@ -252,7 +262,7 @@ export default function ForecastCard() {
           ))}
           <button
             onClick={fetchForecast}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+            className="rounded-xl border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
           >
             Refresh
           </button>
@@ -268,40 +278,34 @@ export default function ForecastCard() {
         </div>
       )}
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0" />
-            <div>
-              <h3 className="text-lg font-semibold text-red-900 mb-1">
-                Error Loading Forecast
-              </h3>
-              <p className="text-red-700">{error}</p>
+      {(error || (!loading && !hasData)) && (
+        <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-muted/40 to-muted/20 p-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+            <BarChart3 className="h-7 w-7 text-primary" />
+          </div>
+          <h3 className="mb-2 text-lg font-semibold text-foreground">
+            Start tracking GPU usage to unlock forecasts
+          </h3>
+          <p className="mx-auto max-w-md text-sm text-muted-foreground">
+            Connect your cluster and collect at least 7 days of spend data to enable accurate cost forecasting.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/settings/integrations"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90"
+            >
+              Connect data source
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+            {error && (
               <button
                 onClick={fetchForecast}
-                className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                className="rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50"
               >
-                Try Again
+                Try again
               </button>
-            </div>
+            )}
           </div>
-        </div>
-      )}
-
-      {!loading && !error && !hasData && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
-          <p className="text-gray-700 font-medium mb-2">
-            No forecast data available
-          </p>
-          <p className="text-sm text-gray-500">
-            Generate historical usage first, then retry.
-          </p>
-          <button
-            onClick={fetchForecast}
-            className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-          >
-            Retry
-          </button>
         </div>
       )}
 

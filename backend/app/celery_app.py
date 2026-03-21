@@ -10,16 +10,9 @@ def _init_sentry_on_worker(**kwargs):
     from app.core.observability import init_sentry_celery
     init_sentry_celery()
 
-# Import all task modules so Beat schedule and workers can resolve task names
-import app.tasks.budget_tasks  # noqa: F401
-import app.tasks.integration_tasks  # noqa: F401
-import app.tasks.rollup_tasks  # noqa: F401
-import app.tasks.slack_tasks  # noqa: F401
-import app.tasks.usage_tasks  # noqa: F401
-
 settings = get_settings()
 
-# Create Celery app
+# Create Celery app first (before importing tasks to avoid circular import)
 celery_app = Celery(
     "heliox",
     broker=settings.REDIS_URL,
@@ -38,7 +31,7 @@ celery_app.conf.update(
     task_soft_time_limit=240,  # 4 minutes soft limit
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
-    beat_schedule_filename='/app/data/celerybeat-schedule.db',  # Fix permission error
+    beat_schedule_filename='celerybeat-schedule.db',  # Local; use /app/data in Docker
 )
 
 # Celery Beat schedule
@@ -49,6 +42,15 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(
             hour=settings.DAILY_SUMMARY_HOUR or 9,
             minute=0
+        ),
+    },
+    # Weekly report every Monday at 9 AM UTC
+    "weekly-report": {
+        "task": "app.tasks.slack_tasks.send_weekly_report_task",
+        "schedule": crontab(
+            hour=9,
+            minute=0,
+            day_of_week=1
         ),
     },
     # Check burn rate every hour (8 AM - 8 PM)
@@ -99,6 +101,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.usage_tasks.snapshot_daily_seats",
         "schedule": crontab(hour=3, minute=0),
     },
+    # Stripe metering: Export usage to Stripe after rollups (03:30 UTC)
+    "stripe-metering-export": {
+        "task": "app.tasks.usage_tasks.export_stripe_metering",
+        "schedule": crontab(hour=3, minute=30),
+    },
     # Usage retention: Cleanup old events weekly (Sunday 04:00 UTC)
     "usage-cleanup-events": {
         "task": "app.tasks.usage_tasks.cleanup_old_usage_events",
@@ -110,4 +117,11 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(hour=5, minute=0, day_of_month=1),
     },
 }
+
+# Import task modules after celery_app exists (for Beat/worker autodiscovery)
+import app.tasks.budget_tasks  # noqa: F401
+import app.tasks.integration_tasks  # noqa: F401
+import app.tasks.rollup_tasks  # noqa: F401
+import app.tasks.slack_tasks  # noqa: F401
+import app.tasks.usage_tasks  # noqa: F401
 

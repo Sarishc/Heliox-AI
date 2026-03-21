@@ -62,6 +62,11 @@ class Recommendation(BaseModel):
         description="Unique identifier for the recommendation"
     )
     
+    action_status: Optional[str] = Field(
+        None,
+        description="User action status: applied, dismissed, or None (pending)"
+    )
+    
     type: RecommendationType = Field(
         ..., description="Type of recommendation"
     )

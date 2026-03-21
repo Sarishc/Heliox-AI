@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { format, eachDayOfInterval, parseISO } from "date-fns";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
+import { isDemoMode, generateDemoDailySpendBetween } from "@/lib/demoData";
 
 interface SpendTrendChartProps {
   startDate: string;
@@ -57,6 +58,14 @@ export default function SpendTrendChart({
     setError(null);
 
     const loadData = async () => {
+      if (isDemoMode()) {
+        await new Promise((r) => setTimeout(r, 300));
+        if (cancelled) return;
+        setData(generateDemoDailySpendBetween(startDate, endDate));
+        setLoading(false);
+        return;
+      }
+
       try {
         const { fetchJson } = await import("@/lib/api");
         const snapshots = await fetchJson<
@@ -124,19 +133,49 @@ export default function SpendTrendChart({
 
   if (loading) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex h-80 items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          <p className="text-sm text-muted-foreground">Loading spend trend...</p>
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && data.length === 0) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 mb-2">⚠️ {error}</p>
-          <p className="text-sm text-gray-500">Please try again later</p>
-        </div>
+      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
+        <p className="mb-2 text-sm font-medium text-foreground">
+          Connect your cluster to view spend trends
+        </p>
+        <p className="mb-4 text-sm text-muted-foreground">
+          No cost data for this period yet. Integrate your GPU provider to get started.
+        </p>
+        <Link
+          href="/settings/integrations"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Connect data source
+        </Link>
+      </div>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
+        <p className="mb-2 text-sm font-medium text-foreground">
+          No spend data for this period
+        </p>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Connect your GPU provider to start tracking costs.
+        </p>
+        <Link
+          href="/settings/integrations"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Connect data source
+        </Link>
       </div>
     );
   }
@@ -160,22 +199,23 @@ export default function SpendTrendChart({
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
             <XAxis
               dataKey="date"
-              stroke="#6b7280"
+              stroke="hsl(var(--muted-foreground))"
               style={{ fontSize: "12px" }}
             />
             <YAxis
-              stroke="#6b7280"
+              stroke="hsl(var(--muted-foreground))"
               style={{ fontSize: "12px" }}
               tickFormatter={(value) => `$${value.toLocaleString()}`}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#fff",
-                border: "1px solid #e5e7eb",
-                borderRadius: "8px",
+                backgroundColor: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "12px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
               }}
               formatter={(value) => {
                 if (typeof value === "number") {
@@ -188,10 +228,10 @@ export default function SpendTrendChart({
             <Line
               type="monotone"
               dataKey="cost"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              dot={{ fill: "#3b82f6", r: 4 }}
-              activeDot={{ r: 6 }}
+              stroke="hsl(var(--primary))"
+              strokeWidth={2.5}
+              dot={{ fill: "hsl(var(--primary))", r: 4 }}
+              activeDot={{ r: 6, fill: "hsl(var(--primary))", strokeWidth: 2 }}
               name="Daily Cost (USD)"
             />
           </LineChart>
@@ -199,15 +239,14 @@ export default function SpendTrendChart({
       </div>
       {/* Analytical guidance: shows cost variation to highlight smoothing opportunities */}
       {shouldShowInterpretation && variationRatio && (
-        <p className="text-sm text-gray-500 mt-3">
+        <p className="mt-3 text-sm text-muted-foreground">
           Daily GPU spend varies by up to ~{variationRatio}× over this period,
           suggesting opportunities to smooth usage and reduce peak costs.
         </p>
       )}
-      {/* CTA link: guides users from observation (chart) → diagnosis (recommendations) → action */}
       <Link
         href="/recommendations"
-        className="text-sm text-blue-600 hover:text-blue-700 hover:underline mt-3 block"
+        className="mt-3 block text-sm font-medium text-primary hover:underline"
       >
         See recommendations for cost spikes →
       </Link>

@@ -110,7 +110,7 @@ function DashboardContent() {
         />
         <KPI
           label="Active GPUs"
-          value={loading ? "..." : data?.activeGPUs}
+          value={loading ? "..." : (data?.activeGPUs ?? "-")}
           change={data?.activeGPUsChange}
           changeLabel="vs last month"
           icon={<Users className="w-5 h-5" />}
@@ -118,7 +118,7 @@ function DashboardContent() {
         />
         <KPI
           label="Cost Anomalies"
-          value={loading ? "..." : data?.anomalies}
+          value={loading ? "..." : (data?.anomalies ?? "-")}
           changeLabel="detected this week"
           icon={<AlertCircle className="w-5 h-5" />}
           loading={loading}

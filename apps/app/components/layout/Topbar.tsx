@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Enterprise Topbar Component
- * Premium top navigation with org selector, search, notifications
+ * Enterprise Topbar — Top 0.1% Design
+ * Stripe / Linear / Vercel inspired
  */
 
 import { useState } from "react";
@@ -36,79 +36,146 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-16 items-center justify-between px-6 gap-4">
-        {/* Left: Mobile Menu + Search */}
-        <div className="flex items-center gap-4 flex-1">
-          {/* Mobile menu button */}
+    <header
+      className="sticky top-0 z-40 w-full"
+      style={{
+        background: "rgba(246,248,252,0.85)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <div className="flex h-14 items-center justify-between gap-4 px-6">
+
+        {/* ── Left: mobile menu + search ────────────── */}
+        <div className="flex flex-1 items-center gap-3">
           <button
             onClick={onMenuClick}
-            className="lg:hidden p-2 rounded-lg hover:bg-muted text-muted-foreground"
+            className="lg:hidden rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="h-5 w-5" />
           </button>
 
-          {/* Search */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          {/* Search bar */}
+          <div className="relative w-full max-w-[320px]">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2"
+              style={{ color: "var(--heliox-text-muted)" }}
+            />
             <input
               type="text"
-              placeholder="Search... (⌘K)"
-              className="
-                w-full pl-10 pr-4 py-2 rounded-lg
-                bg-muted border border-transparent
-                text-sm text-foreground placeholder:text-muted-foreground
-                focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
-                transition-all
-              "
+              placeholder="Search or jump to…"
+              className="w-full rounded-xl py-2 pl-9 pr-10 text-[13px] outline-none transition-all duration-150"
+              style={{
+                background: "var(--card)",
+                border: "1px solid var(--border)",
+                color: "var(--foreground)",
+                boxShadow: "var(--shadow-xs)",
+              }}
+              onFocus={(e) => {
+                (e.target as HTMLInputElement).style.borderColor = "#6366f1";
+                (e.target as HTMLInputElement).style.boxShadow =
+                  "0 0 0 3px rgba(99,102,241,0.12)";
+              }}
+              onBlur={(e) => {
+                (e.target as HTMLInputElement).style.borderColor = "var(--border)";
+                (e.target as HTMLInputElement).style.boxShadow = "var(--shadow-xs)";
+              }}
             />
+            <kbd
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+              style={{
+                background: "var(--muted)",
+                color: "var(--muted-foreground)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              ⌘K
+            </kbd>
           </div>
         </div>
 
-        {/* Right: Org Selector, Notifications, Theme, User */}
-        <div className="flex items-center gap-3">
-          {/* Organization Selector */}
-          <button className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted text-sm font-medium text-foreground transition-colors">
-            <div className="w-6 h-6 rounded bg-brand-600 flex items-center justify-center text-white text-xs font-bold">
+        {/* ── Right: controls ───────────────────────── */}
+        <div className="flex items-center gap-2">
+
+          {/* Team selector */}
+          <button
+            className="hidden sm:flex items-center gap-2 rounded-xl px-3 py-1.5 text-[13px] font-medium transition-all duration-150"
+            style={{
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
+              boxShadow: "var(--shadow-xs)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "#6366f1";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+            }}
+          >
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-bold text-white"
+              style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
+            >
               {teamName.charAt(0)}
-            </div>
-            <span className="max-w-[120px] truncate">{teamName}</span>
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            </span>
+            <span className="max-w-[100px] truncate">{teamName}</span>
+            <ChevronDown className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
           </button>
 
-          {/* Demo Mode Toggle */}
+          {/* Demo mode toggle */}
           <DemoModeToggle />
 
-          {/* Dark Mode Toggle */}
+          {/* Dark mode */}
           <button
             onClick={toggleDarkMode}
-            className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
+            className="rounded-xl p-2 transition-colors"
+            style={{ color: "var(--muted-foreground)" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--muted)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "transparent")}
             aria-label="Toggle dark mode"
           >
-            {darkMode ? (
-              <Sun className="w-5 h-5" />
-            ) : (
-              <Moon className="w-5 h-5" />
-            )}
+            {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
           {/* Notifications */}
-          <button className="relative p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-danger-500 rounded-full border-2 border-background" />
+          <button
+            className="relative rounded-xl p-2 transition-colors"
+            style={{ color: "var(--muted-foreground)" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--muted)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "transparent")}
+          >
+            <Bell className="h-4 w-4" />
+            <span
+              className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full"
+              style={{
+                background: "#ef4444",
+                border: "2px solid var(--background)",
+              }}
+            />
           </button>
 
-          {/* User Avatar + Logout */}
+          {/* User avatar */}
           <div className="relative">
             <button
               onClick={() => setUserOpen(!userOpen)}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors"
+              className="flex items-center gap-2 rounded-xl px-2 py-1.5 transition-colors"
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--muted)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "transparent")}
             >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-sm font-semibold">
+              <div
+                className="flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-bold text-white"
+                style={{ background: "linear-gradient(135deg, #818cf8, #6366f1)" }}
+              >
                 U
               </div>
-              <ChevronDown className="w-4 h-4 text-muted-foreground hidden sm:block" />
+              <ChevronDown
+                className="hidden h-3.5 w-3.5 sm:block"
+                style={{ color: "var(--muted-foreground)" }}
+              />
             </button>
+
             {userOpen && (
               <>
                 <div
@@ -116,12 +183,22 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
                   onClick={() => setUserOpen(false)}
                   aria-hidden="true"
                 />
-                <div className="absolute right-0 top-full mt-1 py-1 w-48 bg-background border border-border rounded-lg shadow-lg z-50">
+                <div
+                  className="absolute right-0 top-full z-50 mt-1.5 w-44 overflow-hidden rounded-xl py-1"
+                  style={{
+                    background: "var(--card)",
+                    border: "1px solid var(--border)",
+                    boxShadow: "var(--shadow-lg)",
+                  }}
+                >
                   <button
                     onClick={handleLogout}
-                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-foreground hover:bg-muted"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium transition-colors"
+                    style={{ color: "var(--foreground)" }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--muted)")}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "transparent")}
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="h-4 w-4" style={{ color: "var(--muted-foreground)" }} />
                     Log out
                   </button>
                 </div>

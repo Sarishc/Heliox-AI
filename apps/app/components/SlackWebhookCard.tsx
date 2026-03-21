@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { Slack } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 
+interface MeResponse {
+  team_id: string;
+  role: string;
+}
+
 interface WebhookResponse {
   team_id: string;
   configured: boolean;
@@ -11,6 +16,7 @@ interface WebhookResponse {
 }
 
 export default function SlackWebhookCard() {
+  const [teamId, setTeamId] = useState<string | null>(null);
   const [webhook, setWebhook] = useState("");
   const [status, setStatus] = useState<WebhookResponse | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -19,9 +25,16 @@ export default function SlackWebhookCard() {
   useEffect(() => {
     const load = async () => {
       try {
-        const response = await fetchJson<WebhookResponse>("/api/v1/alerts/webhook");
-        setStatus(response);
+        const me = await fetchJson<MeResponse>("/api/v1/me");
+        setTeamId(me.team_id);
+        if (me.team_id) {
+          const response = await fetchJson<WebhookResponse>(
+            `/api/v1/alerts/webhook?team_id=${me.team_id}`
+          );
+          setStatus(response);
+        }
       } catch {
+        setTeamId(null);
         setStatus(null);
       }
     };
@@ -29,12 +42,13 @@ export default function SlackWebhookCard() {
   }, []);
 
   const saveWebhook = async () => {
+    if (!teamId) return;
     setMessage(null);
     setError(null);
     try {
       const response = await fetchJson<WebhookResponse>("/api/v1/alerts/webhook", {
         method: "POST",
-        body: JSON.stringify({ team_id: status?.team_id, slack_webhook_url: webhook }),
+        body: JSON.stringify({ team_id: teamId, slack_webhook_url: webhook }),
       });
       setStatus(response);
       setWebhook("");
@@ -49,11 +63,12 @@ export default function SlackWebhookCard() {
   };
 
   const clearWebhook = async () => {
+    if (!teamId) return;
     setMessage(null);
     setError(null);
     try {
-      await fetchJson("/api/v1/alerts/webhook", { method: "DELETE" });
-      setStatus({ team_id: status?.team_id ?? "", configured: false });
+      await fetchJson(`/api/v1/alerts/webhook?team_id=${teamId}`, { method: "DELETE" });
+      setStatus({ team_id: teamId, configured: false });
       setMessage("Slack webhook removed.");
     } catch (err) {
       setError(
@@ -63,6 +78,8 @@ export default function SlackWebhookCard() {
       );
     }
   };
+
+  if (!teamId) return null;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

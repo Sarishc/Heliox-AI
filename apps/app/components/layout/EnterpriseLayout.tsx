@@ -31,8 +31,8 @@ export function EnterpriseLayout({ children, teamName }: EnterpriseLayoutProps) 
           <Topbar teamName={teamName} />
 
           {/* Content Area with Page Transition */}
-          <main className="p-6 lg:p-8">
-            <div className="mx-auto max-w-[1600px]">
+          <main className="px-6 py-7 lg:px-8 lg:py-8">
+            <div className="mx-auto max-w-screen-2xl">
               <PageTransition>{children}</PageTransition>
             </div>
           </main>

@@ -217,7 +217,7 @@ export function generateDailySpendTrend(days: number = 30) {
  */
 export function generateHourlyHeatmap() {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const data = [];
+  const data: Array<{ day: string; hour: number; utilization: number }> = [];
   
   days.forEach((day, dayIndex) => {
     for (let hour = 0; hour < 24; hour++) {
@@ -270,6 +270,131 @@ export function generateForecastData() {
   }
   
   return data;
+}
+
+/**
+ * Demo forecast in API response shape (for ForecastCard)
+ */
+export function generateDemoForecastApiResponse(horizonDays: number = 7) {
+  const historicalDays = 14;
+  const historical: Array<{ date: string; value: number }> = [];
+  const forecast: Array<{ date: string; value: number; lower_bound: number; upper_bound: number }> = [];
+  const baseSpend = 82000;
+
+  for (let i = -historicalDays; i < 0; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    const d = date.toISOString().split("T")[0];
+    const dayOfWeek = date.getDay();
+    const weekendFactor = dayOfWeek === 0 || dayOfWeek === 6 ? 0.6 : 1.0;
+    historical.push({
+      date: d,
+      value: Math.floor(baseSpend * weekendFactor * (0.9 + Math.random() * 0.2)),
+    });
+  }
+
+  for (let i = 0; i < horizonDays; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    const d = date.toISOString().split("T")[0];
+    const dayOfWeek = date.getDay();
+    const weekendFactor = dayOfWeek === 0 || dayOfWeek === 6 ? 0.65 : 1.0;
+    const val = Math.floor(baseSpend * weekendFactor * (1 + (i / horizonDays) * 0.06));
+    forecast.push({
+      date: d,
+      value: val,
+      lower_bound: Math.floor(val * 0.88),
+      upper_bound: Math.floor(val * 1.14),
+    });
+  }
+
+  return {
+    provider: null,
+    gpu_type: null,
+    horizon_days: horizonDays,
+    forecast_method: "moving_average",
+    historical,
+    forecast,
+    metadata: {
+      historical_data_points: historical.length,
+      forecast_generated_at: new Date().toISOString(),
+    },
+  };
+}
+
+/**
+ * Demo daily spend for SpendTrendChart (returns { date: "MMM dd", cost } for chart)
+ */
+export function generateDemoDailySpendBetween(startDate: string, endDate: string) {
+  const result: Array<{ date: string; cost: number }> = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const baseSpend = 72000;
+  let d = new Date(start);
+
+  while (d <= end) {
+    const dayOfWeek = d.getDay();
+    const weekendFactor = dayOfWeek === 0 || dayOfWeek === 6 ? 0.62 : 1.0;
+    result.push({
+      date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      cost: Math.floor(baseSpend * weekendFactor * (0.88 + Math.random() * 0.24)),
+    });
+    d.setDate(d.getDate() + 1);
+    d = new Date(d);
+  }
+  return result;
+}
+
+/**
+ * Demo cost by model for CostByModelChart (API shape: model_name, total_cost_usd, job_count, runtime_share)
+ */
+export function generateDemoCostByModel() {
+  const models = [
+    { name: "A100 80GB", cost: 124000 },
+    { name: "H100 SXM", cost: 98000 },
+    { name: "A100 40GB", cost: 72000 },
+    { name: "V100 32GB", cost: 45000 },
+    { name: "A10G", cost: 32000 },
+    { name: "L4", cost: 18000 },
+    { name: "T4", cost: 12000 },
+  ];
+  const total = models.reduce((s, m) => s + m.cost, 0);
+  return models.map((m) => {
+    const cost = m.cost + Math.floor(Math.random() * m.cost * 0.1);
+    return {
+      model_name: m.name,
+      total_cost_usd: cost,
+      job_count: Math.floor(20 + Math.random() * 80),
+      runtime_share: cost / total,
+      explain: undefined,
+    };
+  });
+}
+
+/**
+ * Demo cost by team for CostByTeamChart (API shape: team_name, team_id, total_cost_usd, job_count, cost_share)
+ */
+export function generateDemoCostByTeam() {
+  const teams = [
+    { name: "ML Research", value: 420000 },
+    { name: "Production AI", value: 280000 },
+    { name: "Computer Vision", value: 195000 },
+    { name: "NLP Platform", value: 145000 },
+    { name: "Data Engineering", value: 98000 },
+    { name: "Experimentation", value: 72000 },
+  ];
+  const total = teams.reduce((s, t) => s + t.value, 0);
+  return teams.map((t, i) => {
+    const value = t.value + Math.floor(Math.random() * t.value * 0.08);
+    return {
+      team_name: t.name,
+      team_id: `team-${i + 1}`,
+      total_cost_usd: value,
+      job_count: Math.floor(15 + Math.random() * 60),
+      cost_share: value / total,
+      explain: undefined,
+    };
+  });
 }
 
 /**

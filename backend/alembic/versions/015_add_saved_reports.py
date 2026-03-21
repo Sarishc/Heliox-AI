@@ -17,9 +17,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create enum types via raw SQL with IF NOT EXISTS
-    op.execute("CREATE TYPE IF NOT EXISTS report_run_status AS ENUM ('pending', 'running', 'completed', 'failed')")
-    op.execute("CREATE TYPE IF NOT EXISTS report_file_type AS ENUM ('csv', 'pdf')")
+    # Create enum types (PostgreSQL does not support IF NOT EXISTS for CREATE TYPE)
+    op.execute("CREATE TYPE report_run_status AS ENUM ('pending', 'running', 'completed', 'failed')")
+    op.execute("CREATE TYPE report_file_type AS ENUM ('csv', 'pdf')")
 
     op.create_table(
         "saved_reports",

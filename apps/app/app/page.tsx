@@ -314,33 +314,49 @@ function DashboardContent() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Executive KPI Strip - Always at Top */}
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-enterprise-h2 text-heliox-text">
-            Executive Overview
-          </h2>
-          <Button
-            variant="outline"
-            size="sm"
-            icon={<RefreshCw className="w-4 h-4" />}
-            onClick={loadDashboardData}
+    <div className="space-y-8">
+
+      {/* ── Page header ────────────────────────────────── */}
+      <div className="flex items-end justify-between pb-2" style={{ borderBottom: "1px solid var(--border-muted)" }}>
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.1em]" style={{ color: "var(--heliox-text-muted)" }}>
+            Dashboard
+          </p>
+          <h1
+            className="font-bold leading-none tracking-tight text-foreground"
+            style={{ fontSize: "22px", letterSpacing: "-0.02em" }}
           >
-            Refresh
-          </Button>
+            Executive Overview
+          </h1>
+          <p className="mt-1 text-[13px]" style={{ color: "var(--heliox-text-muted)" }}>
+            Real-time GPU cost analytics across all workloads
+          </p>
         </div>
-        <ExecutiveKPIStrip kpis={executiveKPIs} />
+        <Button
+          variant="outline"
+          size="sm"
+          icon={<RefreshCw className="w-3.5 h-3.5" />}
+          onClick={loadDashboardData}
+        >
+          Refresh
+        </Button>
       </div>
 
-      {/* Cost Trends Section */}
-      <div className="grid-enterprise">
-        <div className="section-header">Cost Trends & Forecasting</div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Spend Trend - 2/3 */}
+      {/* ── KPI Strip ──────────────────────────────────── */}
+      <ExecutiveKPIStrip kpis={executiveKPIs} />
+
+      {/* ── Cost Trends ────────────────────────────────── */}
+      <div className="space-y-3">
+        {/* Section label */}
+        <div className="section-label">
+          Cost Trends &amp; Forecasting
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* Spend Trend — 2/3 */}
           <div className="lg:col-span-2">
-            <Card className="h-full">
-              <CardHeader className="pb-3">
+            <Card className="h-full" variant="default">
+              <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <div>
                     <CardTitle className="text-enterprise-h3">Daily GPU Spend</CardTitle>
@@ -348,9 +364,16 @@ function DashboardContent() {
                       30-day trend with 7-day forecast
                     </CardDescription>
                   </div>
-                  <Badge variant="success" size="sm">
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                    style={{ background: "rgba(16,185,129,0.1)", color: "#059669" }}
+                  >
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ background: "#10b981", animation: "pulse-glow 2s ease-in-out infinite" }}
+                    />
                     Live
-                  </Badge>
+                  </span>
                 </div>
               </CardHeader>
               <CardContent className="pt-0">
@@ -359,23 +382,34 @@ function DashboardContent() {
             </Card>
           </div>
 
-          {/* Forecast - 1/3 */}
+          {/* Forecast — 1/3 */}
           <div>
             <ForecastCard />
           </div>
         </div>
       </div>
 
-      {/* Cost Breakdown Charts */}
-      <div className="grid-enterprise">
-        <div className="section-header">Cost Breakdown</div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* ── Cost Breakdown ─────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="section-label">Cost Breakdown</div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-enterprise-h3">By GPU Model</CardTitle>
-              <CardDescription className="text-enterprise-small">
-                Utilization and spend distribution
-              </CardDescription>
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="text-enterprise-h3">By GPU Model</CardTitle>
+                  <CardDescription className="text-enterprise-small">
+                    Spend distribution across GPU types
+                  </CardDescription>
+                </div>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ background: "rgba(99,102,241,0.08)", color: "#6366f1" }}
+                >
+                  MTD
+                </span>
+              </div>
             </CardHeader>
             <CardContent className="pt-0">
               <CostByModelChart startDate={startDate} endDate={endDate} />
@@ -383,11 +417,21 @@ function DashboardContent() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-enterprise-h3">By Team</CardTitle>
-              <CardDescription className="text-enterprise-small">
-                Team-level cost allocation
-              </CardDescription>
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="text-enterprise-h3">By Team</CardTitle>
+                  <CardDescription className="text-enterprise-small">
+                    Team-level cost allocation
+                  </CardDescription>
+                </div>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ background: "rgba(99,102,241,0.08)", color: "#6366f1" }}
+                >
+                  MTD
+                </span>
+              </div>
             </CardHeader>
             <CardContent className="pt-0">
               <CostByTeamChart startDate={startDate} endDate={endDate} />
@@ -396,12 +440,12 @@ function DashboardContent() {
         </div>
       </div>
 
-      {/* Enterprise Tables Section */}
+      {/* ── Tables (demo only) ─────────────────────────── */}
       {isDemo && (
         <>
-          {/* Top Teams Table */}
-          <div className="grid-enterprise">
-            <div className="section-header">Top Teams by GPU Spend</div>
+          {/* Top Teams */}
+          <div className="space-y-3">
+            <div className="section-label">Top Teams by GPU Spend</div>
             <EnterpriseTable
               data={topTeams}
               columns={teamColumns}
@@ -411,9 +455,9 @@ function DashboardContent() {
             />
           </div>
 
-          {/* Top Models Table */}
-          <div className="grid-enterprise">
-            <div className="section-header">Top GPU Models by Cost</div>
+          {/* Top Models */}
+          <div className="space-y-3">
+            <div className="section-label">Top GPU Models by Cost</div>
             <EnterpriseTable
               data={topModels}
               columns={modelColumns}
@@ -423,19 +467,17 @@ function DashboardContent() {
             />
           </div>
 
-          {/* Idle Jobs / Optimization Insights */}
-          <div className="grid-enterprise">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="section-header mb-1">Optimization Opportunities</div>
-                <p className="text-enterprise-small text-heliox-text-muted">
-                  Idle GPU jobs wasting resources
-                </p>
-              </div>
-              <Badge variant="warning" size="sm">
-                <Clock className="w-3 h-3 mr-1" />
+          {/* Optimization opportunities */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="section-label">Optimization Opportunities</div>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                style={{ background: "rgba(245,158,11,0.1)", color: "#d97706" }}
+              >
+                <Clock className="w-3 h-3" />
                 {idleJobs.length} Issues
-              </Badge>
+              </span>
             </div>
             <EnterpriseTable
               data={idleJobs}
@@ -449,45 +491,52 @@ function DashboardContent() {
         </>
       )}
 
-      {/* Empty state / Getting started when NOT in demo mode */}
+      {/* ── Empty / onboarding state ───────────────────── */}
       {!isDemo && (
-        <Card className="border-2 border-dashed border-heliox-border">
-          <CardContent className="py-10">
-            <div className="flex flex-col sm:flex-row items-center gap-6">
-              <div className="flex-1 text-center sm:text-left">
-                <h3 className="text-enterprise-h2 text-heliox-text mb-2">
-                  Get your first data flowing
-                </h3>
-                <p className="text-enterprise-body text-heliox-text-secondary max-w-md mb-4">
-                  Connect AWS or GCP in Settings → Integrations to import GPU costs, or enable demo
-                  mode to explore the full dashboard with sample data.
-                </p>
-                <div className="flex flex-wrap gap-3 justify-center sm:justify-start">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => (window.location.href = "/settings/integrations")}
-                  >
-                    Connect cloud data
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => {
-                      localStorage.setItem("heliox_demo_mode", "true");
-                      window.location.reload();
-                    }}
-                  >
-                    Enable demo mode
-                  </Button>
-                </div>
-              </div>
-              <div className="shrink-0 rounded-lg bg-slate-100 p-4">
-                <AlertTriangle className="w-10 h-10 text-heliox-text-muted" />
+        <div
+          className="rounded-2xl p-8"
+          style={{
+            border: "1.5px dashed var(--border)",
+            background: "var(--card)",
+          }}
+        >
+          <div className="flex flex-col items-center gap-8 sm:flex-row">
+            <div
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
+              style={{ background: "rgba(99,102,241,0.08)" }}
+            >
+              <AlertTriangle className="h-7 w-7" style={{ color: "#6366f1" }} />
+            </div>
+            <div className="flex-1 text-center sm:text-left">
+              <h3 className="mb-1.5 text-[16px] font-semibold text-foreground">
+                Get your first data flowing
+              </h3>
+              <p className="mb-5 max-w-md text-[13px]" style={{ color: "var(--heliox-text-secondary)" }}>
+                Connect AWS or GCP in Settings → Integrations to import GPU costs, or enable demo
+                mode to explore the full dashboard with sample data.
+              </p>
+              <div className="flex flex-wrap gap-3 justify-center sm:justify-start">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => (window.location.href = "/settings/integrations")}
+                >
+                  Connect cloud data
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    localStorage.setItem("heliox_demo_mode", "true");
+                    window.location.reload();
+                  }}
+                >
+                  Enable demo mode
+                </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
     </div>
   );

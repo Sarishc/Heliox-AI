@@ -45,8 +45,8 @@ def upgrade() -> None:
         ondelete="CASCADE",
     )
     
-    # Update indexes to include team_id
-    op.drop_index("ix_cost_snapshots_date_provider_gpu", table_name="cost_snapshots")
+    # Update indexes to include team_id (index may not exist in fresh migrations from 002)
+    op.drop_index("ix_cost_snapshots_date_provider_gpu", table_name="cost_snapshots", if_exists=True)
     op.create_index(
         "ix_cost_snapshots_team_date_provider_gpu",
         "cost_snapshots",
@@ -60,7 +60,7 @@ def upgrade() -> None:
         unique=False,
     )
     
-    op.drop_index("ix_usage_snapshots_date_provider_gpu", table_name="usage_snapshots")
+    op.drop_index("ix_usage_snapshots_date_provider_gpu", table_name="usage_snapshots", if_exists=True)
     op.create_index(
         "ix_usage_snapshots_team_date_provider_gpu",
         "usage_snapshots",

@@ -138,7 +138,24 @@ class Settings(BaseSettings):
         default="",
         description="Stripe price ID for Enterprise plan"
     )
-    
+    # Stripe Billing Meters (for usage-based billing)
+    STRIPE_METER_API_REQUESTS: str = Field(
+        default="",
+        description="Stripe meter event name for API requests. Empty = skip export.",
+    )
+    STRIPE_METER_INGESTION: str = Field(
+        default="",
+        description="Stripe meter event name for ingestion line items. Empty = skip export.",
+    )
+    STRIPE_METER_GPU_NODES: str = Field(
+        default="",
+        description="Stripe meter event name for GPU nodes. Empty = skip export.",
+    )
+    STRIPE_METER_SEATS: str = Field(
+        default="",
+        description="Stripe meter event name for seats. Empty = skip export.",
+    )
+
     # Google OAuth
     GOOGLE_CLIENT_ID: str = Field(
         default="",
@@ -223,6 +240,16 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_URL: str = Field(
         default="",
         description="Slack Incoming Webhook URL for alerts"
+    )
+
+    # Email Notifications (Resend)
+    RESEND_API_KEY: str = Field(
+        default="",
+        description="Resend API key for transactional email alerts. Empty = email disabled.",
+    )
+    EMAIL_FROM: str = Field(
+        default="Heliox Alerts <alerts@heliox.ai>",
+        description="From address for alert emails (must be verified domain in Resend)",
     )
     
     # Scheduling

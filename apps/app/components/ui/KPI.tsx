@@ -56,7 +56,9 @@ export function KPI({
 
   if (loading) {
     return (
-      <Card className={className} loading={loading} />
+      <Card className={className} loading={loading}>
+        <div />
+      </Card>
     );
   }
 

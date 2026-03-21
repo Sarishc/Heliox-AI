@@ -4,7 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import HCaptcha from "@hcaptcha/react-hcaptcha";
-import { fetchApi, fetchJson } from "@/lib/api";
+import { fetchApi, fetchJson, getApiBaseUrl } from "@/lib/api";
 
 const HCAPTCHA_SITE_KEY =
   process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ||
@@ -47,7 +47,7 @@ export default function LoginPage() {
     setError(null);
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/api/v1/admin/demo/teams`,
+        `${getApiBaseUrl()}/api/v1/admin/demo/teams`,
         { headers: { "X-API-Key": adminKey } }
       );
       if (!res.ok) throw new Error(await res.text());
@@ -363,13 +363,13 @@ export default function LoginPage() {
               <strong>Google SSO:</strong> Requires GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in backend env (see docs/GOOGLE_OAUTH_SETUP.md). Use a valid Team ID from demo seed.
             </p>
             <code className="block text-xs bg-gray-100 p-2 rounded mt-1 break-all">
-              curl -X POST http://localhost:8000/api/v1/admin/demo/seed -H &quot;X-API-Key: $ADMIN_API_KEY&quot;
+              curl -X POST {getApiBaseUrl() || "http://localhost:8001"}/api/v1/admin/demo/seed -H &quot;X-API-Key: $ADMIN_API_KEY&quot;
             </code>
             <p className="mt-2 text-xs">
               The response includes <code className="bg-gray-100 px-1">demo_team_id</code> — use that as Team ID.
             </p>
             <p className="mt-2 text-xs text-amber-700">
-              Backend not running? Run: <code className="bg-gray-100 px-1">docker compose up -d</code>
+              Backend not running? Run: <code className="bg-gray-100 px-1">cd backend &amp;&amp; uvicorn app.main:app --reload --port 8001</code> or <code className="bg-gray-100 px-1">docker compose up -d</code>
             </p>
           </div>
         )}

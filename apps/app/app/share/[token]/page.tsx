@@ -78,7 +78,7 @@ export default function SharedReportPage({ params }: { params: { token: string }
                 <p className="text-xs uppercase tracking-wide text-slate-500">
                   {key.replace(/_/g, " ")}
                 </p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{value}</p>
+                <p className="mt-2 text-lg font-semibold text-slate-900">{String(value)}</p>
               </div>
             ))}
           </div>

@@ -1,15 +1,15 @@
 """Forecast API endpoints."""
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.usage_tracking import record_api_usage
-from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.team_api_key import TeamAPIKey
+from app.auth.team_resolution import TeamContext, get_team_api_key_or_session_optional
 from app.schemas.forecast import ForecastResponse
 from app.schemas.explainability import Component
 from app.services.explainability import explain_metric
@@ -57,7 +57,7 @@ def forecast_usage(
     ),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: Union[TeamAPIKey, TeamContext, None] = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     """
     Generate GPU usage forecast.
@@ -163,7 +163,7 @@ def forecast_spend(
     ),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: Union[TeamAPIKey, TeamContext, None] = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     """
     Generate GPU spending forecast.

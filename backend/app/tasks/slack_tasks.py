@@ -1,4 +1,4 @@
-"""Celery tasks for Slack notifications."""
+"""Celery tasks for Slack and email notifications."""
 import asyncio
 import logging
 from typing import Optional
@@ -10,11 +10,36 @@ from app.services.slack_notifications import (
     check_and_send_burn_rate_alert,
     check_and_send_idle_spend_alert,
     send_daily_summary_report,
+    send_weekly_report_report,
     check_and_send_anomaly_alert,
 )
 from app.models.alert_settings import AlertSettings
 
 logger = logging.getLogger(__name__)
+
+
+def _team_ids_with_alerts_enabled(db) -> list[UUID]:
+    """Teams with Slack or email alerts enabled."""
+    slack_teams = {
+        UUID(r.team_id)
+        for r in db.query(AlertSettings)
+        .filter(
+            AlertSettings.enable_slack.is_(True),
+            AlertSettings.slack_webhook_encrypted.isnot(None),
+        )
+        .all()
+    }
+    email_teams = {
+        UUID(r.team_id)
+        for r in db.query(AlertSettings)
+        .filter(
+            AlertSettings.enable_email.is_(True),
+            AlertSettings.email_recipients.isnot(None),
+            AlertSettings.email_recipients != "",
+        )
+        .all()
+    }
+    return list(slack_teams | email_teams)
 
 
 @celery_app.task(
@@ -41,12 +66,7 @@ def check_burn_rate_task(self, date_str: Optional[str] = None):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        team_ids = [
-            UUID(row.team_id)
-            for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
-            .all()
-        ]
+        team_ids = _team_ids_with_alerts_enabled(db)
         alert_sent = False
         for team_id in team_ids:
             sent = loop.run_until_complete(
@@ -89,12 +109,7 @@ def check_idle_spend_task(self):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        team_ids = [
-            UUID(row.team_id)
-            for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
-            .all()
-        ]
+        team_ids = _team_ids_with_alerts_enabled(db)
         alert_sent = False
         for team_id in team_ids:
             sent = loop.run_until_complete(
@@ -137,12 +152,7 @@ def send_daily_summary_task(self):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        team_ids = [
-            UUID(row.team_id)
-            for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
-            .all()
-        ]
+        team_ids = _team_ids_with_alerts_enabled(db)
         sent = False
         for team_id in team_ids:
             sent = sent or loop.run_until_complete(
@@ -183,12 +193,7 @@ def check_anomalies_task(self):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        team_ids = [
-            UUID(row.team_id)
-            for row in db.query(AlertSettings)
-            .filter(AlertSettings.enable_slack == True, AlertSettings.slack_webhook_encrypted.isnot(None))
-            .all()
-        ]
+        team_ids = _team_ids_with_alerts_enabled(db)
         alert_sent = False
         for team_id in team_ids:
             sent = loop.run_until_complete(
@@ -199,6 +204,39 @@ def check_anomalies_task(self):
         return {"alert_sent": alert_sent}
     except Exception as e:
         logger.error(f"Anomaly detection task failed: {e}", exc_info=True)
+        raise self.retry(exc=e)
+    finally:
+        db.close()
+
+
+@celery_app.task(
+    name="app.tasks.slack_tasks.send_weekly_report_task",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=600,
+)
+def send_weekly_report_task(self):
+    """Celery task to send weekly reports to all teams with alerts enabled."""
+    logger.info("Starting weekly report task")
+    db = SessionLocal()
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        team_ids = _team_ids_with_alerts_enabled(db)
+        sent = False
+        for team_id in team_ids:
+            sent = sent or loop.run_until_complete(
+                send_weekly_report_report(db, team_id)
+            )
+        if sent:
+            logger.info("Weekly report sent successfully")
+        else:
+            logger.info("No weekly report sent (no teams with alerts configured)")
+        return {"sent": sent}
+    except Exception as e:
+        logger.error(f"Weekly report task failed: {e}", exc_info=True)
         raise self.retry(exc=e)
     finally:
         db.close()

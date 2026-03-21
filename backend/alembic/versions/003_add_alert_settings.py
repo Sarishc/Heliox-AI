@@ -20,8 +20,8 @@ def upgrade() -> None:
     # Create alert_settings table
     op.create_table(
         'alert_settings',
-        sa.Column('id', sa.String(), nullable=False),
-        sa.Column('team_id', sa.String(), nullable=False),
+        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('team_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('burn_rate_threshold_usd_per_day', sa.Numeric(10, 2), nullable=False, server_default='10000.00'),
         sa.Column('enable_slack', sa.Boolean(), nullable=False, server_default='true'),
         sa.Column('enable_email', sa.Boolean(), nullable=False, server_default='false'),

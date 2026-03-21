@@ -1,27 +1,61 @@
 """Recommendation API endpoints for Heliox-AI."""
 import logging
 from datetime import date
-from typing import Any
+from typing import Any, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth.deps import get_current_user_optional
+from app.auth.rbac import get_team_id_from_context, require_team_admin_or_api_key
+from app.auth.team_resolution import TeamContext, get_team_api_key_or_session_optional
 from app.core.db import get_db
 from app.core.usage_tracking import record_api_usage
 from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.team_api_key import TeamAPIKey
 from app.schemas.recommendation import (
+    Recommendation,
     RecommendationFilters,
     RecommendationResponse,
     RecommendationSeverity,
     RecommendationType,
 )
 from app.services.recommendations import RecommendationEngine
+from app.services.recommendation_actions import (
+    apply_recommendation,
+    get_action_status,
+    list_actions,
+    recommendation_fingerprint,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _enrich_recommendations_with_action_status(
+    db: Session,
+    team_id: Any,
+    recommendations: list[Recommendation],
+) -> list[Recommendation]:
+    """Add action_status to recommendations based on stored actions."""
+    if not team_id or not recommendations:
+        return recommendations
+    try:
+        from uuid import UUID
+        tid = UUID(str(team_id))
+    except (ValueError, TypeError):
+        return recommendations
+    fingerprints = [recommendation_fingerprint(r) for r in recommendations]
+    status_map = get_action_status(db, tid, fingerprints)
+    enriched = []
+    for rec in recommendations:
+        fp = recommendation_fingerprint(rec)
+        action_status = status_map.get(fp)
+        enriched.append(rec.model_copy(update={"action_status": action_status}))
+    return enriched
 
 
 @router.get(
@@ -40,8 +74,7 @@ def get_recommendations(
         None, ge=0, description="Filter by minimum estimated savings (USD)"
     ),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
-    # Public endpoint for demo - no authentication required
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     """
     Get cost optimization recommendations based on historical data.
@@ -100,6 +133,10 @@ def get_recommendations(
         
         # Generate recommendations
         result = engine.generate_recommendations(filters)
+        # Enrich with action status when team is known
+        result.recommendations = _enrich_recommendations_with_action_status(
+            db, team_id, result.recommendations
+        )
         
         logger.info(
             f"Generated {len(result.recommendations)} recommendations "
@@ -126,7 +163,7 @@ def get_recommendations_summary(
     start_date: date = Query(..., description="Start date for analysis (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date for analysis (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     """
     Get a summary of recommendations without full details.
@@ -179,6 +216,92 @@ def get_recommendations_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate recommendations summary.",
         )
+
+
+class ApplyRecommendationRequest(BaseModel):
+    """Request body for apply/dismiss."""
+    recommendation: dict = Field(
+        ...,
+        description="Full recommendation object (from GET /recommendations)",
+    )
+
+
+@router.post(
+    "/apply",
+    status_code=status.HTTP_200_OK,
+    summary="Apply recommendation",
+    description="Mark recommendation as applied. Requires team admin or API key.",
+)
+def apply_recommendation_action(
+    payload: ApplyRecommendationRequest,
+    db: Session = Depends(get_db),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
+    current_user: Any = Depends(get_current_user_optional),
+) -> Any:
+    """
+    Mark a recommendation as applied. Idempotent; safe to call multiple times.
+    Viewer role cannot apply (requires owner/admin).
+    """
+    team_id = get_team_id_from_context(auth_ctx)
+    rec = payload.recommendation
+    user_id = current_user.id if current_user else None
+    action, created = apply_recommendation(db, team_id, rec, status="applied", user_id=user_id)
+    record_api_usage(db, team_id=team_id, endpoint="recommendations_apply")
+    return {"status": "applied", "id": str(action.id), "updated": not created}
+
+
+@router.post(
+    "/dismiss",
+    status_code=status.HTTP_200_OK,
+    summary="Dismiss recommendation",
+    description="Mark recommendation as dismissed. Requires team admin or API key.",
+)
+def dismiss_recommendation_action(
+    payload: ApplyRecommendationRequest,
+    db: Session = Depends(get_db),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
+    current_user: Any = Depends(get_current_user_optional),
+) -> Any:
+    """
+    Mark a recommendation as dismissed (will not act on it). Idempotent.
+    """
+    team_id = get_team_id_from_context(auth_ctx)
+    rec = payload.recommendation
+    user_id = current_user.id if current_user else None
+    action, created = apply_recommendation(db, team_id, rec, status="dismissed", user_id=user_id)
+    record_api_usage(db, team_id=team_id, endpoint="recommendations_dismiss")
+    return {"status": "dismissed", "id": str(action.id), "updated": not created}
+
+
+@router.get(
+    "/actions",
+    status_code=status.HTTP_200_OK,
+    summary="List recommendation actions",
+    description="List apply/dismiss actions for the team. Requires team access.",
+)
+def get_recommendation_actions(
+    status_filter: str | None = Query(None, description="Filter by status: applied, dismissed"),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
+) -> Any:
+    """List apply/dismiss history for the team."""
+    team_id = get_team_id_from_context(auth_ctx)
+    actions = list_actions(db, team_id, status_filter=status_filter, limit=limit)
+    record_api_usage(db, team_id=team_id, endpoint="recommendations_actions")
+    return [
+        {
+            "id": str(a.id),
+            "status": a.status,
+            "action_type": a.action_type,
+            "estimated_savings_usd": a.estimated_savings_usd,
+            "provider": a.provider,
+            "gpu_type": a.gpu_type,
+            "title": (a.recommendation_snapshot or {}).get("title"),
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in actions
+    ]
 
 
 @router.get(

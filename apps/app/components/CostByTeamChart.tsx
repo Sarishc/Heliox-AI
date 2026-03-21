@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   PieChart,
   Pie,
@@ -11,6 +12,7 @@ import {
 } from "recharts";
 import { fetchJson } from "@/lib/api";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
+import { isDemoMode, generateDemoCostByTeam } from "@/lib/demoData";
 
 interface CostByTeamChartProps {
   startDate: string;
@@ -50,7 +52,14 @@ interface CostByTeamResponse {
   point_explain?: Record<string, MetricExplain>;
 }
 
-const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#6366f1"];
+const COLORS = [
+  "hsl(var(--primary))",
+  "hsl(262 83% 58%)",
+  "hsl(330 81% 60%)",
+  "hsl(38 92% 50%)",
+  "hsl(160 84% 39%)",
+  "hsl(239 84% 67%)",
+];
 
 export default function CostByTeamChart({
   startDate,
@@ -64,10 +73,19 @@ export default function CostByTeamChart({
 
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+      setLoading(true);
+      setError(null);
 
+      if (isDemoMode()) {
+        await new Promise((r) => setTimeout(r, 300));
+        setData(generateDemoCostByTeam());
+        setGlobalExplain(null);
+        setPointExplain({});
+        setLoading(false);
+        return;
+      }
+
+      try {
         const url = `/api/v1/analytics/cost/by-team?start=${startDate}&end=${endDate}&include_explain=true`;
         const result = await fetchJson<TeamCost[] | CostByTeamResponse>(url);
         if (Array.isArray(result)) {
@@ -95,32 +113,49 @@ export default function CostByTeamChart({
 
   if (loading) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex h-80 items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          <p className="text-sm text-muted-foreground">Loading cost breakdown...</p>
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && data.length === 0) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 mb-2">⚠️ {error}</p>
-          <p className="text-sm text-gray-500">Unable to load cost data</p>
-        </div>
+      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
+        <p className="mb-2 text-sm font-medium text-foreground">
+          Connect your cluster to view cost by team
+        </p>
+        <p className="mb-4 text-sm text-muted-foreground">
+          No cost data for this period. Integrate your GPU provider to get started.
+        </p>
+        <Link
+          href="/settings/integrations"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Connect data source
+        </Link>
       </div>
     );
   }
 
   if (data.length === 0) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500 mb-2">📊 No data available</p>
-          <p className="text-sm text-gray-400">
-            No costs found for the selected period
-          </p>
-        </div>
+      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
+        <p className="mb-2 text-sm font-medium text-foreground">
+          No cost data for this period
+        </p>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Once you have GPU usage tagged by team, cost by team will appear here.
+        </p>
+        <Link
+          href="/settings/integrations"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Connect data source
+        </Link>
       </div>
     );
   }
@@ -141,7 +176,7 @@ export default function CostByTeamChart({
       const point = payload[0]?.payload;
       const pointExplain = point?.pointExplain as MetricExplain | undefined;
       return (
-        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
+        <div className="rounded-xl border border-border bg-card p-3 shadow-lg">
           <p className="font-semibold text-gray-900">{payload[0].name}</p>
           <p className="text-sm text-gray-600">
             Cost: ${payload[0].value.toFixed(2)}
@@ -187,8 +222,8 @@ export default function CostByTeamChart({
                 const safePercent = typeof percent === "number" ? percent : 0;
                 return `${name} (${(safePercent * 100).toFixed(0)}%)`;
               }}
-              outerRadius={80}
-              fill="#8884d8"
+              outerRadius={90}
+              fill="hsl(var(--primary))"
               dataKey="value"
             >
               {chartData.map((entry, index) => (

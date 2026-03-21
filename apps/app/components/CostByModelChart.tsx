@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -13,6 +14,7 @@ import {
 } from "recharts";
 import { fetchJson } from "@/lib/api";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
+import { isDemoMode, generateDemoCostByModel } from "@/lib/demoData";
 
 interface CostByModelChartProps {
   startDate: string;
@@ -63,10 +65,19 @@ export default function CostByModelChart({
 
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+      setLoading(true);
+      setError(null);
 
+      if (isDemoMode()) {
+        await new Promise((r) => setTimeout(r, 300));
+        setData(generateDemoCostByModel());
+        setGlobalExplain(null);
+        setPointExplain({});
+        setLoading(false);
+        return;
+      }
+
+      try {
         const url = `/api/v1/analytics/cost/by-model?start=${startDate}&end=${endDate}&include_explain=true`;
         const result = await fetchJson<ModelCost[] | CostByModelResponse>(url);
         if (Array.isArray(result)) {
@@ -94,37 +105,53 @@ export default function CostByModelChart({
 
   if (loading) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex h-80 items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          <p className="text-sm text-muted-foreground">Loading cost breakdown...</p>
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && data.length === 0) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 mb-2">⚠️ {error}</p>
-          <p className="text-sm text-gray-500">Unable to load cost data</p>
-        </div>
+      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
+        <p className="mb-2 text-sm font-medium text-foreground">
+          Connect your cluster to view cost by model
+        </p>
+        <p className="mb-4 text-sm text-muted-foreground">
+          No cost data for this period. Integrate your GPU provider to get started.
+        </p>
+        <Link
+          href="/settings/integrations"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Connect data source
+        </Link>
       </div>
     );
   }
 
   if (data.length === 0) {
     return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500 mb-2">📊 No data available</p>
-          <p className="text-sm text-gray-400">
-            No costs found for the selected period
-          </p>
-        </div>
+      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
+        <p className="mb-2 text-sm font-medium text-foreground">
+          No cost data for this period
+        </p>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Once you have GPU usage, cost by model will appear here.
+        </p>
+        <Link
+          href="/settings/integrations"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Connect data source
+        </Link>
       </div>
     );
   }
 
-  // Transform data for chart
   const chartData = data.map((item) => ({
     name: item.model_name,
     cost: item.total_cost_usd,
@@ -145,25 +172,26 @@ export default function CostByModelChart({
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
             <XAxis
               dataKey="name"
-              stroke="#6b7280"
+              stroke="hsl(var(--muted-foreground))"
               style={{ fontSize: "11px" }}
               angle={-45}
               textAnchor="end"
               height={80}
             />
             <YAxis
-              stroke="#6b7280"
+              stroke="hsl(var(--muted-foreground))"
               style={{ fontSize: "12px" }}
               tickFormatter={(value) => `$${value.toLocaleString()}`}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#fff",
-                border: "1px solid #e5e7eb",
-                borderRadius: "8px",
+                backgroundColor: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "12px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
               }}
               formatter={(value, name, props) => {
                 if (typeof value === "number") {
@@ -181,9 +209,9 @@ export default function CostByModelChart({
                 const point = payload[0]?.payload;
                 const pointExplain = point?.pointExplain as MetricExplain | undefined;
                 return (
-                  <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
-                    <p className="font-semibold text-gray-900">{point?.name}</p>
-                    <p className="text-sm text-gray-600">
+                  <div className="rounded-xl border border-border bg-card p-3 shadow-lg">
+                    <p className="font-semibold text-foreground">{point?.name}</p>
+                    <p className="text-sm text-muted-foreground">
                       Cost: ${point?.cost?.toFixed?.(2) ?? "-"}
                     </p>
                     {pointExplain && (
@@ -201,7 +229,7 @@ export default function CostByModelChart({
               }}
             />
             <Legend />
-            <Bar dataKey="cost" fill="#3b82f6" name="Cost (USD)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="cost" fill="hsl(var(--primary))" name="Cost (USD)" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

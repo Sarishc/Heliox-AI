@@ -14,6 +14,8 @@ from app.models.team_api_key import TeamAPIKey
 from app.models.team_saml_config import TeamSamlConfig
 from app.models.team_invite import TeamInvite
 from app.models.team_member import TeamMember
+from app.models.recommendation_action import RecommendationAction
+from app.models.stripe_meter_export import StripeMeterExport
 from app.models.team_rollup import TeamDailyRollup
 from app.models.user import User
 from app.models.waitlist import WaitlistEntry
@@ -46,5 +48,7 @@ __all__ = [
     "SavedReport",
     "ReportShareLink",
     "ReportRun",
+    "RecommendationAction",
+    "StripeMeterExport",
 ]
 

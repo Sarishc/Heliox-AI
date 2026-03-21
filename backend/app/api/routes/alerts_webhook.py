@@ -1,4 +1,4 @@
-"""Team-scoped Slack webhook management."""
+"""Team-scoped Slack webhook and email alert management."""
 from typing import Any, Optional
 from uuid import UUID
 
@@ -10,7 +10,13 @@ from app.core.db import get_db
 from app.core.tenant import require_team_access
 from app.models.alert_settings import AlertSettings
 from app.models.team_member import TeamRole
-from app.schemas.alert_settings import SlackWebhookRequest, SlackWebhookResponse
+from app.schemas.alert_settings import (
+    EmailAlertsRequest,
+    EmailAlertsResponse,
+    SlackWebhookRequest,
+    SlackWebhookResponse,
+    _mask_email_recipients,
+)
 from app.services.webhook_secrets import get_webhook_url, mask_webhook, set_webhook_url
 
 router = APIRouter()
@@ -74,9 +80,109 @@ def delete_slack_webhook(
         team_id=team_id,
         allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
     )
+    set_webhook_url(db, team_id, None)
+
+
+# --- Email alerts ---
+
+
+@router.get("/email", response_model=EmailAlertsResponse)
+def get_email_alerts(
+    team_id: UUID = Query(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
+) -> Any:
+    """Get email alert settings for the team (owner/admin only)."""
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
+    )
     settings = (
         db.query(AlertSettings)
         .filter(AlertSettings.team_id == team_id)
         .first()
     )
-    set_webhook_url(db, team_id, None)
+    if not settings:
+        return EmailAlertsResponse(
+            team_id=team_id,
+            enabled=False,
+            recipient_count=0,
+            masked_recipients=None,
+        )
+    count, masked = _mask_email_recipients(settings.email_recipients)
+    return EmailAlertsResponse(
+        team_id=team_id,
+        enabled=bool(settings.enable_email and settings.email_recipients),
+        recipient_count=count,
+        masked_recipients=masked,
+    )
+
+
+@router.post("/email", response_model=EmailAlertsResponse, status_code=status.HTTP_201_CREATED)
+def set_email_alerts(
+    payload: EmailAlertsRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
+) -> Any:
+    """Enable email alerts and set recipients (owner/admin only)."""
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=payload.team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
+    )
+    settings = (
+        db.query(AlertSettings)
+        .filter(AlertSettings.team_id == payload.team_id)
+        .first()
+    )
+    if not settings:
+        settings = AlertSettings(team_id=payload.team_id)
+        db.add(settings)
+    settings.enable_email = payload.enable_email
+    # Normalize: comma-separated, dedupe, trim
+    recipients = [e.strip().lower() for e in payload.email_recipients.split(",") if e.strip() and "@" in e]
+    seen = set()
+    unique = []
+    for e in recipients:
+        if e not in seen:
+            seen.add(e)
+            unique.append(e)
+    settings.email_recipients = ", ".join(unique) if unique else None
+    if not settings.email_recipients:
+        settings.enable_email = False
+    db.commit()
+    db.refresh(settings)
+    count, masked = _mask_email_recipients(settings.email_recipients)
+    return EmailAlertsResponse(
+        team_id=payload.team_id,
+        enabled=bool(settings.enable_email),
+        recipient_count=count,
+        masked_recipients=masked,
+    )
+
+
+@router.delete("/email", status_code=status.HTTP_204_NO_CONTENT)
+def delete_email_alerts(
+    team_id: UUID = Query(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
+) -> None:
+    """Disable email alerts for the team (owner/admin only)."""
+    require_team_access(
+        db,
+        user=current_user,
+        team_id=team_id,
+        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
+    )
+    settings = (
+        db.query(AlertSettings)
+        .filter(AlertSettings.team_id == team_id)
+        .first()
+    )
+    if settings:
+        settings.enable_email = False
+        settings.email_recipients = None
+        db.commit()

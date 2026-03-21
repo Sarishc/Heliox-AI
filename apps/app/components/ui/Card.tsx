@@ -25,10 +25,10 @@ export function Card({
 }: CardProps) {
   const variantStyles = {
     default:
-      "bg-card border border-border shadow-sm",
-    bordered: "bg-card border-2 border-border",
-    elevated: "bg-card border border-border shadow-lg",
-    flat: "bg-muted border border-transparent",
+      "rounded-2xl border border-border/60 bg-card shadow-sm",
+    bordered: "rounded-2xl border-2 border-border bg-card",
+    elevated: "rounded-2xl border border-border bg-card shadow-lg",
+    flat: "rounded-2xl border border-transparent bg-muted",
   };
 
   const paddingStyles = {
@@ -48,7 +48,6 @@ export function Card({
         className={`
           ${variantStyles[variant]}
           ${paddingStyles[padding]}
-          rounded-xl
           animate-pulse
           ${className}
         `}
@@ -76,7 +75,6 @@ export function Card({
         ${variantStyles[variant]}
         ${paddingStyles[padding]}
         ${hoverStyles}
-        rounded-xl
         transition-colors
         ${className}
       `}

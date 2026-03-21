@@ -17,6 +17,7 @@ from app.core.usage_tracking import record_api_usage
 from app.core.tenant import get_effective_team_id
 from app.models.team_api_key import TeamAPIKey
 from app.schemas.savings import SavingsSummaryResponse
+from app.schemas.roi import ROIDashboardResponse
 from app.schemas.explainability import Component, MetricValue
 from app.services.explainability import explain_metric
 from app.schemas.business_metric import (
@@ -27,6 +28,7 @@ from app.schemas.business_metric import (
 )
 from app.schemas.recommendation import RecommendationFilters
 from app.services.recommendations import RecommendationEngine
+from app.services.roi_dashboard import get_roi_dashboard
 from app.models.cost import CostSnapshot, UsageSnapshot
 from app.models.business_metric import BusinessMetric
 from app.models.job import Job
@@ -511,6 +513,41 @@ def get_savings_summary(
             },
         )
     return response
+
+
+@router.get(
+    "/roi",
+    response_model=ROIDashboardResponse,
+    summary="Get ROI / savings dashboard"
+)
+def get_roi_dashboard_endpoint(
+    start: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    end: date = Query(..., description="End date (YYYY-MM-DD)"),
+    include_anomalies: bool = Query(True, description="Include anomaly count"),
+    db: Session = Depends(get_db),
+    team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
+) -> Any:
+    """
+    ROI / savings dashboard for business value visibility.
+
+    Returns total spend, estimated potential savings by category,
+    top recommendations, provider breakdown, and anomaly count.
+    All savings are estimated; realized savings tracking is not yet implemented.
+    """
+    if end < start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_date must be >= start_date",
+        )
+    team_id = get_effective_team_id(team_api_key)
+    record_api_usage(db, team_id=team_id, endpoint="analytics_roi")
+    return get_roi_dashboard(
+        db,
+        team_id=team_id,
+        start_date=start,
+        end_date=end,
+        include_anomaly_count=include_anomalies,
+    )
 
 
 @router.get(

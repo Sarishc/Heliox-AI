@@ -224,6 +224,7 @@ class BudgetGuardrailsService:
     ) -> None:
         thresholds = sorted(set(policy.alert_thresholds or [0.7, 0.85, 1.0]))
         webhook_url = self._get_team_webhook(policy.team_id)
+        email_recipients, email_enabled = self._get_team_email_config(policy.team_id)
 
         for threshold in thresholds:
             if percent_used < float(threshold):
@@ -241,7 +242,7 @@ class BudgetGuardrailsService:
             delivered_via = "none"
             if webhook_url:
                 slack_service = SlackNotificationService(webhook_url=webhook_url)
-                delivered = self._send_budget_alert(
+                slack_delivered = self._send_budget_alert(
                     slack_service,
                     policy=policy,
                     mtd_spend=mtd_spend,
@@ -249,7 +250,19 @@ class BudgetGuardrailsService:
                     percent_used=percent_used,
                     predicted_breach_date=predicted_breach_date,
                 )
-                delivered_via = "slack" if delivered else "none"
+                if slack_delivered:
+                    delivered_via = "slack"
+            if email_enabled and email_recipients:
+                email_delivered = self._send_budget_alert_email(
+                    to_emails=email_recipients,
+                    policy=policy,
+                    mtd_spend=mtd_spend,
+                    forecasted_eom_spend=forecasted_eom,
+                    percent_used=percent_used,
+                    predicted_breach_date=predicted_breach_date,
+                )
+                if email_delivered:
+                    delivered_via = f"{delivered_via},email" if delivered_via != "none" else "email"
             event = BudgetEvent(
                 team_id=policy.team_id,
                 budget_policy_id=policy.id,
@@ -267,6 +280,43 @@ class BudgetGuardrailsService:
         from app.services.webhook_secrets import get_webhook_url
 
         return get_webhook_url(self.db, team_id)
+
+    def _get_team_email_config(self, team_id: UUID) -> tuple[list, bool]:
+        from app.services.slack_notifications import _get_team_email_config as get_email_config
+
+        return get_email_config(self.db, team_id)
+
+    def _send_budget_alert_email(
+        self,
+        *,
+        to_emails: list,
+        policy: BudgetPolicy,
+        mtd_spend: float,
+        forecasted_eom_spend: float,
+        percent_used: float,
+        predicted_breach_date: Optional[date],
+    ) -> bool:
+        from app.services.email_notifications import send_budget_alert_email
+
+        async def _send():
+            return await send_budget_alert_email(
+                to_emails=to_emails,
+                env_label=policy.environment.value if policy.environment else "all",
+                project_label=policy.project or "all",
+                budget=float(policy.monthly_budget_usd),
+                mtd_spend=mtd_spend,
+                percent_used=percent_used,
+                forecasted_eom=forecasted_eom_spend,
+                predicted_breach_date=predicted_breach_date,
+            )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            return asyncio.run_coroutine_threadsafe(_send(), loop).result()
+        return asyncio.run(_send())
 
     @staticmethod
     def _send_budget_alert(

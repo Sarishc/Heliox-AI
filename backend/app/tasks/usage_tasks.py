@@ -12,6 +12,7 @@ from app.models.usage import UsageEvent, UsageDailyRollup, UsageEventType
 from app.models.team import Team
 from app.models.team_member import TeamMember
 from app.utils.usage_metering import record_seat_snapshot
+from app.services.stripe_metering import export_usage_to_stripe
 
 logger = logging.getLogger(__name__)
 
@@ -266,5 +267,40 @@ def snapshot_daily_seats() -> Dict:
         logger.error(f"Daily seats snapshot failed: {e}", exc_info=True)
         raise
     
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.tasks.usage_tasks.export_stripe_metering")
+def export_stripe_metering_task(date_str: str = None) -> Dict:
+    """
+    Export usage rollups to Stripe Billing Meter Events for usage-based billing.
+
+    Runs after usage rollup and seat snapshot (schedule ~03:30 UTC).
+    Idempotent: skips already-successful exports; retries failed ones.
+
+    Args:
+        date_str: Date to export (YYYY-MM-DD), defaults to yesterday.
+
+    Returns:
+        {exported, skipped, failed, errors}
+    """
+    db = next(get_db())
+    try:
+        if date_str:
+            export_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        else:
+            export_date = (datetime.utcnow() - timedelta(days=1)).date()
+
+        logger.info(f"Starting Stripe metering export for {export_date}")
+        result = export_usage_to_stripe(db, export_date, dry_run=False)
+        logger.info(
+            f"Stripe metering export completed for {export_date}: "
+            f"exported={result['exported']}, skipped={result['skipped']}, failed={result['failed']}"
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Stripe metering export failed: {e}", exc_info=True)
+        raise
     finally:
         db.close()

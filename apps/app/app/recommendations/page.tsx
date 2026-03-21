@@ -3,11 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  CheckCircle,
   Download,
   Filter,
   Loader2,
   RefreshCcw,
   ShieldAlert,
+  ThumbsDown,
+  ThumbsUp,
   TrendingDown,
 } from "lucide-react";
 
@@ -39,6 +42,7 @@ interface Recommendation {
   estimated_savings_usd: number;
   evidence: RecommendationEvidence;
   created_at?: string;
+  action_status?: "applied" | "dismissed" | null;
 }
 
 interface RecommendationResponse {
@@ -97,7 +101,15 @@ function RecommendationsContent() {
   >(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { startDate, endDate } = useDashboardFilters();
+  const [teamId, setTeamId] = useState<string | null>(null);
+  const [actioningId, setActioningId] = useState<string | null>(null);
+  const { startDate, endDate, setStartDate, setEndDate } = useDashboardFilters();
+
+  useEffect(() => {
+    fetchJson<{ team_id: string }>("/api/v1/me")
+      .then((me) => setTeamId(me.team_id || null))
+      .catch(() => setTeamId(null));
+  }, []);
 
   // Filters
   const [selectedSeverity, setSelectedSeverity] = useState<Severity | "all">(
@@ -248,6 +260,54 @@ function RecommendationsContent() {
     setSelectedProvider("all");
     setSelectedType("all");
     setSearchQuery("");
+  };
+
+  const applyRecommendation = async (rec: Recommendation) => {
+    if (!teamId) return;
+    setActioningId(rec.id);
+    try {
+      await fetchJson("/api/v1/recommendations/apply", {
+        method: "POST",
+        body: JSON.stringify({ recommendation: rec }),
+        headers: { "X-Team-Id": teamId },
+      });
+      setRecommendations((prev) =>
+        prev.map((r) =>
+          r.id === rec.id ? { ...r, action_status: "applied" as const } : r
+        )
+      );
+      fetchRecommendations();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to apply recommendation"
+      );
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const dismissRecommendation = async (rec: Recommendation) => {
+    if (!teamId) return;
+    setActioningId(rec.id);
+    try {
+      await fetchJson("/api/v1/recommendations/dismiss", {
+        method: "POST",
+        body: JSON.stringify({ recommendation: rec }),
+        headers: { "X-Team-Id": teamId },
+      });
+      setRecommendations((prev) =>
+        prev.map((r) =>
+          r.id === rec.id ? { ...r, action_status: "dismissed" as const } : r
+        )
+      );
+      fetchRecommendations();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to dismiss recommendation"
+      );
+    } finally {
+      setActioningId(null);
+    }
   };
 
   return (
@@ -584,7 +644,7 @@ function RecommendationsContent() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-right min-w-[160px]">
+                    <div className="text-right min-w-[180px]">
                       <p className="text-sm text-gray-500 mb-1">
                         Potential savings
                       </p>
@@ -597,6 +657,44 @@ function RecommendationsContent() {
                       <p className="text-xs text-gray-500 mt-1">
                         Based on current usage
                       </p>
+                      {rec.action_status === "applied" ? (
+                        <div className="mt-3 flex items-center gap-1.5 text-emerald-600 text-sm font-medium">
+                          <CheckCircle className="h-4 w-4" />
+                          Applied
+                        </div>
+                      ) : rec.action_status === "dismissed" ? (
+                        <div className="mt-3 flex items-center gap-1.5 text-slate-500 text-sm">
+                          <ThumbsDown className="h-4 w-4" />
+                          Dismissed
+                        </div>
+                      ) : teamId ? (
+                        <div className="mt-3 flex gap-2 justify-end">
+                          <button
+                            onClick={() => dismissRecommendation(rec)}
+                            disabled={actioningId === rec.id}
+                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {actioningId === rec.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <ThumbsDown className="h-3 w-3" />
+                            )}
+                            Dismiss
+                          </button>
+                          <button
+                            onClick={() => applyRecommendation(rec)}
+                            disabled={actioningId === rec.id}
+                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {actioningId === rec.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <ThumbsUp className="h-3 w-3" />
+                            )}
+                            Apply
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>

@@ -65,6 +65,5 @@ class RecommendationAction(Base, UUIDMixin, TimestampMixin):
             "recommendation_fingerprint",
             unique=True,
         ),
-        Index("ix_recommendation_actions_status", "status"),
         Index("ix_recommendation_actions_team_status", "team_id", "status"),
     )

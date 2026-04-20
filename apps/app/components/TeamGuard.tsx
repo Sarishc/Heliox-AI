@@ -23,8 +23,12 @@ export function TeamGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // NOTE: demo mode (heliox_demo_mode localStorage flag) only controls which
+    // DATA is displayed (demo data vs real data). It does NOT bypass authentication.
+    // All protected routes must still pass the /api/v1/me check regardless of demo mode.
+
     let cancelled = false;
-    fetchJson<MeResponse>("/api/v1/me")
+    fetchJson<MeResponse>("/api/v1/me", { skipAuthRedirect: true })
       .then((me) => {
         if (cancelled) return;
         if (!me.team_id) {
@@ -35,7 +39,10 @@ export function TeamGuard({ children }: { children: React.ReactNode }) {
       })
       .catch(() => {
         if (cancelled) return;
-        setReady(true);
+        // Not authenticated — redirect to login
+        if (window.location.pathname !== "/login") {
+          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+        }
       });
 
     return () => {

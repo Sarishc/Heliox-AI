@@ -1,0 +1,34 @@
+{{- if .Values.agent.enabled }}
+## ClusterRole grants the agent read access to Node and Pod objects
+## so it can correlate GPU metrics with workload metadata.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "heliox.fullname" . }}-agent
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "heliox.fullname" . }}-agent
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "heliox.fullname" . }}-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "heliox.fullname" . }}-agent
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,4 +1,4 @@
-"""Plugin listing endpoint."""
+"""Available integrations catalog endpoint."""
 from typing import Any
 from uuid import UUID
 
@@ -9,7 +9,7 @@ from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id, require_team_access
 from app.models.team_api_key import TeamAPIKey
 from app.models.team_member import TeamRole
-from app.plugins.registry import list_plugins
+from app.integrations.registry import integration_registry
 from app.core.db import get_db
 from sqlalchemy.orm import Session
 
@@ -18,8 +18,8 @@ router = APIRouter()
 
 @router.get(
     "",
-    summary="List loaded plugins",
-    description="List loaded integration plugins for team admins."
+    summary="List available integrations",
+    description="Return the catalog of cloud integrations that can be connected.",
 )
 def get_plugins(
     team_id: UUID | None = None,
@@ -51,4 +51,4 @@ def get_plugins(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="team_id does not match API key",
             )
-    return {"plugins": list_plugins()}
+    return {"integrations": integration_registry.list_available()}

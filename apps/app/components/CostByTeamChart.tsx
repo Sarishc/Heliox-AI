@@ -11,7 +11,6 @@ import {
   Legend,
 } from "recharts";
 import { fetchJson } from "@/lib/api";
-import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 import { isDemoMode, generateDemoCostByTeam } from "@/lib/demoData";
 
 interface CostByTeamChartProps {
@@ -25,84 +24,163 @@ interface TeamCost {
   total_cost_usd: number;
   job_count: number;
   cost_share?: number | null;
-  explain?: MetricExplain;
-}
-
-interface MetricExplain {
-  value: number | string;
-  unit: string;
-  window: string;
-  confidence: number;
-  confidence_reasons: string[];
-  explanation: {
-    formula: string;
-    components: Array<{
-      name: string;
-      value: number | string;
-      unit?: string | null;
-      source?: string | null;
-    }>;
-    assumptions: string[];
-  };
 }
 
 interface CostByTeamResponse {
   items: TeamCost[];
-  explain?: MetricExplain;
-  point_explain?: Record<string, MetricExplain>;
+  explain?: unknown;
+  point_explain?: Record<string, unknown>;
 }
 
 const COLORS = [
-  "hsl(var(--primary))",
-  "hsl(262 83% 58%)",
-  "hsl(330 81% 60%)",
-  "hsl(38 92% 50%)",
-  "hsl(160 84% 39%)",
-  "hsl(239 84% 67%)",
+  "#6366f1",
+  "#8b5cf6",
+  "#ec4899",
+  "#f59e0b",
+  "#10b981",
+  "#3b82f6",
+  "#14b8a6",
 ];
 
-export default function CostByTeamChart({
-  startDate,
-  endDate,
-}: CostByTeamChartProps) {
+const CustomTooltip = ({ active, payload }: any) => {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  const share =
+    typeof point?.costShare === "number"
+      ? `${(point.costShare * 100).toFixed(1)}%`
+      : null;
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        borderRadius: "12px",
+        boxShadow: "var(--shadow-lg)",
+        padding: "10px 14px",
+        minWidth: "150px",
+      }}
+    >
+      <p
+        style={{
+          fontSize: "13px",
+          fontWeight: 600,
+          color: "var(--foreground)",
+          marginBottom: "6px",
+        }}
+      >
+        {payload[0].name}
+      </p>
+      <p
+        style={{
+          fontSize: "15px",
+          fontWeight: 700,
+          color: "var(--foreground)",
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        ${payload[0].value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+        {share && (
+          <span
+            style={{
+              fontSize: "12px",
+              fontWeight: 500,
+              color: "var(--heliox-text-muted)",
+              marginLeft: "6px",
+            }}
+          >
+            ({share})
+          </span>
+        )}
+      </p>
+      <p style={{ fontSize: "11px", color: "var(--heliox-text-muted)", marginTop: "3px" }}>
+        {point?.jobs ?? 0} jobs
+      </p>
+    </div>
+  );
+};
+
+function ChartSkeleton() {
+  return (
+    <div className="h-80 flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <div
+          className="animate-pulse rounded-full"
+          style={{
+            width: "140px",
+            height: "140px",
+            border: "28px solid var(--muted)",
+          }}
+        />
+        <div className="flex gap-3">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <div
+                className="h-2.5 w-2.5 rounded-full animate-pulse"
+                style={{ background: "var(--muted)" }}
+              />
+              <div
+                className="h-2.5 w-14 rounded animate-pulse"
+                style={{ background: "var(--muted)" }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const renderCustomLegend = (props: any) => {
+  const { payload } = props;
+  return (
+    <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-2">
+      {payload?.map((entry: any, i: number) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-2 w-2 rounded-full shrink-0"
+            style={{ background: entry.color }}
+          />
+          <span style={{ fontSize: "12px", color: "var(--heliox-text-secondary)" }}>
+            {entry.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+export default function CostByTeamChart({ startDate, endDate }: CostByTeamChartProps) {
   const [data, setData] = useState<TeamCost[]>([]);
-  const [globalExplain, setGlobalExplain] = useState<MetricExplain | null>(null);
-  const [pointExplain, setPointExplain] = useState<Record<string, MetricExplain>>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [showingSample, setShowingSample] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      setError(null);
 
       if (isDemoMode()) {
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 350));
         setData(generateDemoCostByTeam());
-        setGlobalExplain(null);
-        setPointExplain({});
+        setShowingSample(false);
         setLoading(false);
         return;
       }
 
       try {
-        const url = `/api/v1/analytics/cost/by-team?start=${startDate}&end=${endDate}&include_explain=true`;
+        const url = `/api/v1/analytics/cost/by-team?start=${startDate}&end=${endDate}`;
         const result = await fetchJson<TeamCost[] | CostByTeamResponse>(url);
-        if (Array.isArray(result)) {
-          setData(result);
-          setGlobalExplain(null);
-          setPointExplain({});
+        const items = Array.isArray(result) ? result : (result.items ?? []);
+        if (items.length > 0) {
+          setData(items);
+          setShowingSample(false);
         } else {
-          setData(result.items ?? []);
-          setGlobalExplain(result.explain ?? null);
-          setPointExplain(result.point_explain ?? {});
+          setData(generateDemoCostByTeam());
+          setShowingSample(true);
         }
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load cost data. Please try again later."
-        );
+      } catch {
+        setData(generateDemoCostByTeam());
+        setShowingSample(true);
       } finally {
         setLoading(false);
       }
@@ -111,122 +189,49 @@ export default function CostByTeamChart({
     fetchData();
   }, [startDate, endDate]);
 
-  if (loading) {
-    return (
-      <div className="flex h-80 items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-          <p className="text-sm text-muted-foreground">Loading cost breakdown...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <ChartSkeleton />;
 
-  if (error && data.length === 0) {
-    return (
-      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
-        <p className="mb-2 text-sm font-medium text-foreground">
-          Connect your cluster to view cost by team
-        </p>
-        <p className="mb-4 text-sm text-muted-foreground">
-          No cost data for this period. Integrate your GPU provider to get started.
-        </p>
-        <Link
-          href="/settings/integrations"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Connect data source
-        </Link>
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
-        <p className="mb-2 text-sm font-medium text-foreground">
-          No cost data for this period
-        </p>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Once you have GPU usage tagged by team, cost by team will appear here.
-        </p>
-        <Link
-          href="/settings/integrations"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Connect data source
-        </Link>
-      </div>
-    );
-  }
-
-  // Transform data for chart
   const chartData = data.map((item) => ({
     name: item.team_name,
     value: item.total_cost_usd,
     jobs: item.job_count,
     costShare: item.cost_share,
-    pointExplain: pointExplain[item.team_name],
   }));
 
-  const explain = globalExplain ?? data[0]?.explain;
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const point = payload[0]?.payload;
-      const pointExplain = point?.pointExplain as MetricExplain | undefined;
-      return (
-        <div className="rounded-xl border border-border bg-card p-3 shadow-lg">
-          <p className="font-semibold text-gray-900">{payload[0].name}</p>
-          <p className="text-sm text-gray-600">
-            Cost: ${payload[0].value.toFixed(2)}
-            {typeof payload[0].payload?.costShare === "number"
-              ? ` (${(payload[0].payload.costShare * 100).toFixed(0)}%)`
-              : ""}
-          </p>
-          <p className="text-sm text-gray-600">
-            Jobs: {payload[0].payload.jobs}
-          </p>
-          {pointExplain && (
-            <>
-              <p className="text-xs text-gray-500 mt-2">
-                Formula: {pointExplain.explanation.formula}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Assumptions: {pointExplain.explanation.assumptions.join("; ")}
-              </p>
-            </>
-          )}
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
-    <div>
-      {explain && (
-        <div className="flex items-center justify-end mb-2">
-          <MetricExplainDrawer title="Cost by Team" metric={explain} />
+    <div className="relative">
+      {showingSample && (
+        <div
+          className="absolute top-0 right-0 z-10 flex items-center gap-1.5 rounded-full px-2.5 py-1"
+          style={{
+            background: "rgba(245,158,11,0.08)",
+            border: "1px solid rgba(245,158,11,0.2)",
+          }}
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: "#f59e0b" }}
+          />
+          <span style={{ fontSize: "11px", fontWeight: 600, color: "#d97706" }}>
+            Sample data
+          </span>
         </div>
       )}
-      <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
+
+      <div>
+        <ResponsiveContainer width="100%" height={320}>
           <PieChart>
             <Pie
               data={chartData}
               cx="50%"
-              cy="50%"
-              labelLine={false}
-              label={({ name, percent }) => {
-                const safePercent = typeof percent === "number" ? percent : 0;
-                return `${name} (${(safePercent * 100).toFixed(0)}%)`;
-              }}
-              outerRadius={90}
-              fill="hsl(var(--primary))"
+              cy="48%"
+              innerRadius={60}
+              outerRadius={100}
+              paddingAngle={2}
               dataKey="value"
+              stroke="none"
             >
-              {chartData.map((entry, index) => (
+              {chartData.map((_, index) => (
                 <Cell
                   key={`cell-${index}`}
                   fill={COLORS[index % COLORS.length]}
@@ -234,11 +239,25 @@ export default function CostByTeamChart({
               ))}
             </Pie>
             <Tooltip content={<CustomTooltip />} />
-            <Legend />
+            <Legend content={renderCustomLegend} />
           </PieChart>
         </ResponsiveContainer>
       </div>
+
+      {showingSample && (
+        <div className="mt-1 flex items-center justify-between">
+          <p style={{ fontSize: "12px", color: "var(--heliox-text-muted)" }}>
+            Tag GPU jobs with team metadata to see real allocation
+          </p>
+          <Link
+            href="/settings/integrations"
+            style={{ fontSize: "12px", fontWeight: 600, color: "#6366f1" }}
+            className="hover:underline shrink-0"
+          >
+            Connect data →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
-

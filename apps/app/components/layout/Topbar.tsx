@@ -6,10 +6,11 @@
  */
 
 import { useState } from "react";
-import { Search, Bell, ChevronDown, Moon, Sun, Menu, LogOut } from "lucide-react";
+import { Search, ChevronDown, Moon, Sun, Menu, LogOut } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { Button } from "../ui/Button";
 import { DemoModeToggle } from "../ui/DemoModeToggle";
+import { NotificationBell } from "@/components/NotificationBell";
 
 interface TopbarProps {
   teamName?: string;
@@ -140,21 +141,7 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
           </button>
 
           {/* Notifications */}
-          <button
-            className="relative rounded-xl p-2 transition-colors"
-            style={{ color: "var(--muted-foreground)" }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--muted)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "transparent")}
-          >
-            <Bell className="h-4 w-4" />
-            <span
-              className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full"
-              style={{
-                background: "#ef4444",
-                border: "2px solid var(--background)",
-              }}
-            />
-          </button>
+          <NotificationBell />
 
           {/* User avatar */}
           <div className="relative">

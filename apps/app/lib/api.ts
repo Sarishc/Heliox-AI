@@ -5,6 +5,28 @@
  * Uses httpOnly cookies for auth - no token storage in localStorage.
  */
 
+// ── Demo block modal integration ─────────────────────────────────────────────
+// Components import DemoBlockModal directly and call showDemoBlockModal() to
+// trigger it from anywhere in the app without prop-drilling.
+
+type DemoBlockHandler = (signupUrl?: string) => void;
+let _demoBlockHandler: DemoBlockHandler | null = null;
+
+/**
+ * Register the global demo-block modal trigger (called once from a root client component).
+ * Separating registration from usage avoids circular deps and SSR issues.
+ */
+export function registerDemoBlockHandler(fn: DemoBlockHandler): void {
+  _demoBlockHandler = fn;
+}
+
+/** Trigger the demo-block modal, or fall back to a simple alert. */
+export function showDemoBlockModal(signupUrl?: string): void {
+  if (_demoBlockHandler) {
+    _demoBlockHandler(signupUrl);
+  }
+}
+
 const MAX_RETRIES = 2;
 
 /**
@@ -108,8 +130,29 @@ export async function fetchApi(
     });
 
     if (response.status === 401 && !skipAuthRedirect) {
-      redirectToLogin();
-      throw new Error("Session expired. Redirecting to login.");
+      // Don't redirect in demo mode — let components handle 401 gracefully
+      const isDemo =
+        typeof window !== "undefined" &&
+        localStorage.getItem("heliox_demo_mode") === "true";
+      if (!isDemo) {
+        redirectToLogin();
+        throw new Error("Session expired. Redirecting to login.");
+      }
+      throw new Error("Demo mode: API not available.");
+    }
+
+    // Show demo-block modal for demo_mode 403s on write operations
+    if (response.status === 403) {
+      try {
+        const clone = response.clone();
+        const body = await clone.json();
+        if (body?.error === "demo_mode") {
+          showDemoBlockModal(body?.signup_url);
+          throw new Error("demo_mode");
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message === "demo_mode") throw e;
+      }
     }
 
     return response;

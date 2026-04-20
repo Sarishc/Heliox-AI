@@ -22,6 +22,33 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/Badge";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
+
+const DEMO_ROI: ROIDashboardResponse = {
+  start_date: "2026-02-20",
+  end_date: "2026-03-22",
+  total_spend_usd: 1_620_000,
+  estimated_potential_savings_usd: 291_600,
+  savings_percent_of_spend: 18.0,
+  savings_by_category: [
+    { type: "idle_gpu", label: "Idle GPU time", estimated_savings_usd: 142_800, count: 24 },
+    { type: "rightsizing", label: "Instance rightsizing", estimated_savings_usd: 89_400, count: 11 },
+    { type: "spot_migration", label: "Spot migration", estimated_savings_usd: 59_400, count: 7 },
+  ],
+  top_recommendations: [
+    { title: "Terminate idle training-resnet-v2 job", type: "idle_gpu", estimated_savings_usd: 28_800, severity: "high" },
+    { title: "Downsize inference cluster (A100→A10G)", type: "rightsizing", estimated_savings_usd: 41_200, severity: "medium" },
+    { title: "Migrate batch workloads to spot", type: "spot_migration", estimated_savings_usd: 59_400, severity: "medium" },
+  ],
+  provider_breakdown: [
+    { provider: "AWS", cost_usd: 832_000, share_percent: 51.4 },
+    { provider: "GCP", cost_usd: 498_000, share_percent: 30.7 },
+    { provider: "Azure", cost_usd: 290_000, share_percent: 17.9 },
+  ],
+  anomaly_count: 3,
+  recommendation_count: 18,
+  disclaimer: "Estimated savings based on 30-day usage patterns. Actual savings depend on workload characteristics and implementation.",
+};
 
 interface SavingsByCategory {
   type: string;
@@ -67,6 +94,11 @@ function ROIContent() {
     const load = async () => {
       setLoading(true);
       setError(null);
+      if (isDemoMode()) {
+        setData(DEMO_ROI);
+        setLoading(false);
+        return;
+      }
       try {
         const res = await fetchJson<ROIDashboardResponse>(
           `/api/v1/analytics/roi?start=${startDate}&end=${endDate}&include_anomalies=true`

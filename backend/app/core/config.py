@@ -21,10 +21,15 @@ class Settings(BaseSettings):
         description="PostgreSQL connection string"
     )
     
-    # Redis
+    # Redis — REQUIRED. Redis is a hard dependency for rate limiting, brute-force
+    # protection, and token blacklisting. The app refuses to start without it.
+    # Use your ElastiCache primary endpoint (TLS-enabled clusters: rediss://).
     REDIS_URL: str = Field(
-        default="redis://localhost:6379/0",
-        description="Redis connection string"
+        description=(
+            "Redis connection URL. REQUIRED — the app will not start without this. "
+            "ElastiCache example: rediss://your-cluster.abc123.cache.amazonaws.com:6379 "
+            "Local dev: redis://localhost:6379/0"
+        )
     )
     
     # CORS
@@ -83,11 +88,34 @@ class Settings(BaseSettings):
         description="Deprecated: API key for admin endpoints. Prefer RBAC (is_platform_admin). Empty = use platform admin only."
     )
 
-    # Integrations
+    # Integrations — also used for OAuth token encryption at rest.
+    # REQUIRED in production/staging; optional in dev (a temporary key is generated).
+    # Generate: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
     INTEGRATIONS_ENCRYPTION_KEY: str = Field(
         default="",
-        description="Encryption key for integration configs (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+        description=(
+            "Fernet encryption key for integration configs and OAuth tokens at rest. "
+            "REQUIRED in production/staging. "
+            "Generate: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+        )
     )
+
+    @field_validator("INTEGRATIONS_ENCRYPTION_KEY")
+    @classmethod
+    def validate_encryption_key(cls, v: str) -> str:
+        """Validate that the key is a well-formed Fernet key when provided."""
+        if not v:
+            return v  # Presence enforcement is handled in model_post_init
+        try:
+            from cryptography.fernet import Fernet
+            Fernet(v.encode())
+        except Exception:
+            raise ValueError(
+                "INTEGRATIONS_ENCRYPTION_KEY is not a valid Fernet key. "
+                "It must be a URL-safe base64-encoded 32-byte key. "
+                "Generate one with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            )
+        return v
     
     # Usage Metering
     USAGE_METERING_SAMPLE_RATE: float = Field(
@@ -263,11 +291,25 @@ class Settings(BaseSettings):
         default="UTC",
         description="Timezone for scheduled tasks (e.g., 'America/New_York', 'UTC')"
     )
-    
-    # Plugins
-    HELIOX_PLUGINS: List[str] = Field(
-        default=[],
-        description="Comma-separated module paths for plugins to load"
+
+    # Demo environment
+    DEMO_MODE: bool = Field(
+        default=False,
+        description=(
+            "Enable hosted demo environment. When true: seed endpoint is always accessible, "
+            "write operations on the demo tenant return 403, and GET /api/v1/demo/status is public."
+        ),
+    )
+    DEMO_TENANT_ID: str = Field(
+        default="",
+        description=(
+            "UUID of the demo tenant (Acme ML Platform team). Set after running the seed endpoint. "
+            "Used by demo guard to block writes on the demo tenant."
+        ),
+    )
+    DEMO_SIGNUP_URL: str = Field(
+        default="https://app.heliox.ai/signup",
+        description="Signup URL shown in demo 403 responses and the demo banner.",
     )
     
     model_config = SettingsConfigDict(
@@ -323,13 +365,6 @@ class Settings(BaseSettings):
             raise ValueError(f"ENV must be one of {valid_envs}")
         return v_lower
     
-    @field_validator("HELIOX_PLUGINS", mode="before")
-    @classmethod
-    def parse_plugins(cls, v):
-        if isinstance(v, str):
-            return [item.strip() for item in v.split(",") if item.strip()]
-        return v
-    
     def model_post_init(self, __context) -> None:
         """Validate production-required settings after initialization."""
         # Security: In production, reject unsafe default URLs
@@ -359,6 +394,21 @@ class Settings(BaseSettings):
                     f"CORS_ORIGINS cannot include localhost origins in production: {localhost_origins}. "
                     "Use production domain names only."
                 )
+
+        # Encryption key: required in production/staging; warn loudly in dev
+        if self.ENV in ("production", "staging"):
+            if not self.INTEGRATIONS_ENCRYPTION_KEY:
+                raise ValueError(
+                    "INTEGRATIONS_ENCRYPTION_KEY must be set in production/staging. "
+                    "Generate: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+                )
+        elif not self.INTEGRATIONS_ENCRYPTION_KEY:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "INTEGRATIONS_ENCRYPTION_KEY is not set. A temporary key will be generated "
+                "for this process — encrypted tokens will be unreadable after restart. "
+                "Set INTEGRATIONS_ENCRYPTION_KEY in your .env for persistent encryption."
+            )
 
         # Tenant safety: if multi-tenant is disabled, require a single team ID
         if not self.MULTI_TENANT:

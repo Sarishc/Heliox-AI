@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "heliox.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+data:
+  ## Application
+  ENV: {{ .Values.config.env | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_JSON_FORMAT: {{ .Values.config.logJsonFormat | quote }}
+
+  ## Multi-tenancy
+  MULTI_TENANT: {{ .Values.config.multiTenant | quote }}
+  SINGLE_TENANT_TEAM_ID: {{ .Values.config.singleTenantTeamId | quote }}
+
+  ## CORS — comma-separated list is parsed by the app's field_validator
+  CORS_ENABLED: "true"
+  CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}
+
+  ## URLs
+  API_BASE_URL: {{ .Values.config.apiBaseUrl | quote }}
+  FRONTEND_URL: {{ .Values.config.frontendUrl | quote }}
+  GOOGLE_REDIRECT_URI: {{ .Values.config.googleRedirectUri | quote }}
+
+  ## Security
+  CSRF_PROTECTION_ENABLED: {{ .Values.config.csrfProtectionEnabled | quote }}
+  AUTH_COOKIE_SECURE: {{ .Values.config.authCookieSecure | quote }}
+  AUTH_COOKIE_MAX_AGE: {{ .Values.config.authCookieMaxAge | quote }}
+
+  ## Rate limiting
+  RATE_LIMIT_WINDOW_SECONDS: {{ .Values.config.rateLimitWindowSeconds | quote }}
+  RATE_LIMIT_MAX_REQUESTS: {{ .Values.config.rateLimitMaxRequests | quote }}
+  RATE_LIMIT_LOGIN_ATTEMPTS: {{ .Values.config.rateLimitLoginAttempts | quote }}
+  LOGIN_LOCKOUT_AFTER: {{ .Values.config.loginLockoutAfter | quote }}
+  LOGIN_LOCKOUT_MINUTES: {{ .Values.config.loginLockoutMinutes | quote }}
+
+  ## Scheduling
+  DAILY_SUMMARY_HOUR: {{ .Values.config.dailySummaryHour | quote }}
+  TIMEZONE: {{ .Values.config.timezone | quote }}
+
+  ## Observability
+  OTEL_ENABLED: {{ .Values.config.otelEnabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelExporterEndpoint | quote }}
+
+  ## Reports
+  REPORT_SHARE_BASE_URL: {{ .Values.config.reportShareBaseUrl | quote }}
+  REPORT_SHARE_DEFAULT_TTL_DAYS: {{ .Values.config.reportShareDefaultTtlDays | quote }}
+  REPORT_SHARE_MAX_TTL_DAYS: {{ .Values.config.reportShareMaxTtlDays | quote }}
+
+  ## Metering
+  USAGE_METERING_SAMPLE_RATE: {{ .Values.config.usageMeteringSampleRate | quote }}
+
+  ## Database — password injected from Secret via envFrom; URL assembled at startup
+  DB_HOST: {{ .Values.postgresql.external.host | quote }}
+  DB_PORT: {{ .Values.postgresql.external.port | quote }}
+  DB_NAME: {{ .Values.postgresql.external.database | quote }}
+  DB_USER: {{ .Values.postgresql.external.username | quote }}

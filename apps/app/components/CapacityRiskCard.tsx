@@ -3,8 +3,15 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Server } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
 import { Skeleton } from "@/components/ui/Skeleton";
+
+const DEMO_CAPACITY: ScheduleForecastResponse = {
+  required_gpus: 312,
+  utilization_projection: 0.87,
+  congestion_probability: 0.64,
+};
 
 interface ScheduleForecastResponse {
   required_gpus: number;
@@ -22,6 +29,11 @@ export default function CapacityRiskCard() {
     const load = async () => {
       setLoading(true);
       setError(null);
+      if (isDemoMode()) {
+        setData(DEMO_CAPACITY);
+        setLoading(false);
+        return;
+      }
       try {
         const response = await fetchJson<ScheduleForecastResponse>(
           `/api/v1/schedule/forecast?start_date=${startDate}&end_date=${endDate}`

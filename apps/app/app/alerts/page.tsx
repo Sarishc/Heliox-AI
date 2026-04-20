@@ -1,7 +1,6 @@
 "use client";
 
-import BetaAccessGate from "@/components/BetaAccessGate";
-import AppShell from "@/components/AppShell";
+import { EnterpriseLayout } from "@/components/layout/EnterpriseLayout";
 import AnomalyCard from "@/components/AnomalyCard";
 import SlackWebhookCard from "@/components/SlackWebhookCard";
 import EmailAlertsCard from "@/components/EmailAlertsCard";
@@ -35,10 +34,8 @@ function AlertsContent() {
 
 export default function AlertsPage() {
   return (
-    <BetaAccessGate>
-      <AppShell>
-        <AlertsContent />
-      </AppShell>
-    </BetaAccessGate>
+    <EnterpriseLayout>
+      <AlertsContent />
+    </EnterpriseLayout>
   );
 }

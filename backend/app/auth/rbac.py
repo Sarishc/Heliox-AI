@@ -56,19 +56,28 @@ def require_team_admin_or_api_key(
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    if not x_team_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="X-Team-Id header required when using session auth for team-scoped operations",
+    if x_team_id:
+        try:
+            team_id = UUID(x_team_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid X-Team-Id format",
+            )
+    else:
+        # Auto-resolve team from user's membership (common case: user belongs to one team)
+        from app.models.team_member import TeamMember as TM
+        membership = (
+            db.query(TM)
+            .filter(TM.user_id == current_user.id)
+            .first()
         )
-
-    try:
-        team_id = UUID(x_team_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid X-Team-Id format",
-        )
+        if not membership:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is not a member of any team",
+            )
+        team_id = membership.team_id
 
     require_team_access(
         db,

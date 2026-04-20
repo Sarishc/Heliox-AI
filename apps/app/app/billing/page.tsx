@@ -23,6 +23,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
 
 interface PricingPlan {
   plan: string;
@@ -67,6 +68,7 @@ function BillingContent() {
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
+  const [billingUnavailable, setBillingUnavailable] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -75,6 +77,7 @@ function BillingContent() {
   async function loadData() {
     setLoading(true);
     setError("");
+    setBillingUnavailable(false);
     try {
       const [plansData, subData] = await Promise.all([
         fetchJson<PricingPlan[]>("/api/v1/billing/plans"),
@@ -84,6 +87,12 @@ function BillingContent() {
       setSubscription(subData);
     } catch (err: any) {
       console.error("Failed to load billing data:", err);
+      // 503 means Stripe is not configured on this server instance
+      if (err.status === 503 || (err.message && err.message.includes("not configured"))) {
+        setBillingUnavailable(true);
+        setLoading(false);
+        return;
+      }
       setError(err.message || "Failed to load billing data");
       // Set default mock data for demo purposes
       setPlans([
@@ -203,6 +212,7 @@ function BillingContent() {
   async function handleUpgrade(plan: string) {
     setUpgrading(plan);
     setError("");
+    setBillingUnavailable(false);
 
     try {
       const response = await fetchJson<{ checkout_url: string }>(
@@ -219,7 +229,11 @@ function BillingContent() {
 
       window.location.href = response.checkout_url;
     } catch (err: any) {
-      setError(err.message || "Failed to start checkout");
+      if (err.status === 503 || (err.message && err.message.includes("not configured"))) {
+        setBillingUnavailable(true);
+      } else {
+        setError(err.message || "Failed to start checkout");
+      }
       setUpgrading(null);
     }
   }
@@ -251,6 +265,37 @@ function BillingContent() {
   const currentPlanIndex = subscription
     ? planOrder.indexOf(subscription.plan)
     : 0;
+
+  if (billingUnavailable) {
+    return (
+      <>
+        <PageHeader
+          title="Billing & Subscriptions"
+          description="Subscription management"
+          breadcrumbs={[
+            { label: "Home", href: "/" },
+            { label: "Billing" },
+          ]}
+        />
+        <Card variant="flat" className="mt-6">
+          <CardContent className="py-12 text-center">
+            <Shield className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              Billing is not configured
+            </h3>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              Payment processing is not set up on this instance. Contact your
+              administrator or reach out to{" "}
+              <a href="mailto:support@heliox.ai" className="text-brand-600 hover:underline">
+                support@heliox.ai
+              </a>{" "}
+              to enable billing.
+            </p>
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
 
   return (
     <>
@@ -295,7 +340,7 @@ function BillingContent() {
       )}
 
       {/* Error Message */}
-      {error && (
+      {error && !isDemoMode() && (
         <Card variant="flat" className="mb-6 border-l-4 border-l-danger-500">
           <CardContent className="py-4">
             <div className="flex items-center gap-3">

@@ -32,6 +32,16 @@ def is_email_enabled() -> bool:
     return bool(settings.RESEND_API_KEY)
 
 
+def is_email_configured() -> bool:
+    """
+    Return True if transactional email delivery is configured.
+
+    Use this to decide whether to block an action (e.g. forgot-password)
+    that *requires* email delivery to complete meaningfully.
+    """
+    return bool(settings.RESEND_API_KEY)
+
+
 async def send_email_alert(
     *,
     to_emails: List[str],
@@ -82,6 +92,63 @@ async def send_email_alert(
             extra={"service": "resend"},
         )
         return False
+
+
+async def send_password_reset_email(*, to_email: str, reset_url: str, expires_minutes: int = 60) -> bool:
+    """Send a password reset link to the user."""
+    html_body = f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px;">
+  <h2 style="color: #1e293b; margin-bottom: 8px;">Reset your password</h2>
+  <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">
+    You requested a password reset for your Heliox AI account. Click the button below to choose a new password.
+    This link expires in <strong>{expires_minutes} minutes</strong>.
+  </p>
+  <a href="{reset_url}"
+     style="display: inline-block; background: #2563eb; color: #fff; text-decoration: none;
+            font-size: 14px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
+    Reset password
+  </a>
+  <p style="color: #94a3b8; font-size: 12px; margin-top: 32px;">
+    If you didn't request this, you can safely ignore this email — your password will not change.<br/>
+    For security, this link can only be used once.
+  </p>
+  <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+  <p style="color: #cbd5e1; font-size: 11px;">Heliox AI &bull; GPU Cost Optimization Platform</p>
+</div>
+"""
+    return await send_email_alert(
+        to_emails=[to_email],
+        subject="Reset your Heliox AI password",
+        html_body=html_body,
+    )
+
+
+async def send_email_verification(*, to_email: str, verify_url: str) -> bool:
+    """Send an email verification link to a newly registered user."""
+    html_body = f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px;">
+  <h2 style="color: #1e293b; margin-bottom: 8px;">Verify your email address</h2>
+  <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">
+    Welcome to Heliox AI! Please verify your email address to complete your account setup
+    and unlock full access to your workspace.
+  </p>
+  <a href="{verify_url}"
+     style="display: inline-block; background: #2563eb; color: #fff; text-decoration: none;
+            font-size: 14px; font-weight: 600; padding: 12px 24px; border-radius: 8px;">
+    Verify email address
+  </a>
+  <p style="color: #94a3b8; font-size: 12px; margin-top: 32px;">
+    This link expires in 24 hours. If you didn't create a Heliox AI account you can safely ignore this email.
+  </p>
+  <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+  <p style="color: #cbd5e1; font-size: 11px;">Heliox AI &bull; GPU Cost Optimization Platform</p>
+</div>
+"""
+    return await send_email_alert(
+        to_emails=[to_email],
+        subject="Verify your Heliox AI email address",
+        html_body=html_body,
+    )
 
 
 def _html_header(title: str, emoji: str = "📢") -> str:

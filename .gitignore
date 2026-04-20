@@ -83,3 +83,4 @@ alembic/versions/*.pyc
 Thumbs.db
 Desktop.ini
 
+.claude/

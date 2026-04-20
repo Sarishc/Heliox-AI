@@ -1,0 +1,110 @@
+{{- if .Values.agent.enabled }}
+## The agent DaemonSet runs heliox_agent.py on every GPU node.
+## It reports GPU utilization, memory, and job metadata to the Heliox API.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "heliox.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "heliox.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "heliox.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+      {{- with .Values.agent.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "heliox.fullname" . }}-agent
+      ## hostPID=true allows the agent to read GPU process information
+      hostPID: true
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: "{{ include "heliox.imageRepository" (dict "repo" .Values.agent.image.repository "global" .Values.global) }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command:
+            - python
+            - /agent/heliox_agent.py
+            - --endpoint
+            - {{ .Values.agent.apiEndpoint | quote }}
+            - --api-key
+            - $(HELIOX_API_KEY)
+            - --interval
+            - {{ .Values.agent.interval | quote }}
+          env:
+            - name: HELIOX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.agent.existingSecret }}
+                  name: {{ .Values.agent.existingSecret }}
+                  {{- else }}
+                  name: {{ include "heliox.fullname" . }}-agent-secret
+                  {{- end }}
+                  key: api_key
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: agent-code
+              mountPath: /agent
+      volumes:
+        - name: agent-code
+          configMap:
+            name: {{ include "heliox.fullname" . }}-agent-code
+      {{- with .Values.agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+## ConfigMap bundles the agent script into the cluster so no separate image build is required
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "heliox.fullname" . }}-agent-code
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+binaryData:
+  heliox_agent.py: |-
+{{ .Files.Get "files/heliox_agent.py" | b64enc | indent 4 }}
+---
+## Secret holding the agent API key
+{{- if not .Values.agent.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "heliox.fullname" . }}-agent-secret
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+type: Opaque
+data:
+  api_key: {{ .Values.agent.apiKey | b64enc | quote }}
+{{- end }}
+{{- end }}

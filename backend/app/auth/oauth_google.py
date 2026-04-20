@@ -10,6 +10,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.integrations.encryption import get_encryption, is_fernet_token
 from app.models.oauth_identity import OAuthIdentity, OAuthProvider
 from app.models.user import User
 from app.models.team import Team
@@ -269,6 +270,8 @@ def upsert_oauth_identity(
         OAuthIdentity.provider_user_id == provider_user_id
     ).first()
     
+    enc = get_encryption()
+
     if identity:
         # Update existing identity
         identity.user_id = user.id
@@ -278,12 +281,12 @@ def upsert_oauth_identity(
         identity.name = name
         identity.picture = picture
         identity.last_login_at = datetime.utcnow()
-        
-        # Update tokens if provided (encrypt in production)
+
+        # Update tokens — always encrypt before storing
         if access_token:
-            identity.access_token_encrypted = access_token  # TODO: Encrypt
+            identity.access_token_encrypted = enc.encrypt_string(access_token)
         if refresh_token:
-            identity.refresh_token_encrypted = refresh_token  # TODO: Encrypt
+            identity.refresh_token_encrypted = enc.encrypt_string(refresh_token)
         if expires_in:
             identity.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
         
@@ -299,8 +302,8 @@ def upsert_oauth_identity(
             email_verified=email_verified,
             name=name,
             picture=picture,
-            access_token_encrypted=access_token,  # TODO: Encrypt
-            refresh_token_encrypted=refresh_token,  # TODO: Encrypt
+            access_token_encrypted=enc.encrypt_string(access_token) if access_token else None,
+            refresh_token_encrypted=enc.encrypt_string(refresh_token) if refresh_token else None,
             token_expires_at=datetime.utcnow() + timedelta(seconds=expires_in) if expires_in else None,
             last_login_at=datetime.utcnow()
         )
@@ -311,6 +314,70 @@ def upsert_oauth_identity(
     db.refresh(identity)
     
     return identity
+
+
+def _decrypt_token_with_fallback(
+    raw: str,
+    identity_id: str,
+    field: str,
+) -> Optional[str]:
+    """
+    Decrypt a stored token with a graceful plaintext fallback.
+
+    Priority:
+    1. Decrypt with the current Fernet key → return plaintext.
+    2. If decryption fails AND the value looks like a Fernet token (correct
+       version byte) → the key has changed; return None so the caller can
+       force re-authentication.
+    3. If the value does NOT look like a Fernet token → it is a legacy
+       plaintext row (pre-migration); return it as-is with a deprecation
+       warning so the caller still works during the migration window.
+    """
+    try:
+        enc = get_encryption()
+        return enc.decrypt_string(raw)
+    except Exception:
+        if is_fernet_token(raw):
+            logger.warning(
+                f"Failed to decrypt {field} for OAuthIdentity {identity_id}. "
+                "Value looks encrypted but decryption failed — key may have changed. "
+                "User will need to re-authenticate."
+            )
+            return None
+        # Legacy plaintext row — return as-is during migration window
+        logger.warning(
+            f"OAuthIdentity {identity_id} has a plaintext {field} (pre-migration). "
+            "Run migration 029 to encrypt all existing tokens. "
+            "Returning raw value for now."
+        )
+        return raw
+
+
+def get_decrypted_refresh_token(identity: OAuthIdentity) -> Optional[str]:
+    """
+    Safely decrypt the refresh token stored on an OAuthIdentity.
+
+    Returns None if the token is absent or if the key has changed (key
+    mismatch).  Callers should force re-authentication when None is returned.
+    """
+    if not identity.refresh_token_encrypted:
+        return None
+    return _decrypt_token_with_fallback(
+        identity.refresh_token_encrypted,
+        str(identity.id),
+        "refresh_token_encrypted",
+    )
+
+
+def get_decrypted_access_token(identity: OAuthIdentity) -> Optional[str]:
+    """Safely decrypt the access token stored on an OAuthIdentity."""
+    if not identity.access_token_encrypted:
+        return None
+    return _decrypt_token_with_fallback(
+        identity.access_token_encrypted,
+        str(identity.id),
+        "access_token_encrypted",
+    )
 
 
 def get_or_create_user_from_oauth(

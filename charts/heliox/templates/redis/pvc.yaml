@@ -1,0 +1,16 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "heliox.fullname" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+{{- end }}

@@ -9,8 +9,8 @@ output "redis_port" {
 }
 
 output "redis_url" {
-  description = "Redis connection URL"
-  value       = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${aws_elasticache_cluster.redis.cache_nodes[0].port}"
+  description = "Redis connection URL (TLS — transit_encryption_enabled = true requires rediss://)"
+  value       = "rediss://${aws_elasticache_cluster.redis.cache_nodes[0].address}:${aws_elasticache_cluster.redis.cache_nodes[0].port}"
 }
 
 output "cluster_id" {

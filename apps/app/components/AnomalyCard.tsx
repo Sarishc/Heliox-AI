@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Loader2, ShieldAlert, Info } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
 interface AnomalyItem {
@@ -44,6 +45,41 @@ interface MetricExplain {
   };
 }
 
+const DEMO_ANOMALIES: AnomalyResponse = {
+  anomalies: [
+    {
+      type: "spend_spike",
+      message: "GPU compute spend jumped 340% vs 7-day baseline — training-resnet-v2 consumed 847 GPU-hours in 6h window.",
+      severity: "critical",
+      probability: 0.94,
+      value: 18420,
+      baseline_mean: 4200,
+      baseline_std: 620,
+      baseline_window_days: 7,
+      spike_std_multiplier: 4.1,
+    },
+    {
+      type: "idle_gpu_detected",
+      message: "inference-cluster-prod has maintained <5% GPU utilization for 142 minutes. Idle A100 costs accumulating.",
+      severity: "high",
+      probability: 0.87,
+      value: 0.04,
+      baseline_mean: 0.72,
+      baseline_std: 0.08,
+      baseline_window_days: 14,
+    },
+    {
+      type: "cost_forecast_breach",
+      message: "At current burn rate, monthly spend will reach $1.84M — 13.6% over the $1.62M budget.",
+      severity: "medium",
+      probability: 0.71,
+    },
+  ],
+  breach_probability: 0.71,
+  projected_monthly_spend: 1_840_000,
+  budget_usd_monthly: 1_620_000,
+};
+
 const confidenceBadge = (score: number) => {
   if (score >= 0.8) return { label: "High", classes: "bg-emerald-100 text-emerald-700" };
   if (score >= 0.6) return { label: "Med", classes: "bg-amber-100 text-amber-700" };
@@ -62,6 +98,11 @@ export default function AnomalyCard() {
     const load = async () => {
       setLoading(true);
       setError(null);
+      if (isDemoMode()) {
+        setData(DEMO_ANOMALIES);
+        setLoading(false);
+        return;
+      }
       try {
         const response = await fetchJson<AnomalyResponse>("/api/v1/anomalies?include_explain=true");
         setData(response);

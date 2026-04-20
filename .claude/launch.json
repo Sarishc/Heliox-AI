@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "heliox-frontend",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "PATH=/opt/homebrew/bin:$PATH pnpm dev:app"],
+      "port": 3000,
+      "autoPort": false
+    }
+  ]
+}

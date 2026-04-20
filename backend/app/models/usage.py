@@ -131,7 +131,6 @@ class UsageDailyRollup(Base, UUIDMixin, TimestampMixin):
             "team_id", "date", "event_type",
             unique=True  # Unique constraint for idempotent rollups
         ),
-        Index("ix_usage_daily_rollups_date", "date"),
     )
     
     def __repr__(self) -> str:

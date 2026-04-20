@@ -1,9 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import BetaAccessGate from "@/components/BetaAccessGate";
-import AppShell from "@/components/AppShell";
+import { EnterpriseLayout } from "@/components/layout/EnterpriseLayout";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
+
+const DEMO_POLICIES: BudgetPolicy[] = [
+  { id: "bp-1", environment: "prod", project: "heliox-training", monthly_budget_usd: 800_000, alert_thresholds: [0.7, 0.85, 1.0], is_enabled: true },
+  { id: "bp-2", environment: "prod", project: null, monthly_budget_usd: 1_620_000, alert_thresholds: [0.7, 0.85, 1.0], is_enabled: true },
+  { id: "bp-3", environment: "staging", project: null, monthly_budget_usd: 120_000, alert_thresholds: [0.8, 1.0], is_enabled: true },
+  { id: "bp-4", environment: "dev", project: null, monthly_budget_usd: 30_000, alert_thresholds: [1.0], is_enabled: false },
+];
+
+const DEMO_STATUS: BudgetStatus[] = [
+  { policy: DEMO_POLICIES[0], mtd_spend_usd: 612_000, percent_used: 0.765, forecasted_eom_spend_usd: 840_000, predicted_breach_date: "2026-03-29" },
+  { policy: DEMO_POLICIES[1], mtd_spend_usd: 1_377_000, percent_used: 0.85, forecasted_eom_spend_usd: 1_840_000, predicted_breach_date: "2026-03-28" },
+  { policy: DEMO_POLICIES[2], mtd_spend_usd: 68_000, percent_used: 0.567, forecasted_eom_spend_usd: 90_000, predicted_breach_date: null },
+  { policy: DEMO_POLICIES[3], mtd_spend_usd: 4_200, percent_used: 0.14, forecasted_eom_spend_usd: 5_600, predicted_breach_date: null },
+];
 
 interface BudgetPolicy {
   id: string;
@@ -36,6 +50,12 @@ function BudgetsContent() {
   const loadAll = async () => {
     setLoading(true);
     setError(null);
+    if (isDemoMode()) {
+      setPolicies(DEMO_POLICIES);
+      setStatus(DEMO_STATUS);
+      setLoading(false);
+      return;
+    }
     try {
       const [policiesResponse, statusResponse] = await Promise.all([
         fetchJson<BudgetPolicy[]>("/api/v1/budgets"),
@@ -211,10 +231,8 @@ function BudgetsContent() {
 
 export default function BudgetsPage() {
   return (
-    <BetaAccessGate>
-      <AppShell>
-        <BudgetsContent />
-      </AppShell>
-    </BetaAccessGate>
+    <EnterpriseLayout>
+      <BudgetsContent />
+    </EnterpriseLayout>
   );
 }

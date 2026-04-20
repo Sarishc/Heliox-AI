@@ -1,7 +1,8 @@
 """User model for authentication."""
 from typing import Optional
+from datetime import datetime
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from typing import TYPE_CHECKING, List
@@ -53,6 +54,35 @@ class User(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         index=True,
         comment="Platform admin can access admin endpoints (replaces global API key)"
+    )
+
+    # Email verification
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Whether the user has verified their email address"
+    )
+    email_verification_token: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        unique=True,
+        comment="SHA-256 hex token for email verification (stored hashed)"
+    )
+
+    # Password reset
+    password_reset_token: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        unique=True,
+        comment="SHA-256 hex token for password reset (stored hashed)"
+    )
+    password_reset_token_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Expiry timestamp for password reset token"
     )
     
     if TYPE_CHECKING:

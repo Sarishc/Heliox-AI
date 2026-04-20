@@ -4,6 +4,15 @@ import { useEffect, useState } from "react";
 import { CheckCircle, Clock, ShieldAlert } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { useDashboardFilters } from "@/components/DashboardFiltersContext";
+import { isDemoMode } from "@/lib/demoData";
+
+const DEMO_ACTIONS: OptimizationAction[] = [
+  { action: "Terminate idle training-resnet-v2 job (142 min idle)", rationale: "Job has been idle on V100 for 2.4 hours with no GPU utilization. Terminating saves $28.8k/month if pattern persists.", savings_estimate: 28800, risk_level: "low", confidence: "high", roi: 420, payback_period_days: 1 },
+  { action: "Downsize inference cluster from A100 80GB → A10G", rationale: "Inference workload uses <40% of A100 VRAM. A10G delivers 94% of throughput at 58% of cost.", savings_estimate: 41200, risk_level: "medium", confidence: "high", roi: 185, payback_period_days: 7 },
+  { action: "Migrate batch preprocessing jobs to Spot/Preemptible", rationale: "data-preprocessing-001 and embeddings-generation are fault-tolerant — ideal for 70% cheaper spot instances.", savings_estimate: 59400, risk_level: "low", confidence: "medium", roi: 310, payback_period_days: 3 },
+  { action: "Enable GPU sharing for model-eval-baseline", rationale: "Evaluation jobs use <25% GPU memory. MIG partitioning allows 4 jobs per GPU, cutting compute cost by 75%.", savings_estimate: 18600, risk_level: "medium", confidence: "medium", roi: 140, payback_period_days: 14 },
+  { action: "Schedule feature-extraction-pipeline to off-peak hours", rationale: "Running 9PM–6AM reduces on-demand compute rates by 22% on AWS and GCP. No throughput impact.", savings_estimate: 12400, risk_level: "low", confidence: "high", roi: 95, payback_period_days: 2 },
+];
 import { Skeleton } from "@/components/ui/Skeleton";
 import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 
@@ -54,6 +63,11 @@ export default function OptimizationActions() {
     const load = async () => {
       setLoading(true);
       setError(null);
+      if (isDemoMode()) {
+        setActions(DEMO_ACTIONS);
+        setLoading(false);
+        return;
+      }
       try {
         const data = await fetchJson<OptimizationAction[]>(
           `/api/v1/optimize/roi?start_date=${startDate}&end_date=${endDate}&include_explain=true`

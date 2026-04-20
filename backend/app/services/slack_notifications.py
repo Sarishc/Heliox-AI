@@ -865,5 +865,28 @@ async def check_and_send_anomaly_alert(db: Session, team_id: UUID) -> bool:
             anomalies=result.anomalies,
         )
         sent = sent or email_ok
+
+    # Publish SSE event for each anomaly (fire-and-forget — never blocks Slack/email)
+    try:
+        from app.core.events import EventType, HelioxEvent, publish_event_sync
+        for anomaly in result.anomalies:
+            publish_event_sync(
+                str(team_id),
+                HelioxEvent(
+                    event_type=EventType.ANOMALY_DETECTED,
+                    team_id=str(team_id),
+                    payload={
+                        "anomaly_type": anomaly.get("type", "unknown"),
+                        "severity": anomaly.get("severity", "medium"),
+                        "message": anomaly.get("message", ""),
+                        "value": anomaly.get("value"),
+                        "baseline_mean": anomaly.get("baseline_mean"),
+                        "probability": anomaly.get("probability"),
+                    },
+                ),
+            )
+    except Exception:
+        pass  # SSE publish never disrupts existing Slack/email flow
+
     return sent
 

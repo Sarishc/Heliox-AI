@@ -3,6 +3,10 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui/Toast";
 import { CommandPalette } from "@/components/ui/CommandPalette";
+import { SuppressRechartsWarnings } from "@/components/SuppressRechartsWarnings";
+import { DemoBanner } from "@/components/DemoBanner";
+import { DemoProvider } from "@/components/DemoProvider";
+import { EventProviders } from "@/components/EventProviders";
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -25,8 +29,14 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <ToastProvider>
-          {children}
-          <CommandPalette />
+          <DemoProvider>
+            <EventProviders>
+              <DemoBanner />
+              <SuppressRechartsWarnings />
+              {children}
+              <CommandPalette />
+            </EventProviders>
+          </DemoProvider>
         </ToastProvider>
       </body>
     </html>

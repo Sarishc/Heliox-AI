@@ -105,8 +105,8 @@ export default function CostEfficiencyCard() {
           Add business KPI metrics to see cost efficiency trends.
         </p>
       ) : (
-        <div className="mt-6 h-48">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="mt-6">
+          <ResponsiveContainer width="100%" height={192}>
             <LineChart data={chartData}>
               <XAxis dataKey="date" hide />
               <YAxis

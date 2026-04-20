@@ -99,21 +99,57 @@ def run_integration_sync(self, connection_id: str, sync_run_id: str):
                     logger.error(f"Failed to record ingestion usage: {usage_error}")
             
             logger.info(f"Integration sync completed successfully for {connection_id}")
-        
+
+            # SSE: notify team that sync finished
+            try:
+                from app.core.events import EventType, HelioxEvent, publish_event_sync
+                publish_event_sync(
+                    str(connection.team_id),
+                    HelioxEvent(
+                        event_type=EventType.SYNC_COMPLETED,
+                        team_id=str(connection.team_id),
+                        payload={
+                            "connection_id": connection_id,
+                            "provider": provider.value,
+                            "records_saved": metrics.get("records_saved", 0) if metrics else 0,
+                        },
+                    ),
+                )
+            except Exception:
+                pass
+
         except Exception as sync_error:
             logger.error(f"Integration sync failed for {connection_id}: {sync_error}", exc_info=True)
-            
+
             # Update sync run
             sync_run.status = SyncStatus.FAILED
             sync_run.error = str(sync_error)
             sync_run.error_details = {"error_type": type(sync_error).__name__}
             sync_run.finished_at = datetime.utcnow()
-            
+
             # Update connection
             connection.status = IntegrationStatus.ERROR
             connection.last_error = str(sync_error)
             connection.last_sync_at = datetime.utcnow()
-        
+
+            # SSE: notify team of sync failure
+            try:
+                from app.core.events import EventType, HelioxEvent, publish_event_sync
+                publish_event_sync(
+                    str(connection.team_id),
+                    HelioxEvent(
+                        event_type=EventType.SYNC_FAILED,
+                        team_id=str(connection.team_id),
+                        payload={
+                            "connection_id": connection_id,
+                            "provider": provider.value,
+                            "error": str(sync_error),
+                        },
+                    ),
+                )
+            except Exception:
+                pass
+
         db.commit()
     
     except Exception as e:

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Mail } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
 
 interface MeResponse {
   team_id: string;
@@ -25,6 +26,11 @@ export default function EmailAlertsCard() {
 
   useEffect(() => {
     const load = async () => {
+      if (isDemoMode()) {
+        setTeamId("demo-team");
+        setStatus({ team_id: "demo-team", enabled: true, recipient_count: 3, masked_recipients: "a***@acme.com, f***@acme.com, +1 more" });
+        return;
+      }
       try {
         const me = await fetchJson<MeResponse>("/api/v1/me");
         setTeamId(me.team_id);

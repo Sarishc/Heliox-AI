@@ -10,11 +10,13 @@ from sqlalchemy.orm import Session
 from app.auth.rbac import require_team_admin_or_api_key
 from app.auth.team_resolution import TeamContext
 from app.core.db import get_db
+from app.core.plan_enforcement import check_team_limit
 from app.core.security import verify_team_api_key
 from app.integrations.base import IntegrationProvider, IntegrationStatus, SyncStatus
 from app.integrations.encryption import get_encryption
 from app.integrations.models import IntegrationConnection, IntegrationSyncRun
 from app.integrations.registry import integration_registry
+import app.integrations.providers  # noqa: F401 — side-effect: registers all providers
 from app.models.team_api_key import TeamAPIKey
 from app.schemas.integrations import (
     IntegrationConnectionCreate,
@@ -211,6 +213,17 @@ def create_integration_connection(
     4. Save to database
     5. Perform initial health check
     """
+    # Enforce: check max_clusters (integrations) limit for the team's plan
+    current_integration_count = (
+        db.query(IntegrationConnection)
+        .filter(
+            IntegrationConnection.team_id == auth_ctx.team_id,
+            IntegrationConnection.status != "deleted",
+        )
+        .count()
+    )
+    check_team_limit(db, auth_ctx.team_id, "max_clusters", current_integration_count)
+
     # Check if provider is supported
     provider = IntegrationProvider(connection_create.provider)
     integration_class = integration_registry.get(provider)
@@ -286,13 +299,13 @@ def create_integration_connection(
 def list_integrations(
     *,
     db: Session = Depends(get_db),
-    api_key: TeamAPIKey = Depends(verify_team_api_key)
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key)
 ):
     """
     List all integration connections for the authenticated team.
     """
     connections = db.query(IntegrationConnection).filter(
-        IntegrationConnection.team_id == api_key.team_id
+        IntegrationConnection.team_id == auth_ctx.team_id
     ).all()
     
     encryption = get_encryption()

@@ -80,15 +80,18 @@ class IntegrationRegistry:
         integrations = []
         
         for provider, integration_class in self._integrations.items():
-            # Instantiate with empty config just to get metadata
-            # (actual instances are created with real config)
+            # Build schema from class-level field lists — no instantiation needed
             try:
+                required = getattr(integration_class, "required_config_fields", [])
+                optional = getattr(integration_class, "optional_config_fields", [])
+                properties = {f: {"type": "string"} for f in required + optional}
+                config_schema = {"type": "object", "properties": properties, "required": list(required)}
                 metadata = {
                     "provider": provider.value,
-                    "display_name": integration_class.display_name,
-                    "description": integration_class.description,
+                    "display_name": getattr(integration_class, "display_name", provider.value),
+                    "description": getattr(integration_class, "description", ""),
                     "enabled": True,
-                    "config_schema": integration_class({}).get_config_schema()
+                    "config_schema": config_schema,
                 }
                 integrations.append(metadata)
             except Exception as e:
@@ -107,16 +110,17 @@ class IntegrationRegistry:
         
         return integrations
     
-    def is_registered(self, provider: IntegrationProvider) -> bool:
+    def is_registered(self, provider) -> bool:
         """
         Check if provider is registered.
-        
-        Args:
-            provider: Provider identifier
-            
-        Returns:
-            True if registered, False otherwise
+
+        Accepts either an IntegrationProvider enum or a plain string value.
         """
+        if isinstance(provider, str):
+            try:
+                provider = IntegrationProvider(provider)
+            except ValueError:
+                return False
         return provider in self._integrations
 
 

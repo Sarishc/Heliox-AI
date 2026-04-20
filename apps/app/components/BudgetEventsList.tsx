@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
+
+const DEMO_EVENTS: BudgetEvent[] = [
+  { id: "1", date: "2026-03-20", threshold: 0.7, spend_usd: 1_134_000, budget_usd: 1_620_000, predicted_breach_date: null, delivered_via: "slack, email" },
+  { id: "2", date: "2026-03-18", threshold: 0.85, spend_usd: 1_377_000, budget_usd: 1_620_000, predicted_breach_date: "2026-03-28", delivered_via: "slack" },
+  { id: "3", date: "2026-03-15", threshold: 0.7, spend_usd: 842_000, budget_usd: 1_200_000, predicted_breach_date: null, delivered_via: "email" },
+];
 
 interface BudgetEvent {
   id: string;
@@ -19,6 +26,10 @@ export default function BudgetEventsList() {
 
   useEffect(() => {
     const load = async () => {
+      if (isDemoMode()) {
+        setEvents(DEMO_EVENTS);
+        return;
+      }
       try {
         const response = await fetchJson<BudgetEvent[]>("/api/v1/budgets/events?limit=20");
         setEvents(response);

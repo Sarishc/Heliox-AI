@@ -13,8 +13,7 @@ from app.core.config import get_settings
 from app.core.db import check_db_connection, get_db
 from app.core.logging import get_request_id, set_request_id, setup_logging
 from app.core.rate_limit import RateLimitMiddleware
-from app.core.cache import get_redis
-from app.plugins.loader import load_plugins, load_default_plugins
+from app.core.cache import get_redis, require_redis
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -57,17 +56,27 @@ async def lifespan(app: FastAPI):
             db_status = "disconnected"
             logger.warning("⚠ Database connection: FAILED (continuing in dev mode)")
     
-    logger.info(f"Startup complete - Database: {db_status}")
-    logger.info("=" * 60)
-    
+    # Redis: hard required — app must not start without a working Redis connection
+    logger.info("Validating Redis connection on startup...")
     try:
-        if settings.HELIOX_PLUGINS:
-            loaded = load_plugins(settings.HELIOX_PLUGINS)
-        else:
-            loaded = load_default_plugins()
-        logger.info(f"Loaded plugins: {loaded}")
-    except Exception as exc:
-        logger.error(f"Failed to load plugins: {exc}")
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.REDIS_URL)
+        redis_host = parsed.hostname or settings.REDIS_URL
+        redis_port = parsed.port or 6379
+        rc = get_redis()
+        if rc is None:
+            raise RuntimeError("Redis client could not be created")
+        rc.ping()
+        logger.info("✓ Redis connection verified at %s:%s", redis_host, redis_port)
+    except Exception as e:
+        logger.error("✗ Redis connection failed on startup - aborting: %s", e)
+        raise RuntimeError(
+            f"Redis connection failed on startup: {e}. "
+            "Set REDIS_URL to your ElastiCache primary endpoint."
+        )
+
+    logger.info(f"Startup complete - Database: {db_status}, Redis: connected")
+    logger.info("=" * 60)
     
     yield
     
@@ -77,9 +86,9 @@ async def lifespan(app: FastAPI):
 
 # Initialize FastAPI app
 app = FastAPI(
-    title=settings.APP_NAME,
-    version="0.1.0",
-    description="Heliox-AI Backend API",
+    title="Heliox API",
+    version="1.0.0",
+    description="GPU cost visibility and optimization for ML infrastructure teams.",
     lifespan=lifespan,
 )
 
@@ -112,6 +121,12 @@ logger.info(f"Usage tracking middleware enabled (sample_rate={getattr(settings, 
 from app.middleware.entitlement_check import EntitlementCheckMiddleware
 app.add_middleware(EntitlementCheckMiddleware)
 logger.info("Entitlement check middleware enabled")
+
+# Demo mode: block writes on the demo tenant when DEMO_MODE=True
+if settings.DEMO_MODE:
+    from app.core.demo_guard import DemoModeMiddleware
+    app.add_middleware(DemoModeMiddleware)
+    logger.info("Demo mode middleware enabled (tenant=%s)", settings.DEMO_TENANT_ID or "not-set")
 
 # CORS Configuration
 if settings.CORS_ENABLED:

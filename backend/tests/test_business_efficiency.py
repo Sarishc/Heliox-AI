@@ -5,7 +5,7 @@ from decimal import Decimal
 from app.models.business_metric import BusinessMetric
 from app.models.cost import CostSnapshot
 from app.models.team import Team
-from app.api.analytics import get_business_efficiency
+from app.api.routes.analytics import get_business_efficiency
 
 
 def test_business_efficiency_metrics(db_session):

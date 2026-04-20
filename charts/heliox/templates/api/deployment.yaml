@@ -1,0 +1,147 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heliox.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  {{- if not .Values.api.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "heliox.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "heliox.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      {{- with .Values.api.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "heliox.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      ## Wait for the migrations Job to complete before the API starts
+      initContainers:
+        - name: wait-for-migrations
+          image: bitnami/kubectl:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for migration job to complete..."
+              kubectl wait --for=condition=complete \
+                --timeout=300s \
+                job/{{ include "heliox.fullname" . }}-migrations \
+                -n {{ .Release.Namespace }} || true
+      containers:
+        - name: api
+          image: "{{ include "heliox.imageRepository" (dict "repo" .Values.api.image.repository "global" .Values.global) }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            {{- include "heliox.envFrom" . | nindent 12 }}
+          env:
+            ## Assemble DATABASE_URL at runtime so the password comes from the Secret
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: DATABASE_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://{{ .Values.postgresql.external.username }}:$(DATABASE_PASSWORD)@{{ if .Values.postgresql.enabled }}{{ include "heliox.fullname" . }}-postgresql{{ else }}{{ .Values.postgresql.external.host }}{{ end }}:{{ .Values.postgresql.external.port }}/{{ .Values.postgresql.external.database }}"
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: REDIS_PASSWORD
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@{{ include "heliox.fullname" . }}-redis-master:6379/0"
+            {{- else }}
+            - name: REDIS_URL
+              value: {{ .Values.config.redisUrl | quote }}
+            {{- end }}
+            {{- range $k, $v := .Values.api.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "heliox.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: api
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+## PodDisruptionBudget: ensure at least 1 API pod is always available during node drains
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "heliox.fullname" . }}-api-pdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "heliox.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api

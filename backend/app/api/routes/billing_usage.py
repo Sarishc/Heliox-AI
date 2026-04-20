@@ -49,7 +49,7 @@ class UsageSummaryResponse(BaseModel):
     totals: Dict[str, int] = Field(description="Total usage for the period")
 
 
-@router.get("/usage", response_model=UsageSummaryResponse)
+@router.get("/usage", response_model=UsageSummaryResponse, summary="Get usage summary for a date range")
 def get_usage_summary(
     *,
     db: Session = Depends(get_db),
@@ -202,7 +202,7 @@ def get_usage_summary(
     )
 
 
-@router.get("/usage/current-month", response_model=UsageSummaryResponse)
+@router.get("/usage/current-month", response_model=UsageSummaryResponse, summary="Get current month usage summary")
 def get_current_month_usage(
     *,
     db: Session = Depends(get_db),
@@ -225,7 +225,7 @@ def get_current_month_usage(
     )
 
 
-@router.get("/usage/events/recent")
+@router.get("/usage/events/recent", summary="Get recent billing usage events")
 def get_recent_usage_events(
     *,
     db: Session = Depends(get_db),

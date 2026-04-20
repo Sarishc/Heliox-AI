@@ -114,7 +114,7 @@ module "alb" {
   public_subnet_ids  = module.vpc.public_subnet_ids
   certificate_arn    = var.acm_certificate_arn
   domain_name        = var.domain_name
-  health_check_path  = "/health"
+  health_check_path  = "/api/v1/health"
 }
 
 # ECS Cluster and Services Module
@@ -161,6 +161,9 @@ module "ecs" {
   # CloudWatch alarms
   alb_arn_suffix         = module.alb.alb_arn_suffix
   alarm_sns_topic_arn    = var.alarm_sns_topic_arn
+
+  # Security: explicit ECS → ElastiCache egress rule on port 6379
+  elasticache_security_group_id = module.redis.security_group_id
 }
 
 # Outputs

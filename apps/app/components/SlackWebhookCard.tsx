@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Slack } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
 
 interface MeResponse {
   team_id: string;
@@ -24,6 +25,11 @@ export default function SlackWebhookCard() {
 
   useEffect(() => {
     const load = async () => {
+      if (isDemoMode()) {
+        setTeamId("demo-team");
+        setStatus({ team_id: "demo-team", configured: true, masked_webhook_url: "https://hooks.slack.com/services/T***/***/***" });
+        return;
+      }
       try {
         const me = await fetchJson<MeResponse>("/api/v1/me");
         setTeamId(me.team_id);

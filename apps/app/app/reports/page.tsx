@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import AppShell from "@/components/AppShell";
-import BetaAccessGate from "@/components/BetaAccessGate";
+import { EnterpriseLayout } from "@/components/layout/EnterpriseLayout";
 import { fetchJson, getApiUrl } from "@/lib/api";
 
 type ReportSection =
@@ -383,10 +382,8 @@ function ReportsContent() {
 
 export default function ReportsPage() {
   return (
-    <BetaAccessGate>
-      <AppShell>
-        <ReportsContent />
-      </AppShell>
-    </BetaAccessGate>
+    <EnterpriseLayout>
+      <ReportsContent />
+    </EnterpriseLayout>
   );
 }

@@ -276,6 +276,33 @@ class BudgetGuardrailsService:
             self.db.add(event)
             self.db.commit()
 
+            # Publish SSE event (fire-and-forget — never blocks the budget flow)
+            try:
+                from app.core.events import EventType, HelioxEvent, publish_event_sync
+                evt_type = (
+                    EventType.BUDGET_BREACH if float(threshold) >= 1.0
+                    else EventType.BUDGET_WARNING
+                )
+                publish_event_sync(
+                    str(policy.team_id),
+                    HelioxEvent(
+                        event_type=evt_type,
+                        team_id=str(policy.team_id),
+                        payload={
+                            "policy_id": str(policy.id),
+                            "project": policy.project or "all",
+                            "environment": policy.environment.value if policy.environment else "all",
+                            "threshold_pct": round(float(threshold) * 100),
+                            "percent_used": round(percent_used * 100, 1),
+                            "mtd_spend_usd": round(mtd_spend, 2),
+                            "budget_usd": float(policy.monthly_budget_usd),
+                            "predicted_breach_date": str(predicted_breach_date) if predicted_breach_date else None,
+                        },
+                    ),
+                )
+            except Exception as _pub_err:
+                logger.debug("budget_guardrails: SSE publish skipped — %s", _pub_err)
+
     def _get_team_webhook(self, team_id: UUID) -> Optional[str]:
         from app.services.webhook_secrets import get_webhook_url
 

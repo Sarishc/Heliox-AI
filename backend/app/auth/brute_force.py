@@ -5,13 +5,16 @@ OWASP: Brute force protection for login.
 - Account lockout after 5 failed attempts (15 min unlock)
 - CAPTCHA required after 3 failures
 - Brute force detection alerts
+
+Redis is required. These functions raise HTTP 503 if Redis is unavailable.
+Failing open (allowing unlimited login attempts) is not acceptable.
 """
 import hashlib
 import logging
 import time
 from typing import Optional
 
-from app.core.cache import get_redis
+from app.core.cache import require_redis
 
 logger = logging.getLogger(__name__)
 
@@ -44,102 +47,88 @@ def check_login_rate_limit(client_ip: str) -> tuple[bool, int]:
     """
     Check if IP has exceeded 5 login attempts per minute.
     Returns (is_limited, retry_after_seconds).
+    Raises HTTP 503 if Redis is unavailable.
     """
-    redis_client = get_redis()
+    redis_client = require_redis()
     key = f"{LOGIN_RATE_PREFIX}{_client_key(client_ip)}"
     now = int(time.time())
     window_start = now - (now % LOGIN_RATE_WINDOW)
 
-    if not redis_client:
-        return False, LOGIN_RATE_WINDOW
-
-    try:
-        count = redis_client.incr(key)
-        if count == 1:
-            redis_client.expire(key, LOGIN_RATE_WINDOW * 2)
-        if count > LOGIN_RATE_LIMIT:
-            retry = window_start + LOGIN_RATE_WINDOW - now
-            return True, max(1, retry)
-        return False, LOGIN_RATE_WINDOW
-    except Exception as e:
-        logger.warning(f"Redis login rate check failed: {e}")
-        return False, LOGIN_RATE_WINDOW
+    count = redis_client.incr(key)
+    if count == 1:
+        redis_client.expire(key, LOGIN_RATE_WINDOW * 2)
+    if count > LOGIN_RATE_LIMIT:
+        retry = window_start + LOGIN_RATE_WINDOW - now
+        return True, max(1, retry)
+    return False, LOGIN_RATE_WINDOW
 
 
 def record_login_attempt(client_ip: str, email: str, success: bool) -> tuple[bool, bool, int]:
     """
     Record login attempt. Returns (is_locked_out, captcha_required, lockout_remaining_seconds).
+    Raises HTTP 503 if Redis is unavailable.
     """
-    redis_client = get_redis()
-    if not redis_client:
-        return False, False, 0
+    redis_client = require_redis()
 
     ip_key = f"{LOGIN_ATTEMPTS_PREFIX}ip:{_client_key(client_ip)}"
     email_key = f"{LOGIN_ATTEMPTS_PREFIX}email:{hashlib.sha256(email.lower().encode()).hexdigest()[:24]}"
 
-    try:
-        if success:
-            redis_client.delete(ip_key)
-            redis_client.delete(email_key)
-            return False, False, 0
-
-        pipe = redis_client.pipeline()
-        pipe.incr(ip_key)
-        pipe.incr(email_key)
-        pipe.expire(ip_key, LOGIN_LOCKOUT_SECONDS)
-        pipe.expire(email_key, LOGIN_LOCKOUT_SECONDS)
-        results = pipe.execute()
-        ip_count = results[0]
-        email_count = results[1]
-
-        if ip_count >= LOGIN_LOCKOUT_AFTER or email_count >= LOGIN_LOCKOUT_AFTER:
-            lock_key = f"{LOGIN_LOCKOUT_PREFIX}{_client_key(client_ip)}"
-            redis_client.setex(lock_key, LOGIN_LOCKOUT_SECONDS, "1")
-            _alert_brute_force(client_ip, email, ip_count, email_count)
-            return True, True, LOGIN_LOCKOUT_SECONDS
-
-        captcha_required = ip_count >= LOGIN_CAPTCHA_AFTER or email_count >= LOGIN_CAPTCHA_AFTER
-        if captcha_required:
-            captcha_key = f"{LOGIN_CAPTCHA_PREFIX}{_client_key(client_ip)}"
-            redis_client.setex(captcha_key, LOGIN_RATE_WINDOW * 5, "1")
-
-        return False, captcha_required, 0
-    except Exception as e:
-        logger.warning(f"Redis login attempt record failed: {e}")
+    if success:
+        redis_client.delete(ip_key)
+        redis_client.delete(email_key)
         return False, False, 0
+
+    pipe = redis_client.pipeline()
+    pipe.incr(ip_key)
+    pipe.incr(email_key)
+    pipe.expire(ip_key, LOGIN_LOCKOUT_SECONDS)
+    pipe.expire(email_key, LOGIN_LOCKOUT_SECONDS)
+    results = pipe.execute()
+    ip_count = results[0]
+    email_count = results[1]
+
+    if ip_count >= LOGIN_LOCKOUT_AFTER or email_count >= LOGIN_LOCKOUT_AFTER:
+        lock_key = f"{LOGIN_LOCKOUT_PREFIX}{_client_key(client_ip)}"
+        redis_client.setex(lock_key, LOGIN_LOCKOUT_SECONDS, "1")
+        _alert_brute_force(client_ip, email, ip_count, email_count)
+        return True, True, LOGIN_LOCKOUT_SECONDS
+
+    captcha_required = ip_count >= LOGIN_CAPTCHA_AFTER or email_count >= LOGIN_CAPTCHA_AFTER
+    if captcha_required:
+        captcha_key = f"{LOGIN_CAPTCHA_PREFIX}{_client_key(client_ip)}"
+        redis_client.setex(captcha_key, LOGIN_RATE_WINDOW * 5, "1")
+
+    return False, captcha_required, 0
 
 
 def is_locked_out(client_ip: str) -> tuple[bool, int]:
-    """Check if IP is locked out. Returns (is_locked, remaining_seconds)."""
-    redis_client = get_redis()
-    if not redis_client:
-        return False, 0
+    """
+    Check if IP is locked out. Returns (is_locked, remaining_seconds).
+    Raises HTTP 503 if Redis is unavailable.
+    """
+    redis_client = require_redis()
     key = f"{LOGIN_LOCKOUT_PREFIX}{_client_key(client_ip)}"
-    try:
-        ttl = redis_client.ttl(key)
-        if ttl > 0:
-            return True, ttl
-        return False, 0
-    except Exception:
-        return False, 0
+    ttl = redis_client.ttl(key)
+    if ttl > 0:
+        return True, ttl
+    return False, 0
 
 
 def is_captcha_required(client_ip: str) -> bool:
-    """Check if CAPTCHA is required for this IP."""
-    redis_client = get_redis()
-    if not redis_client:
-        return False
+    """
+    Check if CAPTCHA is required for this IP.
+    Raises HTTP 503 if Redis is unavailable.
+    """
+    redis_client = require_redis()
     key = f"{LOGIN_CAPTCHA_PREFIX}{_client_key(client_ip)}"
-    try:
-        return redis_client.exists(key) > 0
-    except Exception:
-        return False
+    return redis_client.exists(key) > 0
 
 
 def clear_captcha_requirement(client_ip: str, captcha_token: str) -> bool:
     """
     Clear CAPTCHA requirement only after successful server-side verification.
     Verifies token via hCaptcha siteverify API; clears Redis only if success.
+    Raises HTTP 503 if Redis is unavailable.
     """
     from app.auth.captcha_verify import verify_captcha_token
 
@@ -149,15 +138,10 @@ def clear_captcha_requirement(client_ip: str, captcha_token: str) -> bool:
     if not verify_captcha_token(captcha_token.strip(), remote_ip=client_ip):
         return False
 
-    redis_client = get_redis()
-    if not redis_client:
-        return True
+    redis_client = require_redis()
     key = f"{LOGIN_CAPTCHA_PREFIX}{_client_key(client_ip)}"
-    try:
-        redis_client.delete(key)
-        return True
-    except Exception:
-        return False
+    redis_client.delete(key)
+    return True
 
 
 def _alert_brute_force(client_ip: str, email: str, ip_count: int, email_count: int) -> None:

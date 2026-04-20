@@ -1,7 +1,6 @@
 "use client";
 
-import BetaAccessGate from "@/components/BetaAccessGate";
-import AppShell from "@/components/AppShell";
+import { EnterpriseLayout } from "@/components/layout/EnterpriseLayout";
 import OptimizationActions from "@/components/OptimizationActions";
 
 function OptimizationContent() {
@@ -24,10 +23,8 @@ function OptimizationContent() {
 
 export default function OptimizationPage() {
   return (
-    <BetaAccessGate>
-      <AppShell>
-        <OptimizationContent />
-      </AppShell>
-    </BetaAccessGate>
+    <EnterpriseLayout>
+      <OptimizationContent />
+    </EnterpriseLayout>
   );
 }

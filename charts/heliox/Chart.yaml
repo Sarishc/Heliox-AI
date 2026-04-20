@@ -1,0 +1,24 @@
+apiVersion: v2
+name: heliox
+description: GPU cost visibility and optimization for ML infrastructure teams
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - gpu
+  - mlops
+  - finops
+  - kubernetes
+  - cost-optimization
+icon: https://heliox.ai/favicon.png
+home: https://heliox.ai
+sources:
+  - https://github.com/heliox-ai/heliox
+maintainers:
+  - name: Heliox Team
+    email: engineering@heliox.ai
+dependencies:
+  - name: redis
+    version: "19.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled

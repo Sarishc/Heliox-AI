@@ -1,11 +1,15 @@
-"""Encryption utilities for integration configuration."""
+"""Encryption utilities for integration configuration and OAuth tokens."""
+import base64
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import get_settings
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -140,39 +144,114 @@ class IntegrationEncryption:
             )
 
     def rotate_key(self, old_encrypted: str, new_key: bytes) -> str:
-        """
-        Re-encrypt config with a new key (for key rotation).
-        
-        Args:
-            old_encrypted: Config encrypted with old key
-            new_key: New encryption key
-            
-        Returns:
-            Config re-encrypted with new key
-        """
-        # Decrypt with old key
+        """Re-encrypt a JSON config blob with a new key."""
         config = self.decrypt_config(old_encrypted)
-        
-        # Encrypt with new key
         new_fernet = Fernet(new_key)
         config_json = json.dumps(config)
-        new_encrypted_bytes = new_fernet.encrypt(config_json.encode())
-        
-        return new_encrypted_bytes.decode()
+        return new_fernet.encrypt(config_json.encode()).decode()
+
+    def rotate_string(self, old_encrypted: str, new_fernet: Fernet) -> str:
+        """
+        Re-encrypt a single string token with a new Fernet key.
+
+        Args:
+            old_encrypted: String encrypted with the current key (self.fernet)
+            new_fernet: Fernet instance initialised with the new key
+
+        Returns:
+            String re-encrypted with new_fernet
+        """
+        plaintext = self.decrypt_string(old_encrypted)
+        return new_fernet.encrypt(plaintext.encode()).decode()
 
 
 # Global encryption instance
-_encryption: IntegrationEncryption = None
+_encryption: Optional[IntegrationEncryption] = None
 
 
 def get_encryption() -> IntegrationEncryption:
-    """
-    Get encryption instance (singleton).
-    
-    Returns:
-        IntegrationEncryption instance
-    """
+    """Get the global encryption singleton."""
     global _encryption
     if _encryption is None:
         _encryption = IntegrationEncryption()
     return _encryption
+
+
+def is_fernet_token(value: str) -> bool:
+    """
+    Return True if *value* looks like a Fernet-encrypted token.
+
+    Fernet output is URL-safe base64; when decoded the first byte is always
+    0x80 (the Fernet version byte).  The minimum encoded length of a Fernet
+    token (empty plaintext, 1 AES block) is ~100 characters.
+    """
+    if not value or len(value) < 56:
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(value.encode() + b"==")
+        return len(decoded) >= 41 and decoded[0] == 0x80
+    except Exception:
+        return False
+
+
+def rotate_encryption_key(old_key: str, new_key: str, db: "Session") -> Dict[str, int]:
+    """
+    Re-encrypt all OAuth tokens in the database from *old_key* to *new_key*.
+
+    This is a pure-Python CLI helper — it does not use the global singleton so
+    it can be called standalone without restarting the app.
+
+    Args:
+        old_key: Current Fernet key (base64url string)
+        new_key: Replacement Fernet key (base64url string)
+        db:      SQLAlchemy Session
+
+    Returns:
+        Dict with counts: {"rotated": int, "skipped": int, "errors": int}
+    """
+    import sqlalchemy as sa
+    from app.models.oauth_identity import OAuthIdentity
+
+    old_fernet = Fernet(old_key.encode())
+    new_fernet = Fernet(new_key.encode())
+
+    old_enc = IntegrationEncryption.__new__(IntegrationEncryption)
+    old_enc.fernet = old_fernet
+
+    rows = db.query(OAuthIdentity).filter(
+        sa.or_(
+            OAuthIdentity.access_token_encrypted.isnot(None),
+            OAuthIdentity.refresh_token_encrypted.isnot(None),
+        )
+    ).all()
+
+    rotated = skipped = errors = 0
+
+    for identity in rows:
+        changed = False
+        for attr in ("access_token_encrypted", "refresh_token_encrypted"):
+            value = getattr(identity, attr)
+            if not value:
+                continue
+            try:
+                # Decrypt with old key, re-encrypt with new key
+                re_encrypted = old_enc.rotate_string(value, new_fernet)
+                setattr(identity, attr, re_encrypted)
+                changed = True
+            except Exception as exc:
+                logger.error(
+                    f"rotate_encryption_key: failed to rotate {attr} for "
+                    f"OAuthIdentity {identity.id}: {exc}"
+                )
+                errors += 1
+
+        if changed:
+            rotated += 1
+        else:
+            skipped += 1
+
+    if rotated:
+        db.commit()
+        logger.info(f"rotate_encryption_key: rotated={rotated} skipped={skipped} errors={errors}")
+
+    return {"rotated": rotated, "skipped": skipped, "errors": errors}

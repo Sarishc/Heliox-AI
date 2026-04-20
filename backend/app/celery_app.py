@@ -116,10 +116,22 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.usage_tasks.cleanup_old_daily_rollups",
         "schedule": crontab(hour=5, minute=0, day_of_month=1),
     },
+    # Demo environment: daily reset at 03:00 UTC (only runs when DEMO_MODE=True)
+    "demo-daily-reset": {
+        "task": "app.tasks.demo_tasks.reset_demo_environment",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    # Inference tracking: nightly rollup at 01:30 UTC (after attribution window)
+    "inference-daily-rollup": {
+        "task": "inference.daily_rollup",
+        "schedule": crontab(hour=1, minute=30),
+    },
 }
 
 # Import task modules after celery_app exists (for Beat/worker autodiscovery)
 import app.tasks.budget_tasks  # noqa: F401
+import app.tasks.demo_tasks  # noqa: F401
+import app.tasks.inference_tasks  # noqa: F401
 import app.tasks.integration_tasks  # noqa: F401
 import app.tasks.rollup_tasks  # noqa: F401
 import app.tasks.slack_tasks  # noqa: F401

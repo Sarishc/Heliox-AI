@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.rbac import require_team_admin_or_api_key
-from app.auth.team_resolution import TeamContext
+from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.db import get_db
 from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
@@ -43,9 +43,9 @@ def _normalize_thresholds(values: list[float]) -> list[float]:
 @router.get("", response_model=list[BudgetPolicyResponse])
 def list_policies(
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = get_effective_team_id(auth_ctx)
     return (
         db.query(BudgetPolicy)
         .filter(BudgetPolicy.team_id == team_id)
@@ -147,9 +147,9 @@ def get_budget_status(
     as_of: Optional[date] = Query(None),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = get_effective_team_id(auth_ctx)
     service = BudgetGuardrailsService(db)
     month_start, month_end = service._month_range(as_of or date.today())
     results = []
@@ -192,9 +192,9 @@ def get_budget_status(
 def list_budget_events(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = get_effective_team_id(auth_ctx)
     return (
         db.query(BudgetEvent)
         .filter(BudgetEvent.team_id == team_id)

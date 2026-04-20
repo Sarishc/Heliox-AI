@@ -1,4 +1,8 @@
 """CRUD operations for User model."""
+import hashlib
+import os
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -7,6 +11,14 @@ from app.crud.base import CRUDBase
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
 from app.auth.security import get_password_hash
+
+_PASSWORD_RESET_EXPIRE_MINUTES = 60
+_VERIFICATION_EXPIRE_HOURS = 24
+
+
+def _hash_token(raw_token: str) -> str:
+    """SHA-256 hash a raw token before storing — safe even if column leaks."""
+    return hashlib.sha256(raw_token.encode()).hexdigest()
 
 
 class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
@@ -102,16 +114,80 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         return user
     
     def is_active(self, user: User) -> bool:
-        """
-        Check if user is active.
-        
-        Args:
-            user: User instance
-            
-        Returns:
-            True if user is active, False otherwise
-        """
+        """Check if user is active."""
         return user.is_active
+
+    # ------------------------------------------------------------------
+    # Password reset
+    # ------------------------------------------------------------------
+
+    def create_password_reset_token(self, db: Session, *, user: User) -> str:
+        """
+        Generate a password reset token, store its SHA-256 hash, return the raw token.
+
+        The raw token is sent to the user via email.  Only the hash is persisted
+        so that a DB leak cannot be used directly to reset passwords.
+        """
+        raw_token = secrets.token_urlsafe(48)
+        user.password_reset_token = _hash_token(raw_token)
+        user.password_reset_token_expires_at = datetime.now(timezone.utc) + timedelta(
+            minutes=_PASSWORD_RESET_EXPIRE_MINUTES
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return raw_token
+
+    def get_by_password_reset_token(self, db: Session, *, raw_token: str) -> Optional[User]:
+        """Look up a user by a raw (unhashed) reset token."""
+        hashed = _hash_token(raw_token)
+        return (
+            db.query(User)
+            .filter(User.password_reset_token == hashed)
+            .first()
+        )
+
+    def reset_password(self, db: Session, *, user: User, new_password: str) -> User:
+        """Apply new password and invalidate the reset token."""
+        user.hashed_password = get_password_hash(new_password)
+        user.password_reset_token = None
+        user.password_reset_token_expires_at = None
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    # ------------------------------------------------------------------
+    # Email verification
+    # ------------------------------------------------------------------
+
+    def create_email_verification_token(self, db: Session, *, user: User) -> str:
+        """Generate an email verification token, store hash, return raw token."""
+        raw_token = secrets.token_urlsafe(48)
+        user.email_verification_token = _hash_token(raw_token)
+        user.email_verified = False
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return raw_token
+
+    def get_by_email_verification_token(self, db: Session, *, raw_token: str) -> Optional[User]:
+        """Look up a user by a raw (unhashed) verification token."""
+        hashed = _hash_token(raw_token)
+        return (
+            db.query(User)
+            .filter(User.email_verification_token == hashed)
+            .first()
+        )
+
+    def mark_email_verified(self, db: Session, *, user: User) -> User:
+        """Mark the user's email as verified and clear the token."""
+        user.email_verified = True
+        user.email_verification_token = None
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
 
 
 user = CRUDUser(User)

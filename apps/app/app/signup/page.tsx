@@ -12,19 +12,30 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [emailWarning, setEmailWarning] = useState<string | null>(null);
 
   const handleSignup = async () => {
     setError(null);
     setSuccess(null);
+    setEmailWarning(null);
     try {
-      await fetchJson("/api/v1/auth/register", {
-        method: "POST",
-        body: JSON.stringify({
-          email,
-          password,
-          full_name: fullName,
-        }),
-      });
+      const regResult = await fetchJson<{ email_configured?: boolean }>(
+        "/api/v1/auth/register",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email,
+            password,
+            full_name: fullName,
+          }),
+        }
+      );
+      // If email is not configured, warn the user they won't get a verification email
+      if (regResult?.email_configured === false) {
+        setEmailWarning(
+          "Email delivery is not configured on this server. You won't receive a verification email — contact your administrator if verification is required."
+        );
+      }
       await fetchJson<{ user: { id: string; email: string; full_name: string }; message: string }>(
         "/api/v1/auth/login",
         {
@@ -80,6 +91,11 @@ export default function SignupPage() {
             Already have access? Login
           </Link>
         </div>
+        {emailWarning && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 mt-4">
+            {emailWarning}
+          </div>
+        )}
         {error && <p className="text-red-600 text-sm mt-4">{error}</p>}
         {success && <p className="text-green-600 text-sm mt-4">{success}</p>}
       </div>

@@ -41,19 +41,19 @@ def forecast_usage(
     provider: Optional[str] = Query(
         None,
         description="Filter by provider (e.g., 'aws', 'gcp', 'azure')",
-        example="aws"
+        examples=["aws"]
     ),
     gpu_type: Optional[str] = Query(
         None,
         description="Filter by GPU type (e.g., 'a100', 'h100', 'v100')",
-        example="h100"
+        examples=["h100"]
     ),
     horizon_days: int = Query(
         DEFAULT_HORIZON_DAYS,
         ge=1,
         le=MAX_HORIZON_DAYS,
         description=f"Number of days to forecast (1-{MAX_HORIZON_DAYS})",
-        example=7
+        examples=[7]
     ),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
@@ -147,19 +147,19 @@ def forecast_spend(
     provider: Optional[str] = Query(
         None,
         description="Filter by provider (e.g., 'aws', 'gcp', 'azure')",
-        example="aws"
+        examples=["aws"]
     ),
     gpu_type: Optional[str] = Query(
         None,
         description="Filter by GPU type (e.g., 'a100', 'h100', 'v100')",
-        example="h100"
+        examples=["h100"]
     ),
     horizon_days: int = Query(
         DEFAULT_HORIZON_DAYS,
         ge=1,
         le=MAX_HORIZON_DAYS,
         description=f"Number of days to forecast (1-{MAX_HORIZON_DAYS})",
-        example=7
+        examples=[7]
     ),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),

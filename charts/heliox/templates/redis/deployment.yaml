@@ -1,0 +1,83 @@
+{{- if .Values.postgresql.enabled }}
+## Bundled PostgreSQL for development/testing — NOT recommended for production
+## Use an external managed database (RDS, CloudSQL, Azure Database) in production
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heliox.fullname" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "heliox.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "heliox.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.external.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.external.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: DATABASE_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresql.external.username | quote }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "heliox.fullname" . }}-postgresql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "heliox.fullname" . }}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+  selector:
+    {{- include "heliox.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+{{- end }}

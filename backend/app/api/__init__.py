@@ -2,8 +2,15 @@
 from fastapi import APIRouter
 
 from app.core.config import get_settings
-from app.api import auth, teams, jobs, costs, usage, analytics
-from app.api.routes import admin, recommendations, demo, forecast, alert_settings, daily_digest, public, ingest, onboarding, me, optimize, schedule, finance, experiments, assistant, plugins, alerts_webhook, anomalies, budgets, reports, integrations, billing, billing_usage, auth_oauth, auth_saml, team_sso, invites
+from app.api.routes import (
+    auth, teams, jobs, costs, usage, analytics,
+    admin, recommendations, demo, forecast, alert_settings, daily_digest,
+    public, ingest, onboarding, me, optimize, schedule, finance, experiments,
+    assistant, plugins, alerts_webhook, anomalies, budgets, reports,
+    integrations, billing, billing_usage, auth_oauth, auth_saml, team_sso,
+    invites, health, inference, events,
+)
+from app.api.routes.demo import public_router as demo_public_router
 
 settings = get_settings()
 
@@ -38,13 +45,20 @@ api_router.include_router(auth_oauth.router, prefix="/auth", tags=["OAuth Authen
 api_router.include_router(auth_saml.router, prefix="/auth/saml", tags=["SAML SSO"])
 api_router.include_router(team_sso.router, prefix="/teams/sso", tags=["Team SSO"])
 
-# Demo routes only available in dev environment (security: prevents demo endpoints in production)
-if settings.ENV == "dev":
+# Admin-gated demo routes: available in dev OR when DEMO_MODE=True
+if settings.ENV == "dev" or settings.DEMO_MODE:
     api_router.include_router(demo.router, prefix="/admin/demo", tags=["Demo"])
+
+# Public demo status endpoint: GET /api/v1/demo/status (no auth, always when DEMO_MODE)
+if settings.DEMO_MODE or settings.ENV == "dev":
+    api_router.include_router(demo_public_router, prefix="/demo", tags=["Demo"])
 
 api_router.include_router(forecast.router, prefix="/forecast", tags=["Forecast"])
 api_router.include_router(alert_settings.router, prefix="/alert-settings", tags=["Alert Settings"])
 api_router.include_router(daily_digest.router, prefix="/daily-digest", tags=["Daily Digest"])
 api_router.include_router(public.router, prefix="/public", tags=["Public"])
 api_router.include_router(invites.router, prefix="/invite", tags=["Invites"])
+api_router.include_router(health.router, prefix="/health", tags=["Health"])
+api_router.include_router(inference.router, prefix="/inference", tags=["Inference Tracking"])
+api_router.include_router(events.router, prefix="/events", tags=["Real-time Events"])
 

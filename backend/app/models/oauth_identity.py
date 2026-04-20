@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, String, Boolean
+from sqlalchemy import ForeignKey, Index, String, Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -86,17 +86,19 @@ class OAuthIdentity(Base, UUIDMixin, TimestampMixin):
         comment="Profile picture URL from OAuth provider"
     )
     
-    # OAuth tokens (for future use - API access)
+    # OAuth tokens — Fernet-encrypted at rest (see auth/oauth_google.py).
+    # Text (unbounded) because Fernet output grows ~33 % over plaintext length
+    # and Google tokens can exceed 400 chars, which overflows VARCHAR(512).
     access_token_encrypted: Mapped[Optional[str]] = mapped_column(
-        String(512),
+        Text,
         nullable=True,
-        comment="Encrypted OAuth access token"
+        comment="Fernet-encrypted OAuth access token"
     )
-    
+
     refresh_token_encrypted: Mapped[Optional[str]] = mapped_column(
-        String(512),
+        Text,
         nullable=True,
-        comment="Encrypted OAuth refresh token"
+        comment="Fernet-encrypted OAuth refresh token"
     )
     
     token_expires_at: Mapped[Optional[datetime]] = mapped_column(

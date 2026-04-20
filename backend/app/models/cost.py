@@ -132,7 +132,6 @@ class UsageSnapshot(Base, UUIDMixin, TimestampMixin):
             unique=True
         ),
         Index("ix_usage_snapshots_date", "date"),
-        Index("ix_usage_snapshots_team_id", "team_id"),
     )
     
     def __repr__(self) -> str:

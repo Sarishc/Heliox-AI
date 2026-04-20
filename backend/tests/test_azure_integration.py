@@ -24,10 +24,11 @@ def test_azure_provider_registered():
     assert integration_registry.get(IntegrationProvider.AZURE) is AzureCostManagementIntegration
 
 
-def test_azure_validate_config_empty_allowed():
-    """Empty config is allowed for schema discovery."""
-    integration = AzureCostManagementIntegration({})
-    assert integration.provider == IntegrationProvider.AZURE
+def test_azure_validate_config_empty_raises():
+    """Empty config raises IntegrationConfigError — schema discovery reads class attrs, never instantiates."""
+    from app.integrations.base import IntegrationConfigError
+    with pytest.raises(IntegrationConfigError):
+        AzureCostManagementIntegration({})
 
 
 def test_azure_validate_config_missing_required():
@@ -141,15 +142,15 @@ async def test_azure_health_401_unauthorized():
 def test_azure_get_display_config_masks_secrets():
     """Display config masks client secret."""
     config = {
-        "azure_tenant_id": "tid",
-        "azure_client_id": "cid",
-        "azure_client_secret": "secret123",
-        "subscription_ids": ["sub1"],
+        "azure_tenant_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "azure_client_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "azure_client_secret": "a" * 40,
+        "subscription_ids": ["ffffffff-0000-1111-2222-333333333333"],
     }
     integration = AzureCostManagementIntegration(config)
     safe = integration.get_display_config(config)
     assert safe["azure_client_secret"] == "***REDACTED***"
-    assert safe["azure_tenant_id"] == "tid"
+    assert safe["azure_tenant_id"] == config["azure_tenant_id"]
 
 
 def test_azure_connection_encryption(db_session):

@@ -1,352 +1,135 @@
-# Heliox-AI
+# Heliox — GPU cost visibility for ML teams
 
-Production-grade FastAPI backend plus a single product frontend for GPU cost analytics.
+Heliox tracks, analyzes, and optimizes GPU infrastructure costs across
+AWS, GCP, and Azure. Think Kubecost, but built specifically for ML workloads.
 
-## 🚀 Tech Stack
+- Real-time GPU utilization and cost per job, per model, per team
+- Anomaly detection and budget guardrails with Slack alerts
+- Cost forecasting using your actual workload patterns
+- One-line agent deploy via Kubernetes DaemonSet
+- Multi-cloud: AWS Cost Explorer, GCP BigQuery Billing, Azure Cost Management
 
-- **Framework**: FastAPI (Python 3.11)
-- **Database**: PostgreSQL 15
-- **Cache**: Redis 7
-- **ORM**: SQLAlchemy 2.0
-- **Migrations**: Alembic
-- **Validation**: Pydantic v2
-- **Server**: Uvicorn
+## Tech Stack
 
-## 📁 Project Structure
+- **Backend**: FastAPI (Python 3.11), PostgreSQL 15, Redis 7, SQLAlchemy 2.0, Alembic
+- **Frontend**: Next.js (apps/app/)
+- **Infrastructure**: AWS ECS Fargate, ElastiCache, Terraform
+
+## Project Structure
 
 ```
-heliox-ai/
+heliox/
 ├── apps/
-│   └── app/                    # Product app (Next.js)
-├── packages/
-│   └── config/                 # Shared lint/tsconfig helpers
+│   └── app/                    # Product frontend (Next.js)
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI application entry point
-│   │   └── core/
-│   │       ├── config.py        # Environment & settings management
-│   │       ├── db.py            # Database connection & session
-│   │       └── logging.py       # Structured logging setup
-│   ├── alembic/                 # Database migration scripts
-│   │   ├── env.py
-│   │   ├── script.py.mako
-│   │   └── versions/
-│   ├── alembic.ini              # Alembic configuration
-│   ├── requirements.txt         # Python dependencies
-│   └── Dockerfile               # Container image definition
-├── docker-compose.yml           # Multi-service orchestration
-└── README.md                    # This file
+│   │   ├── main.py             # FastAPI application entry point
+│   │   ├── api/routes/         # All API route handlers (36 modules)
+│   │   ├── models/             # SQLAlchemy ORM models
+│   │   ├── schemas/            # Pydantic request/response schemas
+│   │   ├── crud/               # Database access layer
+│   │   ├── auth/               # Authentication, RBAC, brute-force protection
+│   │   ├── core/               # Config, DB, Redis, rate limiting
+│   │   ├── integrations/       # AWS, GCP, Azure cost provider integrations
+│   │   └── services/           # Business logic (email, reports, forecasting)
+│   ├── alembic/                # Database migrations
+│   ├── tests/                  # Test suite
+│   └── Dockerfile
+├── agent/                      # Kubernetes DaemonSet cost agent (NVML)
+├── terraform/                  # AWS infrastructure (ECS, RDS, ElastiCache, ALB)
+└── docker-compose.yml
 ```
 
-## 🏃 Quick Start
+## Quick Start
+
+```bash
+# Start all services
+docker-compose up -d
+
+# Apply DB migrations
+docker-compose exec api alembic upgrade head
+
+# API docs
+open http://localhost:8000/docs
+```
 
 For the full 15-minute founder onboarding flow, see `docs/QUICKSTART.md`.
 
-## 📊 How Heliox Calculates Cost
+## How Heliox Calculates Cost
 
 Heliox computes spend and efficiency metrics from three sources:
 
-- **Cost snapshots** (`cost_snapshots`): daily provider/GPU costs.
-- **Usage snapshots** (`usage_snapshots`): GPU hours and utilization.
-- **Job metadata** (`jobs`): optional environment/project attribution.
+- **Cost snapshots** (`cost_snapshots`): daily provider/GPU costs ingested from AWS Cost Explorer, GCP BigQuery Billing, or Azure Cost Management.
+- **Usage snapshots** (`usage_snapshots`): GPU hours and utilization from the DaemonSet agent or manual ingest.
+- **Job metadata** (`jobs`): optional per-job attribution for model name, team, environment.
 
-Example (total spend):
-- **Formula**: `sum(cost_usd)` across the selected date window.
-- **Inputs**: daily cost snapshots by provider/GPU.
-- **Assumptions**: cost snapshots are complete for the window.
+Key formulas:
+- **Total spend**: `sum(cost_usd)` across the selected date window.
+- **Idle waste**: `sum(cost_usd * idle_ratio)` where `idle_ratio = max(0, (expected_hours - usage_hours) / expected_hours)`.
+- **Cost per model**: join `jobs` → `cost_snapshots` on `(provider, gpu_type, date)`.
 
-Example (idle waste):
-- **Formula**: `sum(cost_usd * idle_ratio)` where `idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)`
-- **Inputs**: daily cost + usage snapshots per provider/GPU.
-- **Assumptions**: expected hours = 24 per day, per GPU type/provider.
+Each major endpoint supports `?include_explain=true` to return the formula, inputs, assumptions, and confidence level alongside the result.
 
-Each major endpoint can return **explainability metadata** (formula, inputs, assumptions, confidence) via `?include_explain=true`.
-
-### Agent + SDK
-- `agent/heliox_agent.py` (CLI, NVML or mock)
-- `sdk/heliox_sdk.py` (minimal Python helper)
-
-### Frontend (pnpm)
-
-Install dependencies once at the repo root:
-```bash
-pnpm install
-```
-
-Run the product app:
-```bash
-pnpm --filter app dev
-```
-Then open: http://localhost:3000
-
-### Prerequisites
-
-- Docker & Docker Compose
-- Python 3.11+ (for local development without Docker)
-
-### Running with Docker (Recommended)
-
-1. **Start all services**:
-   ```bash
-   docker-compose up -d
-   ```
-
-2. **Check service health**:
-   ```bash
-   # API health
-   curl http://localhost:8000/health
-   
-   # Database health
-   curl http://localhost:8000/health/db
-   ```
-
-3. **View logs**:
-   ```bash
-   docker-compose logs -f api
-   ```
-
-4. **Stop services**:
-   ```bash
-   docker-compose down
-   ```
-
-### Running Locally (Without Docker)
-
-1. **Install dependencies**:
-   ```bash
-   cd backend
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-2. **Start PostgreSQL and Redis** (using Docker):
-   ```bash
-   docker-compose up -d postgres redis
-   ```
-
-3. **Set environment variables**:
-   ```bash
-   export DATABASE_URL="postgresql+psycopg2://heliox:heliox_password@localhost:5432/heliox_db"
-   export REDIS_URL="redis://localhost:6379/0"
-   export ENV="development"
-   export LOG_LEVEL="INFO"
-   ```
-
-4. **Run the application**:
-   ```bash
-   cd backend
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-5. **Access the API**:
-   - API: http://localhost:8000
-   - Interactive docs: http://localhost:8000/docs
-   - Alternative docs: http://localhost:8000/redoc
-
-## 🗄️ Database Migrations
-
-Heliox uses Alembic for database schema migrations with SQLAlchemy 2.0.
-
-### Quick Commands
-
-```bash
-# Create a new migration (auto-generates from model changes)
-make migration MSG="description of changes"
-
-# Apply all pending migrations
-make migrate
-
-# Rollback one migration
-make migrate-down
-
-# View migration history
-docker-compose exec api alembic history --verbose
-
-# View current migration
-docker-compose exec api alembic current
-```
-
-### Manual Commands
-
-```bash
-# Create migration
-docker-compose exec api alembic revision --autogenerate -m "description"
-
-# Apply migrations
-docker-compose exec api alembic upgrade head
-
-# Rollback one migration
-docker-compose exec api alembic downgrade -1
-
-# View migration history
-docker-compose exec api alembic history --verbose
-```
-
-### Models Overview
-
-Current database schema includes:
-
-**Teams** (`teams`)
-- `id` (UUID, PK)
-- `name` (String, unique, indexed)
-- `created_at`, `updated_at` (timestamps)
-
-**Jobs** (`jobs`)
-- `id` (UUID, PK)
-- `team_id` (UUID, FK → teams)
-- `model_name` (String)
-- `gpu_type` (String)
-- `provider` (String)
-- `start_time`, `end_time` (timestamps, nullable)
-- `status` (String)
-- `created_at`, `updated_at` (timestamps)
-- Indexes: team_id, (team_id, status), (provider, gpu_type), start_time
-
-**Cost Snapshots** (`cost_snapshots`)
-- `id` (UUID, PK)
-- `date` (Date)
-- `provider` (String)
-- `gpu_type` (String)
-- `cost_usd` (Decimal 12,2)
-- `created_at`, `updated_at` (timestamps)
-- Indexes: date, (date, provider, gpu_type)
-
-**Usage Snapshots** (`usage_snapshots`)
-- `id` (UUID, PK)
-- `date` (Date)
-- `provider` (String)
-- `gpu_type` (String)
-- `gpu_hours` (Decimal 12,2)
-- `created_at`, `updated_at` (timestamps)
-- Indexes: date, (date, provider, gpu_type)
-
-### Migration Workflow
-
-1. **Modify models** in `backend/app/models/`
-2. **Generate migration**: `make migration MSG="your description"`
-3. **Review migration** file in `backend/alembic/versions/`
-4. **Apply migration**: `make migrate`
-5. **Verify** in database: `make db-shell` → `\dt` → `\d table_name`
-
-## 🔧 Configuration
-
-Configuration is managed through environment variables. See `backend/.env.example` for available options.
-
-### Key Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ENV` | Environment (development/staging/production) | `development` |
-| `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
-| `DATABASE_URL` | PostgreSQL connection string | See .env.example |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
-| `CORS_ENABLED` | Enable CORS middleware | `true` |
-| `CORS_ORIGINS` | Allowed CORS origins (JSON array) | `["http://localhost:3000"]` |
-
-## 📊 API Endpoints
-
-### Health Checks
-
-- `GET /health` - Basic health check
-- `GET /health/db` - Database connection health check
-- `GET /` - API information
-
-### Documentation
-
-- `GET /docs` - Swagger UI (interactive API documentation)
-- `GET /redoc` - ReDoc (alternative API documentation)
-
-## 🧪 Testing
+## Running Locally
 
 ```bash
 cd backend
-pytest
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Requires Postgres + Redis (fastest via Docker):
+docker-compose up -d postgres redis
+
+export DATABASE_URL="postgresql+psycopg2://heliox:heliox_password@localhost:5432/heliox_db"
+export REDIS_URL="redis://localhost:6379/0"
+export SECRET_KEY="dev-secret-key-change-in-production"
+
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
 ```
 
-Run with coverage:
+## Database Migrations
+
 ```bash
-pytest --cov=app --cov-report=html
+# Create a migration from model changes
+alembic revision --autogenerate -m "description"
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Roll back one step
+alembic downgrade -1
 ```
 
-## 📝 Logging
+## Testing
 
-The application uses structured logging with the following fields:
-- `timestamp` - ISO format timestamp
-- `level` - Log level (INFO, WARNING, ERROR, etc.)
-- `request_id` - Unique request identifier
-- `logger` - Logger name
-- `message` - Log message
-
-Example log output:
-```
-timestamp=2024-01-09T10:30:45 level=INFO logger=app.main message=Starting Heliox-AI in development environment request_id=550e8400-e29b-41d4-a716-446655440000
-```
-
-## 🔐 Security Features
-
-- Non-root Docker user
-- Input validation with Pydantic
-- Global exception handling
-- SQL injection protection via SQLAlchemy
-- CORS configuration
-- Connection pooling with health checks
-
-## 🚢 Production Deployment
-
-### Environment Setup
-
-1. Set `ENV=production`
-2. Use strong passwords for PostgreSQL
-3. Configure proper `CORS_ORIGINS`
-4. Set up SSL/TLS termination (reverse proxy)
-5. Enable monitoring and alerting
-6. Configure backup strategy for PostgreSQL
-
-### Scaling Considerations
-
-- Run multiple API instances behind a load balancer
-- Use managed PostgreSQL (RDS, Cloud SQL, etc.)
-- Use managed Redis (ElastiCache, Redis Cloud, etc.)
-- Implement rate limiting
-- Add authentication & authorization
-- Set up centralized logging
-
-## 📦 Development
-
-### Code Quality
-
-Format code:
 ```bash
-black backend/app
+cd backend
+PYTHONPATH=. pytest tests/ -v
 ```
 
-Lint code:
+## Configuration
+
+See [`backend/.env.example`](backend/.env.example) for all environment variables.
+`REDIS_URL` and `DATABASE_URL` are required — no defaults. The app will refuse to start without them.
+
+## Security
+
+- Redis required for rate limiting, brute-force protection, and JWT blacklisting — no silent fallbacks
+- httpOnly cookie auth with token blacklisting on logout
+- RBAC (owner / admin / member) enforced at route level
+- All integration credentials encrypted at rest (AES-256-GCM)
+
+## Deployment
+
+Infrastructure is in `terraform/`. The stack deploys to AWS: ECS Fargate + RDS PostgreSQL + ElastiCache Redis + ALB + Route53.
+
 ```bash
-ruff check backend/app
+cd terraform
+terraform init
+terraform apply
 ```
 
-Type checking:
-```bash
-mypy backend/app
-```
+## License
 
-## 📖 Next Steps
-
-1. **Add Authentication**: Implement JWT or OAuth2
-2. **Add Models**: Create SQLAlchemy models for your domain
-3. **Add Business Logic**: Implement services and repositories
-4. **Add Tests**: Write unit and integration tests
-5. **Add Monitoring**: Integrate Prometheus, Grafana, or Sentry
-6. **Add Documentation**: Expand API documentation
-
-## 🤝 Contributing
-
-This is a production-ready scaffold. Extend it based on your specific requirements.
-
-## 📄 License
-
-MIT License - See LICENSE file for details
-
----
-
+MIT

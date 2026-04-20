@@ -5,8 +5,9 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from typing import Union
+from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.db import get_db
-from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.core.usage_tracking import record_api_usage
 from app.models.team_api_key import TeamAPIKey
@@ -28,12 +29,12 @@ def get_runway_forecast(
     method: str = Query("ets", pattern="^(ets|arima)$"),
     top_n: int | None = Query(None, gt=0, le=50),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
     if start_date and end_date and end_date < start_date:
         raise HTTPException(status_code=400, detail="end_date must be >= start_date")
-    
-    team_id = get_effective_team_id(team_api_key)
+
+    team_id = get_effective_team_id(auth_ctx)
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")

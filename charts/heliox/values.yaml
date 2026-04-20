@@ -1,0 +1,357 @@
+## Heliox Helm Chart Values
+## Ref: https://heliox.ai/docs/self-hosted
+
+## Global settings applied to all subcharts
+global:
+  ## Container image registry prefix (e.g. "myregistry.example.com")
+  imageRegistry: ""
+  ## List of image pull secret names for private registries
+  imagePullSecrets: []
+
+## ─────────────────────────────────────────────────────────
+## API (FastAPI / Uvicorn)
+## ─────────────────────────────────────────────────────────
+api:
+  image:
+    ## Container image repository for the API
+    repository: ghcr.io/heliox-ai/heliox
+    ## Image tag — pin to a release SHA in production
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  ## Number of API pod replicas when autoscaling is disabled
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    ## Enable HorizontalPodAutoscaler for the API
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    ## Scale up when average CPU across pods exceeds this percentage
+    targetCPUUtilizationPercentage: 70
+
+  service:
+    ## ClusterIP for in-cluster access; change to LoadBalancer only without ingress
+    type: ClusterIP
+    port: 8000
+
+  ## Extra environment variables injected directly into the API container
+  ## Example: env: {MY_FLAG: "true"}
+  env: {}
+
+  ## Pod annotations (e.g. for Prometheus scrape)
+  podAnnotations: {}
+
+  ## Node selector for API pods
+  nodeSelector: {}
+
+  ## Tolerations for API pods
+  tolerations: []
+
+  ## Affinity rules for API pods
+  affinity: {}
+
+## ─────────────────────────────────────────────────────────
+## Celery Worker
+## ─────────────────────────────────────────────────────────
+worker:
+  ## Number of worker replicas when autoscaling is disabled
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  autoscaling:
+    ## Enable HPA for Celery workers
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    ## Workers are CPU-bound; scale at 80%
+    targetCPUUtilizationPercentage: 80
+
+  ## Extra environment variables for the worker
+  env: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## ─────────────────────────────────────────────────────────
+## Celery Beat (scheduler — always exactly 1 replica)
+## ─────────────────────────────────────────────────────────
+beat:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+
+  ## Beat writes its schedule file to /app/data; mount a PVC for persistence
+  persistence:
+    ## Enable persistent storage for the Beat schedule file
+    enabled: false
+    storageClass: ""
+    size: 1Gi
+
+  nodeSelector: {}
+  tolerations: []
+
+## ─────────────────────────────────────────────────────────
+## GPU Agent (DaemonSet — runs on every GPU node)
+## ─────────────────────────────────────────────────────────
+agent:
+  ## Disable to skip deploying the DaemonSet (e.g. cloud-managed GPU fleets)
+  enabled: true
+
+  image:
+    ## Dedicated agent image (lighter than the backend image)
+    repository: ghcr.io/heliox-ai/heliox-agent
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  ## Full URL of the Heliox API the agent reports to
+  ## Example: https://heliox.example.com
+  apiEndpoint: ""
+
+  ## Heliox team API key the agent authenticates with
+  ## Can be left empty and overridden via existingSecret below
+  apiKey: ""
+
+  ## Name of an existing Secret containing key "api_key" instead of apiKey above
+  existingSecret: ""
+
+  ## Polling interval in seconds between metric reports
+  interval: 60
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  ## Only schedule the DaemonSet on nodes labelled accelerator=true
+  nodeSelector:
+    accelerator: "true"
+
+  ## Allow running on GPU-tainted nodes (Nvidia device plugin taint)
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+  ## Additional pod annotations for the agent DaemonSet
+  podAnnotations: {}
+
+## ─────────────────────────────────────────────────────────
+## Ingress
+## ─────────────────────────────────────────────────────────
+ingress:
+  ## Create an Ingress resource for external access
+  enabled: true
+  ## Ingress class name (nginx, traefik, alb, etc.)
+  className: "nginx"
+  annotations:
+    ## Automatically provision a TLS certificate via cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: heliox.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: heliox-tls
+      hosts:
+        - heliox.example.com
+
+## ─────────────────────────────────────────────────────────
+## PostgreSQL — bundled (dev/test) or external (production)
+## ─────────────────────────────────────────────────────────
+postgresql:
+  ## Set to true to deploy a bundled PostgreSQL pod (NOT for production)
+  enabled: false
+  external:
+    ## Hostname of your external PostgreSQL server (RDS, CloudSQL, etc.)
+    host: ""
+    port: 5432
+    database: heliox
+    username: heliox
+
+## ─────────────────────────────────────────────────────────
+## Redis (Bitnami subchart) — disable and configure externally for production
+## ─────────────────────────────────────────────────────────
+redis:
+  ## Set to false and populate config.redisUrl to use ElastiCache / external Redis
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    ## Redis password — required when auth.enabled=true
+    ## Must match secrets.redisPassword
+    password: ""
+
+## ─────────────────────────────────────────────────────────
+## Non-secret application configuration (injected via ConfigMap)
+## ─────────────────────────────────────────────────────────
+config:
+  ## Application environment: dev | staging | production
+  env: "production"
+
+  ## Log verbosity: DEBUG | INFO | WARNING | ERROR | CRITICAL
+  logLevel: "INFO"
+
+  ## Emit logs as structured JSON (recommended for log aggregators)
+  logJsonFormat: "true"
+
+  ## Enable multi-tenant isolation (required for SaaS deployments)
+  multiTenant: "true"
+
+  ## Team ID to scope all queries to when multiTenant=false
+  singleTenantTeamId: ""
+
+  ## Comma-separated list of allowed CORS origins
+  ## Example: "https://app.example.com,https://dashboard.example.com"
+  corsOrigins: ""
+
+  ## Public base URL of this API (used in OAuth callbacks, SAML ACS)
+  apiBaseUrl: "https://heliox.example.com"
+
+  ## Frontend application URL (used for OAuth redirect-back)
+  frontendUrl: "https://heliox.example.com"
+
+  ## Google OAuth redirect URI (must match Google Console setting)
+  googleRedirectUri: "https://heliox.example.com/api/v1/auth/google/callback"
+
+  ## Set to "true" to enforce CSRF validation on cookie-authenticated requests
+  csrfProtectionEnabled: "false"
+
+  ## Set to "true" to require HTTPS-only auth cookie
+  authCookieSecure: "true"
+
+  ## Auth cookie lifetime in seconds (default: 7 days)
+  authCookieMaxAge: "604800"
+
+  ## Rate limiting window in seconds
+  rateLimitWindowSeconds: "60"
+  ## Max requests per window per user/IP
+  rateLimitMaxRequests: "600"
+  ## Max login attempts per minute per IP (OWASP: 5/min)
+  rateLimitLoginAttempts: "5"
+  ## Account lockout after N failed attempts
+  loginLockoutAfter: "5"
+  ## Lockout duration in minutes
+  loginLockoutMinutes: "15"
+
+  ## Hour (0–23 UTC) to send daily cost summaries
+  dailySummaryHour: "9"
+
+  ## Timezone for scheduled tasks (IANA format, e.g. America/New_York)
+  timezone: "UTC"
+
+  ## Enable OpenTelemetry tracing
+  otelEnabled: "false"
+  ## OTLP collector endpoint
+  otelExporterEndpoint: "http://localhost:4317"
+
+  ## Base URL for report share links
+  reportShareBaseUrl: ""
+  ## Default share link TTL in days
+  reportShareDefaultTtlDays: "7"
+  ## Maximum share link TTL in days
+  reportShareMaxTtlDays: "90"
+
+  ## API usage metering sample rate (1.0 = 100%)
+  usageMeteringSampleRate: "1.0"
+
+  ## External Redis URL — used when redis.enabled=false
+  ## Example: rediss://my-cluster.abc123.cache.amazonaws.com:6379
+  redisUrl: ""
+
+## ─────────────────────────────────────────────────────────
+## Secrets (stored in a Kubernetes Secret, base64-encoded)
+## ─────────────────────────────────────────────────────────
+secrets:
+  ## JWT signing key — REQUIRED. Generate: openssl rand -hex 32
+  secretKey: ""
+
+  ## PostgreSQL password — REQUIRED
+  databasePassword: ""
+
+  ## Redis password — required when redis.auth.enabled=true
+  redisPassword: ""
+
+  ## Fernet encryption key for OAuth tokens at rest — REQUIRED in production
+  ## Generate: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+  encryptionKey: ""
+
+  ## Stripe secret key (sk_live_... or sk_test_...)
+  stripeSecretKey: ""
+
+  ## Stripe webhook signing secret (whsec_...)
+  stripeWebhookSecret: ""
+
+  ## Google OAuth client ID
+  googleClientId: ""
+
+  ## Google OAuth client secret
+  googleClientSecret: ""
+
+  ## Sentry DSN for error monitoring (empty = disabled)
+  sentryDsn: ""
+
+  ## Resend API key for transactional email (empty = email disabled)
+  resendApiKey: ""
+
+  ## Slack Incoming Webhook URL for alerts (empty = disabled)
+  slackWebhookUrl: ""
+
+  ## hCaptcha server-side secret key (empty = captcha disabled)
+  hcaptchaSecretKey: ""
+
+  ## Admin API key for /admin/* endpoints (empty = use platform admin only)
+  adminApiKey: ""
+
+  ## Name of an existing Kubernetes Secret to use instead of creating one
+  ## When set, all secrets.* values above are ignored
+  existingSecret: ""
+
+## ─────────────────────────────────────────────────────────
+## Database migration Job (Alembic)
+## ─────────────────────────────────────────────────────────
+migrations:
+  ## Run `alembic upgrade head` as a pre-install/pre-upgrade Helm hook
+  enabled: true
+  ## Automatically run on helm upgrade (in addition to install)
+  runOnUpgrade: true
+
+## ─────────────────────────────────────────────────────────
+## Service Account
+## ─────────────────────────────────────────────────────────
+serviceAccount:
+  ## Create a dedicated ServiceAccount for Heliox pods
+  create: true
+  ## Annotations to add (e.g. for IAM Roles for Service Accounts on EKS)
+  annotations: {}
+  ## Override the generated name; defaults to heliox.fullname
+  name: ""
+
+## ─────────────────────────────────────────────────────────
+## Namespace
+## ─────────────────────────────────────────────────────────
+namespaceOverride: ""

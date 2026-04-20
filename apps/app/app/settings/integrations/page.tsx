@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal, ConfirmDialog } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { fetchJson } from "@/lib/api";
+import { isDemoMode } from "@/lib/demoData";
 
 // Existing forms
 import AWSIntegrationForm from "@/components/AWSIntegrationForm";
@@ -83,7 +84,7 @@ function IntegrationsContent() {
       setConnections(connectionsResponse?.connections ?? []);
     } catch (err: any) {
       console.error("Failed to load integrations:", err);
-      showError("Failed to load", err.message || "Could not load integrations");
+      if (!isDemoMode()) showError("Failed to load", err.message || "Could not load integrations");
       // Set mock data for demo
       setAvailable([
         {

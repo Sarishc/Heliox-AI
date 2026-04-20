@@ -2,7 +2,7 @@
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 
-from app.api.analytics import get_cost_by_model
+from app.api.routes.analytics import get_cost_by_model
 from app.models.cost import CostSnapshot
 from app.models.job import Job
 from app.models.team import Team

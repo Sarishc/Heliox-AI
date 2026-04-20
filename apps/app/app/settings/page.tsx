@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import AppShell from "@/components/AppShell";
+import { EnterpriseLayout } from "@/components/layout/EnterpriseLayout";
 import { fetchJson } from "@/lib/api";
 
 interface MeResponse {
@@ -287,7 +287,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <AppShell>
+    <EnterpriseLayout>
       <div className="max-w-5xl space-y-6">
         <div>
           <p className="text-xs uppercase tracking-wide text-slate-500">Settings</p>
@@ -532,6 +532,6 @@ export default function SettingsPage() {
           </section>
         )}
       </div>
-    </AppShell>
+    </EnterpriseLayout>
   );
 }

@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heliox.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  {{- if not .Values.worker.autoscaling.enabled }}
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "heliox.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "heliox.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: {{ include "heliox.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ include "heliox.imageRepository" (dict "repo" .Values.api.image.repository "global" .Values.global) }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - app.celery_app
+            - worker
+            - --loglevel=info
+            - --concurrency=4
+          envFrom:
+            {{- include "heliox.envFrom" . | nindent 12 }}
+          env:
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: DATABASE_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://{{ .Values.postgresql.external.username }}:$(DATABASE_PASSWORD)@{{ if .Values.postgresql.enabled }}{{ include "heliox.fullname" . }}-postgresql{{ else }}{{ .Values.postgresql.external.host }}{{ end }}:{{ .Values.postgresql.external.port }}/{{ .Values.postgresql.external.database }}"
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: REDIS_PASSWORD
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@{{ include "heliox.fullname" . }}-redis-master:6379/0"
+            {{- else }}
+            - name: REDIS_URL
+              value: {{ .Values.config.redisUrl | quote }}
+            {{- end }}
+            {{- range $k, $v := .Values.worker.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - app.celery_app
+                - inspect
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

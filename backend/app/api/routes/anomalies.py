@@ -4,8 +4,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from typing import Union
+from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.db import get_db
-from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.core.usage_tracking import record_api_usage
 from app.models.team_api_key import TeamAPIKey
@@ -21,9 +22,9 @@ router = APIRouter()
 def get_anomalies(
     include_explain: bool = Query(False, description="Include metric explainability payload"),
     db: Session = Depends(get_db),
-    team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
+    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
-    team_id = get_effective_team_id(team_api_key)
+    team_id = get_effective_team_id(auth_ctx)
     service = AnomalyDetectionService(db)
     result = service.detect(team_id=team_id)
     record_api_usage(db, team_id=team_id, endpoint="anomalies")

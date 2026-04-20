@@ -230,7 +230,7 @@ resource "aws_ecs_task_definition" "api" {
       }
       
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+        command     = ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/health || exit 1"]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -518,3 +518,16 @@ resource "aws_appautoscaling_policy" "api_cpu" {
 }
 
 data "aws_region" "current" {}
+
+# Explicit egress rule: ECS tasks → ElastiCache on port 6379
+# The ECS tasks SG has a broad 0.0.0.0/0 egress rule, but this explicit rule
+# documents the dependency and scopes it to the ElastiCache SG specifically.
+resource "aws_security_group_rule" "ecs_to_elasticache" {
+  description              = "ECS tasks to ElastiCache Redis (TLS)"
+  type                     = "egress"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
+  source_security_group_id = var.elasticache_security_group_id
+  security_group_id        = aws_security_group.ecs_tasks.id
+}

@@ -13,6 +13,8 @@ from typing import Union
 from app.auth.rbac import require_team_admin_or_api_key
 from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.db import get_db
+from app.core.plan_enforcement import require_plan_for_team
+from app.core.plans import PlanTier
 from app.models.team_api_key import TeamAPIKey
 from app.models.team import Team
 from app.models.team_saml_config import TeamSamlConfig
@@ -108,13 +110,14 @@ async def update_sso_settings(
     request_data: UpdateSSOSettingsRequest
 ):
     """
-    Update SSO settings for team.
-    
+    Update SSO settings for team. Requires Enterprise plan.
+
     Allows team admins to:
     - Enable/disable SSO
     - Configure domain allowlist
     - Enforce domain restrictions
     """
+    require_plan_for_team(db, auth_ctx.team_id, PlanTier.ENTERPRISE)
     team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
     
     if not team:
@@ -195,14 +198,15 @@ async def get_saml_config(
     )
 
 
-@router.put("/saml", response_model=SamlConfigResponse)
+@router.put("/saml", response_model=SamlConfigResponse, summary="Configure SAML IdP (Enterprise only)")
 async def update_saml_config(
     *,
     db: Session = Depends(get_db),
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
     request_data: SamlConfigRequest,
 ):
-    """Create or update SAML config (owner/admin only)."""
+    """Create or update SAML config. Requires Enterprise plan."""
+    require_plan_for_team(db, auth_ctx.team_id, PlanTier.ENTERPRISE)
     team = db.query(Team).filter(Team.id == auth_ctx.team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")

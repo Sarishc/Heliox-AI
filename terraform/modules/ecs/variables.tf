@@ -146,3 +146,8 @@ variable "alarm_sns_topic_arn" {
   type        = string
   default     = ""
 }
+
+variable "elasticache_security_group_id" {
+  description = "ID of the ElastiCache security group (for explicit port 6379 egress rule)"
+  type        = string
+}

@@ -886,3 +886,46 @@ def list_stripe_meter_exports(
         for r in rows
     ]
 
+
+@router.get(
+    "/config-health",
+    status_code=status.HTTP_200_OK,
+    summary="Config health check (admin only)",
+    description=(
+        "Returns which optional external services are configured. "
+        "Does NOT expose secret values — only boolean presence. "
+        "Use this to verify the deployment is wired up correctly."
+    ),
+)
+def config_health(
+    _: Any = Depends(require_admin),
+) -> Any:
+    """
+    Return a dict indicating which services are configured.
+
+    Checks only for presence of required keys, never exposes their values.
+    """
+    has_stripe = bool(settings.STRIPE_SECRET_KEY)
+    has_email = bool(settings.RESEND_API_KEY)
+    has_google_oauth = bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
+
+    # AWS availability: boto3 must be importable (it's in requirements.txt)
+    try:
+        import boto3  # noqa: F401
+        aws_sdk_available = True
+    except ImportError:
+        aws_sdk_available = False
+
+    return {
+        "stripe": has_stripe,
+        "email": has_email,
+        "aws_available": aws_sdk_available,
+        "google_oauth": has_google_oauth,
+        "notes": {
+            "stripe": "Stripe payments enabled" if has_stripe else "STRIPE_SECRET_KEY not set — billing endpoints return 503",
+            "email": "Transactional email enabled" if has_email else "RESEND_API_KEY not set — forgot-password/resend-verification return 503",
+            "aws_available": "boto3 SDK installed" if aws_sdk_available else "boto3 not installed — AWS integration unavailable",
+            "google_oauth": "Google OAuth enabled" if has_google_oauth else "GOOGLE_CLIENT_ID/SECRET not set — Google login unavailable",
+        },
+    }
+

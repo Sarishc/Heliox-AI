@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heliox.fullname" . }}-beat
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: beat
+spec:
+  ## Beat MUST run as a single instance — multiple schedulers fire duplicate tasks
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "heliox.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: beat
+  strategy:
+    ## Recreate (not RollingUpdate) so there is never >1 beat pod running simultaneously
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "heliox.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: beat
+    spec:
+      serviceAccountName: {{ include "heliox.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: beat
+          image: "{{ include "heliox.imageRepository" (dict "repo" .Values.api.image.repository "global" .Values.global) }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - app.celery_app
+            - beat
+            - --loglevel=info
+            - --schedule=/app/data/celerybeat-schedule
+          envFrom:
+            {{- include "heliox.envFrom" . | nindent 12 }}
+          env:
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: DATABASE_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://{{ .Values.postgresql.external.username }}:$(DATABASE_PASSWORD)@{{ if .Values.postgresql.enabled }}{{ include "heliox.fullname" . }}-postgresql{{ else }}{{ .Values.postgresql.external.host }}{{ end }}:{{ .Values.postgresql.external.port }}/{{ .Values.postgresql.external.database }}"
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: REDIS_PASSWORD
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@{{ include "heliox.fullname" . }}-redis-master:6379/0"
+            {{- else }}
+            - name: REDIS_URL
+              value: {{ .Values.config.redisUrl | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.beat.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: beat-data
+              mountPath: /app/data
+      volumes:
+        - name: beat-data
+          {{- if .Values.beat.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "heliox.fullname" . }}-beat-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.beat.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.beat.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+{{- if .Values.beat.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "heliox.fullname" . }}-beat-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: beat
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.beat.persistence.storageClass }}
+  storageClassName: {{ .Values.beat.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.beat.persistence.size }}
+{{- end }}

@@ -9,11 +9,10 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
+  Cell,
 } from "recharts";
 import { fetchJson } from "@/lib/api";
-import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 import { isDemoMode, generateDemoCostByModel } from "@/lib/demoData";
 
 interface CostByModelChartProps {
@@ -26,75 +25,132 @@ interface ModelCost {
   total_cost_usd: number;
   job_count: number;
   runtime_share?: number | null;
-  explain?: MetricExplain;
-}
-
-interface MetricExplain {
-  value: number | string;
-  unit: string;
-  window: string;
-  confidence: number;
-  confidence_reasons: string[];
-  explanation: {
-    formula: string;
-    components: Array<{
-      name: string;
-      value: number | string;
-      unit?: string | null;
-      source?: string | null;
-    }>;
-    assumptions: string[];
-  };
 }
 
 interface CostByModelResponse {
   items: ModelCost[];
-  explain?: MetricExplain;
-  point_explain?: Record<string, MetricExplain>;
+  explain?: unknown;
+  point_explain?: Record<string, unknown>;
 }
 
-export default function CostByModelChart({
-  startDate,
-  endDate,
-}: CostByModelChartProps) {
+const BAR_COLORS = [
+  "#6366f1",
+  "#8b5cf6",
+  "#3b82f6",
+  "#10b981",
+  "#ec4899",
+  "#f59e0b",
+  "#14b8a6",
+];
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  const share =
+    typeof point?.runtimeShare === "number"
+      ? `${(point.runtimeShare * 100).toFixed(0)}% runtime`
+      : null;
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        borderRadius: "12px",
+        boxShadow: "var(--shadow-lg)",
+        padding: "10px 14px",
+        minWidth: "150px",
+      }}
+    >
+      <p
+        style={{
+          fontSize: "12px",
+          fontWeight: 600,
+          color: "var(--foreground)",
+          marginBottom: "6px",
+        }}
+      >
+        {label}
+      </p>
+      <p
+        style={{
+          fontSize: "15px",
+          fontWeight: 700,
+          color: "var(--foreground)",
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        ${payload[0]?.value?.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+      </p>
+      {share && (
+        <p style={{ fontSize: "11px", color: "var(--heliox-text-muted)", marginTop: "3px" }}>
+          {share}
+        </p>
+      )}
+      <p style={{ fontSize: "11px", color: "var(--heliox-text-muted)", marginTop: "2px" }}>
+        {point?.jobs ?? 0} jobs
+      </p>
+    </div>
+  );
+};
+
+function ChartSkeleton() {
+  const heights = [85, 60, 75, 45, 90, 50];
+  return (
+    <div className="h-80 flex flex-col justify-end px-8 pt-8 pb-12 gap-3">
+      <div className="flex items-end gap-4 flex-1">
+        {heights.map((h, i) => (
+          <div
+            key={i}
+            className="flex-1 rounded-t-md animate-pulse"
+            style={{ height: `${h}%`, background: "var(--muted)" }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between px-2">
+        {heights.map((_, i) => (
+          <div
+            key={i}
+            className="h-2.5 w-10 rounded animate-pulse"
+            style={{ background: "var(--muted)" }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function CostByModelChart({ startDate, endDate }: CostByModelChartProps) {
   const [data, setData] = useState<ModelCost[]>([]);
-  const [globalExplain, setGlobalExplain] = useState<MetricExplain | null>(null);
-  const [pointExplain, setPointExplain] = useState<Record<string, MetricExplain>>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [showingSample, setShowingSample] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      setError(null);
 
       if (isDemoMode()) {
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 350));
         setData(generateDemoCostByModel());
-        setGlobalExplain(null);
-        setPointExplain({});
+        setShowingSample(false);
         setLoading(false);
         return;
       }
 
       try {
-        const url = `/api/v1/analytics/cost/by-model?start=${startDate}&end=${endDate}&include_explain=true`;
+        const url = `/api/v1/analytics/cost/by-model?start=${startDate}&end=${endDate}`;
         const result = await fetchJson<ModelCost[] | CostByModelResponse>(url);
-        if (Array.isArray(result)) {
-          setData(result);
-          setGlobalExplain(null);
-          setPointExplain({});
+        const items = Array.isArray(result) ? result : (result.items ?? []);
+        if (items.length > 0) {
+          setData(items);
+          setShowingSample(false);
         } else {
-          setData(result.items ?? []);
-          setGlobalExplain(result.explain ?? null);
-          setPointExplain(result.point_explain ?? {});
+          setData(generateDemoCostByModel());
+          setShowingSample(true);
         }
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Unable to load cost data. Please try again later."
-        );
+      } catch {
+        setData(generateDemoCostByModel());
+        setShowingSample(true);
       } finally {
         setLoading(false);
       }
@@ -103,137 +159,113 @@ export default function CostByModelChart({
     fetchData();
   }, [startDate, endDate]);
 
-  if (loading) {
-    return (
-      <div className="flex h-80 items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-          <p className="text-sm text-muted-foreground">Loading cost breakdown...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <ChartSkeleton />;
 
-  if (error && data.length === 0) {
-    return (
-      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
-        <p className="mb-2 text-sm font-medium text-foreground">
-          Connect your cluster to view cost by model
-        </p>
-        <p className="mb-4 text-sm text-muted-foreground">
-          No cost data for this period. Integrate your GPU provider to get started.
-        </p>
-        <Link
-          href="/settings/integrations"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Connect data source
-        </Link>
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
-        <p className="mb-2 text-sm font-medium text-foreground">
-          No cost data for this period
-        </p>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Once you have GPU usage, cost by model will appear here.
-        </p>
-        <Link
-          href="/settings/integrations"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Connect data source
-        </Link>
-      </div>
-    );
-  }
-
-  const chartData = data.map((item) => ({
-    name: item.model_name,
+  const chartData = data.slice(0, 8).map((item) => ({
+    name: item.model_name.length > 10 ? item.model_name.slice(0, 10) + "…" : item.model_name,
+    fullName: item.model_name,
     cost: item.total_cost_usd,
     jobs: item.job_count,
     runtimeShare: item.runtime_share,
-    pointExplain: pointExplain[item.model_name],
   }));
 
-  const explain = globalExplain ?? data[0]?.explain;
+  const maxCost = Math.max(...chartData.map((d) => d.cost), 1);
 
   return (
-    <div>
-      {explain && (
-        <div className="flex items-center justify-end mb-2">
-          <MetricExplainDrawer title="Cost by Model" metric={explain} />
+    <div className="relative">
+      {showingSample && (
+        <div
+          className="absolute top-0 right-0 z-10 flex items-center gap-1.5 rounded-full px-2.5 py-1"
+          style={{
+            background: "rgba(245,158,11,0.08)",
+            border: "1px solid rgba(245,158,11,0.2)",
+          }}
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: "#f59e0b" }}
+          />
+          <span style={{ fontSize: "11px", fontWeight: 600, color: "#d97706" }}>
+            Sample data
+          </span>
         </div>
       )}
-      <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+
+      <div>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={chartData} margin={{ top: 8, right: 4, bottom: 32, left: 0 }}>
+            <defs>
+              {chartData.map((_, i) => (
+                <linearGradient
+                  key={i}
+                  id={`barGrad${i}`}
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop offset="0%" stopColor={BAR_COLORS[i % BAR_COLORS.length]} stopOpacity={1} />
+                  <stop offset="100%" stopColor={BAR_COLORS[i % BAR_COLORS.length]} stopOpacity={0.7} />
+                </linearGradient>
+              ))}
+            </defs>
+
+            <CartesianGrid
+              strokeDasharray="3 4"
+              stroke="var(--chart-grid)"
+              vertical={false}
+              strokeOpacity={1}
+            />
+
             <XAxis
               dataKey="name"
-              stroke="hsl(var(--muted-foreground))"
-              style={{ fontSize: "11px" }}
-              angle={-45}
+              tick={{ fontSize: 11, fill: "var(--heliox-text-muted)" }}
+              axisLine={false}
+              tickLine={false}
+              angle={-35}
               textAnchor="end"
-              height={80}
+              height={52}
             />
+
             <YAxis
-              stroke="hsl(var(--muted-foreground))"
-              style={{ fontSize: "12px" }}
-              tickFormatter={(value) => `$${value.toLocaleString()}`}
+              tick={{ fontSize: 11, fill: "var(--heliox-text-muted)" }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v) =>
+                v >= 1_000_000
+                  ? `$${(v / 1_000_000).toFixed(1)}M`
+                  : v >= 1_000
+                  ? `$${(v / 1_000).toFixed(0)}k`
+                  : `$${v}`
+              }
+              width={52}
             />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(var(--card))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: "12px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-              }}
-              formatter={(value, name, props) => {
-                if (typeof value === "number") {
-                  if (name === "cost") {
-                    const share = props?.payload?.runtimeShare;
-                    const shareLabel = typeof share === "number" ? ` (${(share * 100).toFixed(0)}% runtime)` : "";
-                    return [`$${value.toFixed(2)}${shareLabel}`, "Total Cost"];
-                  }
-                  return [value, "Jobs"];
-                }
-                return [value ?? "-", name];
-              }}
-              content={({ active, payload }) => {
-                if (!active || !payload || payload.length === 0) return null;
-                const point = payload[0]?.payload;
-                const pointExplain = point?.pointExplain as MetricExplain | undefined;
-                return (
-                  <div className="rounded-xl border border-border bg-card p-3 shadow-lg">
-                    <p className="font-semibold text-foreground">{point?.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Cost: ${point?.cost?.toFixed?.(2) ?? "-"}
-                    </p>
-                    {pointExplain && (
-                      <>
-                        <p className="text-xs text-gray-500 mt-2">
-                          Formula: {pointExplain.explanation.formula}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Assumptions: {pointExplain.explanation.assumptions.join("; ")}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                );
-              }}
-            />
-            <Legend />
-            <Bar dataKey="cost" fill="hsl(var(--primary))" name="Cost (USD)" radius={[6, 6, 0, 0]} />
+
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(99,102,241,0.04)" }} />
+
+            <Bar dataKey="cost" radius={[6, 6, 0, 0]} maxBarSize={56} name="Cost (USD)">
+              {chartData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={`url(#barGrad${index})`} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {showingSample && (
+        <div className="mt-1 flex items-center justify-between">
+          <p style={{ fontSize: "12px", color: "var(--heliox-text-muted)" }}>
+            Connect GPU workloads to see cost breakdown by model
+          </p>
+          <Link
+            href="/settings/integrations"
+            style={{ fontSize: "12px", fontWeight: 600, color: "#6366f1" }}
+            className="hover:underline shrink-0"
+          >
+            Connect data →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
-

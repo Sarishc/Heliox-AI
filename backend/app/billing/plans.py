@@ -6,39 +6,43 @@ from app.models.billing import BillingPlan
 # Plan definitions with limits and features
 PLAN_DEFINITIONS: Dict[BillingPlan, Dict[str, Any]] = {
     BillingPlan.FREE: {
-        "name": "Free",
+        "name": "Starter",
         "price": 0,
         "description": "For individuals and small teams getting started",
         "limits": {
             "max_teams": 1,
             "max_users": 3,
             "max_api_calls_per_day": 1000,
-            "max_integrations": 0,
+            "max_integrations": 1,
+            "max_api_keys": 0,
             "max_gpu_nodes": 5,
-            "data_retention_days": 30
+            "data_retention_days": 30,
         },
         "features": {
-            "integrations_enabled": False,
+            "integrations_enabled": True,
             "forecasting_enabled": False,
-            "alerts_enabled": True,
-            "api_access": True,
+            "alerts_enabled": False,
+            "api_access": False,
             "custom_reports": False,
             "sso_enabled": False,
             "priority_support": False,
-            "white_label": False
-        }
+            "white_label": False,
+            "custom_rbac": False,
+            "dedicated_csm": False,
+        },
     },
     BillingPlan.STARTER: {
-        "name": "Starter",
+        "name": "Starter (legacy)",
         "price": 49,
-        "description": "For growing teams with basic GPU infrastructure",
+        "description": "Legacy $49 plan — grandfathered accounts",
         "limits": {
             "max_teams": 3,
             "max_users": 10,
             "max_api_calls_per_day": 10000,
             "max_integrations": 2,
+            "max_api_keys": 2,
             "max_gpu_nodes": 20,
-            "data_retention_days": 90
+            "data_retention_days": 90,
         },
         "features": {
             "integrations_enabled": True,
@@ -48,8 +52,10 @@ PLAN_DEFINITIONS: Dict[BillingPlan, Dict[str, Any]] = {
             "custom_reports": False,
             "sso_enabled": False,
             "priority_support": False,
-            "white_label": False
-        }
+            "white_label": False,
+            "custom_rbac": False,
+            "dedicated_csm": False,
+        },
     },
     BillingPlan.GROWTH: {
         "name": "Growth",
@@ -57,11 +63,12 @@ PLAN_DEFINITIONS: Dict[BillingPlan, Dict[str, Any]] = {
         "description": "For teams scaling their GPU operations",
         "limits": {
             "max_teams": 10,
-            "max_users": 50,
+            "max_users": 25,
             "max_api_calls_per_day": 100000,
-            "max_integrations": 10,
+            "max_integrations": 5,
+            "max_api_keys": 5,
             "max_gpu_nodes": 100,
-            "data_retention_days": 365
+            "data_retention_days": 365,
         },
         "features": {
             "integrations_enabled": True,
@@ -69,22 +76,25 @@ PLAN_DEFINITIONS: Dict[BillingPlan, Dict[str, Any]] = {
             "alerts_enabled": True,
             "api_access": True,
             "custom_reports": True,
-            "sso_enabled": True,
+            "sso_enabled": False,
             "priority_support": True,
-            "white_label": False
-        }
+            "white_label": False,
+            "custom_rbac": False,
+            "dedicated_csm": False,
+        },
     },
     BillingPlan.ENTERPRISE: {
         "name": "Enterprise",
         "price": "Custom",
         "description": "For large organizations with advanced needs",
         "limits": {
-            "max_teams": -1,  # Unlimited
-            "max_users": -1,  # Unlimited
-            "max_api_calls_per_day": -1,  # Unlimited
-            "max_integrations": -1,  # Unlimited
-            "max_gpu_nodes": -1,  # Unlimited
-            "data_retention_days": -1  # Unlimited
+            "max_teams": -1,
+            "max_users": -1,
+            "max_api_calls_per_day": -1,
+            "max_integrations": -1,
+            "max_api_keys": -1,
+            "max_gpu_nodes": -1,
+            "data_retention_days": -1,
         },
         "features": {
             "integrations_enabled": True,
@@ -94,8 +104,10 @@ PLAN_DEFINITIONS: Dict[BillingPlan, Dict[str, Any]] = {
             "custom_reports": True,
             "sso_enabled": True,
             "priority_support": True,
-            "white_label": True
-        }
+            "white_label": True,
+            "custom_rbac": True,
+            "dedicated_csm": True,
+        },
     }
 }
 

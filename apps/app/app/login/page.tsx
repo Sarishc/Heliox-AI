@@ -190,14 +190,21 @@ export default function LoginPage() {
               placeholder="Email"
               onKeyDown={(e) => e.key === "Enter" && handleLogin()}
             />
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-              placeholder="Password"
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            />
+            <div>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                placeholder="Password"
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+              />
+              <div className="mt-1 text-right">
+                <Link href="/forgot-password" className="text-xs text-blue-600 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+            </div>
             {captchaRequired && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <p className="text-sm text-amber-800 mb-2">

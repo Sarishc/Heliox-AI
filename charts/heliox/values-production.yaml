@@ -1,0 +1,160 @@
+## Production values for Heliox on Kubernetes
+## Overrides values.yaml defaults for a real production deployment.
+##
+## Usage:
+##   helm upgrade --install heliox heliox/heliox \
+##     -f values-production.yaml \
+##     --set secrets.secretKey="$(openssl rand -hex 32)" \
+##     --set secrets.databasePassword="$DB_PASSWORD" \
+##     --set secrets.encryptionKey="$ENCRYPTION_KEY" \
+##     -n heliox --create-namespace
+
+## ─────────────────────────────────────────────────────────
+## API — 3 replicas, scale to 10 on CPU pressure
+## ─────────────────────────────────────────────────────────
+api:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  podAnnotations:
+    ## Prometheus scraping (if prometheus-operator is installed)
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+
+## ─────────────────────────────────────────────────────────
+## Worker — 3 replicas, scale to 8
+## ─────────────────────────────────────────────────────────
+worker:
+  replicaCount: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 80
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+## ─────────────────────────────────────────────────────────
+## Beat — single instance with persistent schedule
+## ─────────────────────────────────────────────────────────
+beat:
+  persistence:
+    enabled: true
+    storageClass: "gp3"   # EKS: gp3 | GKE: standard-rwo | AKS: managed-premium
+    size: 1Gi
+
+## ─────────────────────────────────────────────────────────
+## GPU Agent — GPU nodes only
+## ─────────────────────────────────────────────────────────
+agent:
+  enabled: true
+  ## Use your production API URL here
+  apiEndpoint: "https://heliox.acme.com"
+  ## Set via --set agent.apiKey=... or use agent.existingSecret
+  apiKey: ""
+  interval: 60
+
+  nodeSelector:
+    accelerator: "true"
+
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+## ─────────────────────────────────────────────────────────
+## Ingress — HTTPS with cert-manager
+## ─────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  hosts:
+    - host: heliox.acme.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: heliox-tls
+      hosts:
+        - heliox.acme.com
+
+## ─────────────────────────────────────────────────────────
+## External RDS — disable bundled postgres
+## ─────────────────────────────────────────────────────────
+postgresql:
+  enabled: false
+  external:
+    ## RDS endpoint (without port)
+    host: "heliox-prod.cluster-xxxx.us-east-1.rds.amazonaws.com"
+    port: 5432
+    database: heliox
+    username: heliox
+
+## ─────────────────────────────────────────────────────────
+## External ElastiCache — disable bundled redis
+## ─────────────────────────────────────────────────────────
+redis:
+  enabled: false
+
+config:
+  env: "production"
+  logLevel: "INFO"
+  logJsonFormat: "true"
+  multiTenant: "true"
+  corsOrigins: "https://heliox.acme.com"
+  apiBaseUrl: "https://heliox.acme.com"
+  frontendUrl: "https://heliox.acme.com"
+  googleRedirectUri: "https://heliox.acme.com/api/v1/auth/google/callback"
+  csrfProtectionEnabled: "true"
+  authCookieSecure: "true"
+  ## External ElastiCache — TLS-enabled clusters use rediss://
+  redisUrl: "rediss://heliox-prod.xxxx.cache.amazonaws.com:6379"
+  otelEnabled: "false"
+  timezone: "UTC"
+
+## ─────────────────────────────────────────────────────────
+## Secrets — set via --set or CI/CD secret injection
+## NEVER commit real values to source control
+## ─────────────────────────────────────────────────────────
+secrets:
+  secretKey: ""           # --set secrets.secretKey="$(openssl rand -hex 32)"
+  databasePassword: ""    # --set secrets.databasePassword="$RDS_PASSWORD"
+  encryptionKey: ""       # --set secrets.encryptionKey="$FERNET_KEY"
+  stripeSecretKey: ""
+  stripeWebhookSecret: ""
+  googleClientId: ""
+  googleClientSecret: ""
+  sentryDsn: ""
+  resendApiKey: ""
+
+## ─────────────────────────────────────────────────────────
+## Migrations — enabled on every upgrade
+## ─────────────────────────────────────────────────────────
+migrations:
+  enabled: true
+  runOnUpgrade: true

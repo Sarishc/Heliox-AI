@@ -26,7 +26,7 @@ def generate_daily_digest(
     target_date: str = Query(
         default=None,
         description="Date for digest (YYYY-MM-DD). Defaults to yesterday.",
-        example="2026-01-09"
+        examples=["2026-01-09"]
     ),
     db: Session = Depends(get_db),
     _: Any = Depends(require_admin)

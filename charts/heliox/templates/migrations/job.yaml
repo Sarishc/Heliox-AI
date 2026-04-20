@@ -1,0 +1,76 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "heliox.fullname" . }}-migrations
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "heliox.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    ## Run before install and (when runOnUpgrade=true) before upgrade
+    helm.sh/hook: pre-install{{ if .Values.migrations.runOnUpgrade }},pre-upgrade{{ end }}
+    ## Negative weight ensures this runs before other hooks
+    helm.sh/hook-weight: "-5"
+    ## Delete the previous Job before creating a new one (avoids name conflicts on re-deploy)
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "heliox.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "heliox.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrations
+          image: "{{ include "heliox.imageRepository" (dict "repo" .Values.api.image.repository "global" .Values.global) }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - alembic
+            - upgrade
+            - head
+          envFrom:
+            {{- include "heliox.envFrom" . | nindent 12 }}
+          env:
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: DATABASE_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://{{ .Values.postgresql.external.username }}:$(DATABASE_PASSWORD)@{{ if .Values.postgresql.enabled }}{{ include "heliox.fullname" . }}-postgresql{{ else }}{{ .Values.postgresql.external.host }}{{ end }}:{{ .Values.postgresql.external.port }}/{{ .Values.postgresql.external.database }}"
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "heliox.secretName" . }}
+                  key: REDIS_PASSWORD
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@{{ include "heliox.fullname" . }}-redis-master:6379/0"
+            {{- else }}
+            - name: REDIS_URL
+              value: {{ .Values.config.redisUrl | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

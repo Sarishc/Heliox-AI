@@ -1,67 +1,105 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
+  ReferenceLine,
 } from "recharts";
 import { format, eachDayOfInterval, parseISO } from "date-fns";
-import MetricExplainDrawer from "@/components/ui/MetricExplainDrawer";
 import { isDemoMode, generateDemoDailySpendBetween } from "@/lib/demoData";
 
 interface SpendTrendChartProps {
   startDate: string;
   endDate: string;
 }
-
 interface DailySpend {
   date: string;
   cost: number;
 }
 
-interface MetricExplain {
-  value: number | string;
-  unit: string;
-  window: string;
-  confidence: number;
-  confidence_reasons: string[];
-  explanation: {
-    formula: string;
-    components: Array<{
-      name: string;
-      value: number | string;
-      unit?: string | null;
-      source?: string | null;
-    }>;
-    assumptions: string[];
-  };
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  const value = payload[0]?.value ?? 0;
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        borderRadius: "12px",
+        boxShadow: "var(--shadow-lg)",
+        padding: "10px 14px",
+        minWidth: "130px",
+      }}
+    >
+      <p style={{ fontSize: "11px", color: "var(--heliox-text-muted)", marginBottom: "4px" }}>
+        {label}
+      </p>
+      <p
+        style={{
+          fontSize: "16px",
+          fontWeight: 700,
+          color: "var(--foreground)",
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: "-0.02em",
+        }}
+      >
+        ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+      </p>
+      <p style={{ fontSize: "11px", color: "var(--heliox-text-muted)", marginTop: "2px" }}>
+        GPU spend
+      </p>
+    </div>
+  );
+};
+
+function ChartSkeleton() {
+  const bars = [45, 62, 38, 78, 55, 88, 67, 52, 71, 84, 60, 45, 73, 90, 58, 77, 42, 66, 80, 53];
+  return (
+    <div className="h-80 flex flex-col justify-end px-2 pt-8 pb-6 gap-3">
+      <div className="flex items-end gap-1 flex-1">
+        {bars.map((h, i) => (
+          <div
+            key={i}
+            className="flex-1 rounded-t-sm animate-pulse"
+            style={{ height: `${h}%`, background: "var(--muted)" }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="h-2.5 w-10 rounded animate-pulse"
+            style={{ background: "var(--muted)" }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
-export default function SpendTrendChart({
-  startDate,
-  endDate,
-}: SpendTrendChartProps) {
+export default function SpendTrendChart({ startDate, endDate }: SpendTrendChartProps) {
   const [data, setData] = useState<DailySpend[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [showingSample, setShowingSample] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setError(null);
 
     const loadData = async () => {
       if (isDemoMode()) {
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 400));
         if (cancelled) return;
         setData(generateDemoDailySpendBetween(startDate, endDate));
+        setShowingSample(false);
         setLoading(false);
         return;
       }
@@ -69,15 +107,13 @@ export default function SpendTrendChart({
       try {
         const { fetchJson } = await import("@/lib/api");
         const snapshots = await fetchJson<
-          Array<{ date: string; cost_usd: number; provider?: string; gpu_type?: string }>
-        >(
-          `/api/v1/costs/?start_date=${startDate}&end_date=${endDate}`
-        );
+          Array<{ date: string; cost_usd: number }>
+        >(`/api/v1/costs/?start_date=${startDate}&end_date=${endDate}`);
         if (cancelled) return;
+
         const byDate: Record<string, number> = {};
         for (const s of snapshots) {
-          const d = s.date;
-          byDate[d] = (byDate[d] || 0) + Number(s.cost_usd);
+          byDate[s.date] = (byDate[s.date] || 0) + Number(s.cost_usd);
         }
         const days = eachDayOfInterval({
           start: parseISO(startDate),
@@ -85,16 +121,21 @@ export default function SpendTrendChart({
         });
         const chartData = days.map((day) => {
           const d = format(day, "yyyy-MM-dd");
-          return {
-            date: format(day, "MMM dd"),
-            cost: byDate[d] ?? 0,
-          };
+          return { date: format(day, "MMM d"), cost: byDate[d] ?? 0 };
         });
-        setData(chartData);
-      } catch (err) {
+
+        const hasRealData = chartData.some((d) => d.cost > 0);
+        if (hasRealData) {
+          setData(chartData);
+          setShowingSample(false);
+        } else {
+          setData(generateDemoDailySpendBetween(startDate, endDate));
+          setShowingSample(true);
+        }
+      } catch {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load chart data");
-        setData([]);
+        setData(generateDemoDailySpendBetween(startDate, endDate));
+        setShowingSample(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -106,151 +147,136 @@ export default function SpendTrendChart({
     };
   }, [startDate, endDate]);
 
-  const explain = useMemo<MetricExplain>(
-    () => {
-      const avgCost =
-        data.length > 0
-          ? data.reduce((acc, point) => acc + point.cost, 0) / data.length
-          : 0;
-      return {
-        value: Number(avgCost.toFixed(2)),
-        unit: "USD",
-        window: `${startDate} to ${endDate}`,
-        confidence: 0.4,
-        confidence_reasons: ["MISSING_TELEMETRY"],
-        explanation: {
-          formula: "daily_cost = sum(cost_usd) per day; chart shows daily_cost over window",
-          components: [
-            { name: "days", value: data.length, unit: "days", source: "client" },
-            { name: "avg_daily_cost", value: Number(avgCost.toFixed(2)), unit: "USD", source: "client" },
-          ],
-          assumptions: ["Demo data generated client-side for the selected window."],
-        },
-      };
-    },
-    [data, startDate, endDate]
-  );
+  if (loading) return <ChartSkeleton />;
 
-  if (loading) {
-    return (
-      <div className="flex h-80 items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-          <p className="text-sm text-muted-foreground">Loading spend trend...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && data.length === 0) {
-    return (
-      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
-        <p className="mb-2 text-sm font-medium text-foreground">
-          Connect your cluster to view spend trends
-        </p>
-        <p className="mb-4 text-sm text-muted-foreground">
-          No cost data for this period yet. Integrate your GPU provider to get started.
-        </p>
-        <Link
-          href="/settings/integrations"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Connect data source
-        </Link>
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div className="flex h-80 flex-col items-center justify-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
-        <p className="mb-2 text-sm font-medium text-foreground">
-          No spend data for this period
-        </p>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Connect your GPU provider to start tracking costs.
-        </p>
-        <Link
-          href="/settings/integrations"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Connect data source
-        </Link>
-      </div>
-    );
-  }
-
-  // Calculate max/min ratio for interpretation sentence
-  // Only show if we have at least 2 data points and min > 0
   const costs = data.map((d) => d.cost);
-  const maxCost = costs.length > 0 ? Math.max(...costs) : 0;
-  const minCost = costs.length > 0 ? Math.min(...costs) : 0;
-  const shouldShowInterpretation =
-    data.length >= 2 && minCost > 0;
-  const variationRatio = shouldShowInterpretation
-    ? (maxCost / minCost).toFixed(1)
-    : null;
+  const avg = costs.reduce((a, b) => a + b, 0) / (costs.length || 1);
 
   return (
-    <div>
-      <div className="flex items-center justify-end mb-2">
-        <MetricExplainDrawer title="Daily Spend Trend" metric={explain} />
-      </div>
-      <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+    <div className="relative">
+      {showingSample && (
+        <div
+          className="absolute top-0 right-0 z-10 flex items-center gap-1.5 rounded-full px-2.5 py-1"
+          style={{
+            background: "rgba(245,158,11,0.08)",
+            border: "1px solid rgba(245,158,11,0.2)",
+          }}
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: "#f59e0b" }}
+          />
+          <span style={{ fontSize: "11px", fontWeight: 600, color: "#d97706" }}>
+            Sample data
+          </span>
+        </div>
+      )}
+
+      <div>
+        <ResponsiveContainer width="100%" height={320}>
+          <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="spendGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.14} />
+                <stop offset="70%" stopColor="#6366f1" stopOpacity={0.03} />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+
+            <CartesianGrid
+              strokeDasharray="3 4"
+              stroke="var(--chart-grid)"
+              vertical={false}
+              strokeOpacity={1}
+            />
+
             <XAxis
               dataKey="date"
-              stroke="hsl(var(--muted-foreground))"
-              style={{ fontSize: "12px" }}
+              tick={{ fontSize: 11, fill: "var(--heliox-text-muted)" }}
+              axisLine={false}
+              tickLine={false}
+              interval="preserveStartEnd"
             />
+
             <YAxis
-              stroke="hsl(var(--muted-foreground))"
-              style={{ fontSize: "12px" }}
-              tickFormatter={(value) => `$${value.toLocaleString()}`}
+              tick={{ fontSize: 11, fill: "var(--heliox-text-muted)" }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v) =>
+                v >= 1_000_000
+                  ? `$${(v / 1_000_000).toFixed(1)}M`
+                  : v >= 1_000
+                  ? `$${(v / 1_000).toFixed(0)}k`
+                  : `$${v}`
+              }
+              width={52}
             />
+
             <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(var(--card))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: "12px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-              }}
-              formatter={(value) => {
-                if (typeof value === "number") {
-                  return [`$${value.toFixed(2)}`, "Cost"];
-                }
-                return [value ?? "-", "Cost"];
+              content={<CustomTooltip />}
+              cursor={{
+                stroke: "rgba(99,102,241,0.25)",
+                strokeWidth: 1,
+                strokeDasharray: "4 4",
               }}
             />
-            <Legend />
-            <Line
+
+            <ReferenceLine
+              y={avg}
+              stroke="#6366f1"
+              strokeDasharray="5 5"
+              strokeOpacity={0.2}
+              strokeWidth={1}
+            />
+
+            <Area
               type="monotone"
               dataKey="cost"
-              stroke="hsl(var(--primary))"
+              stroke="#6366f1"
               strokeWidth={2.5}
-              dot={{ fill: "hsl(var(--primary))", r: 4 }}
-              activeDot={{ r: 6, fill: "hsl(var(--primary))", strokeWidth: 2 }}
-              name="Daily Cost (USD)"
+              fill="url(#spendGradient)"
+              dot={false}
+              activeDot={{
+                r: 5,
+                fill: "#6366f1",
+                stroke: "#fff",
+                strokeWidth: 2,
+              }}
+              name="Daily Cost"
             />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       </div>
-      {/* Analytical guidance: shows cost variation to highlight smoothing opportunities */}
-      {shouldShowInterpretation && variationRatio && (
-        <p className="mt-3 text-sm text-muted-foreground">
-          Daily GPU spend varies by up to ~{variationRatio}× over this period,
-          suggesting opportunities to smooth usage and reduce peak costs.
-        </p>
-      )}
-      <Link
-        href="/recommendations"
-        className="mt-3 block text-sm font-medium text-primary hover:underline"
-      >
-        See recommendations for cost spikes →
-      </Link>
+
+      <div className="mt-3 flex items-center justify-between">
+        {showingSample ? (
+          <>
+            <p style={{ fontSize: "12px", color: "var(--heliox-text-muted)" }}>
+              Connect your cloud provider to see real cost data
+            </p>
+            <Link
+              href="/settings/integrations"
+              style={{ fontSize: "12px", fontWeight: 600, color: "#6366f1" }}
+              className="hover:underline shrink-0"
+            >
+              Connect data →
+            </Link>
+          </>
+        ) : (
+          <p style={{ fontSize: "12px", color: "var(--heliox-text-muted)" }}>
+            Avg daily spend:{" "}
+            <span
+              style={{
+                fontWeight: 600,
+                color: "var(--heliox-text-secondary)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              ${avg.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </span>
+          </p>
+        )}
+      </div>
     </div>
   );
 }
-

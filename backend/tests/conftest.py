@@ -6,6 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+# Set required env vars before any app modules are imported at collection time.
+os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-characters-long-for-pytest")
+os.environ.setdefault("ENV", "dev")
+
 from app.models.base import Base
 
 # Ensure all models are registered before create_all (e.g. team_invites)
@@ -31,12 +35,11 @@ SQLiteTypeCompiler.visit_JSONB = _sqlite_visit_JSONB  # type: ignore[attr-define
 
 @pytest.fixture(scope="session")
 def db_engine():
-    os.environ["ENV"] = "dev"
-    os.environ.setdefault(
-        "SECRET_KEY",
-        "test-secret-key-at-least-32-characters-long-for-pytest",
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(bind=engine)
     return engine
 

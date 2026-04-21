@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    # Inline imports are intentional in FastAPI handlers (lazy load, circular import avoidance)
+    "E402",
+    # SQLAlchemy filter(Model.col == True) is idiomatic — not a Python anti-pattern here
+    "E712",
+    # Bare except used defensively in fire-and-forget helpers
+    "E722",
+    # Unused variables in tests are sometimes intentional (mock capture)
+    "F841",
+    # TYPE_CHECKING / forward-ref patterns cause false-positive undefined name warnings
+    "F821",
+    # Line length is enforced by Black; Ruff's E501 creates duplicate noise
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import fixtures and helpers that appear unused to the static analyser
+"tests/*" = ["F401", "F811"]
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]

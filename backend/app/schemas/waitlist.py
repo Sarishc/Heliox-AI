@@ -1,4 +1,5 @@
-"\"\"\"Schemas for waitlist signups.\"\"\""
+'"""Schemas for waitlist signups."""'
+
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -13,9 +14,7 @@ class WaitlistCreate(BaseModel):
     name: Optional[str] = Field(None, description="Full name")
     company: Optional[str] = Field(None, description="Company or organization")
     role: Optional[str] = Field(None, description="Role or title")
-    source: Optional[str] = Field(
-        default="landing", description="Attribution source for analytics"
-    )
+    source: Optional[str] = Field(default="landing", description="Attribution source for analytics")
 
 
 class WaitlistResponse(BaseModel):
@@ -31,4 +30,3 @@ class WaitlistResponse(BaseModel):
 
     class Config:
         from_attributes = True
-

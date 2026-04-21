@@ -41,8 +41,6 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.events import (
     MAX_CONNS_PER_TEAM,
-    EventType,
-    HelioxEvent,
     decrement_conn,
     get_channel,
     get_conn_count,
@@ -60,6 +58,7 @@ PING_INTERVAL_SECONDS = 30
 
 # ── Auth: accepts X-API-Key header OR JWT session cookie ─────────────────────
 
+
 async def _resolve_team_id(
     request: Request,
     db: Session = Depends(get_db),
@@ -73,13 +72,17 @@ async def _resolve_team_id(
     x_api_key = request.headers.get("X-API-Key")
     if x_api_key:
         from app.core.security import get_team_api_key_if_present
+
         api_key = get_team_api_key_if_present(x_api_key=x_api_key, db=db)
         if api_key:
             return get_effective_team_id(api_key)
 
     # 2. Try JWT session cookie (browser EventSource)
-    from app.auth.cookie_auth import get_token_from_cookie_or_header, is_token_blacklisted
-    from app.auth.security import SECRET_KEY, ALGORITHM
+    from app.auth.cookie_auth import (
+        get_token_from_cookie_or_header,
+        is_token_blacklisted,
+    )
+    from app.auth.security import SECRET_KEY
     from app.crud import user as crud_user
     from jose import jwt, JWTError
 
@@ -98,11 +101,8 @@ async def _resolve_team_id(
                 if user:
                     # Resolve team from TeamMember (first active team)
                     from app.models.team_member import TeamMember
-                    member = (
-                        db.query(TeamMember)
-                        .filter(TeamMember.user_id == user.id)
-                        .first()
-                    )
+
+                    member = db.query(TeamMember).filter(TeamMember.user_id == user.id).first()
                     if member:
                         return member.team_id
         except (JWTError, Exception):
@@ -115,6 +115,7 @@ async def _resolve_team_id(
 
 
 # ── SSE stream helpers ────────────────────────────────────────────────────────
+
 
 def _sse_line(event_type: str, data: str, event_id: str) -> str:
     """Format a single SSE message."""
@@ -233,6 +234,7 @@ async def _sse_generator(
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @router.get(
     "/stream",
     summary="Real-time SSE event stream",
@@ -270,9 +272,7 @@ async def event_stream(
     increment_conn(team_id_str)
 
     # Start Redis subscriber task
-    subscriber_task = asyncio.create_task(
-        _redis_subscriber(channel, queue, stop_event)
-    )
+    subscriber_task = asyncio.create_task(_redis_subscriber(channel, queue, stop_event))
 
     async def _cleanup() -> None:
         stop_event.set()

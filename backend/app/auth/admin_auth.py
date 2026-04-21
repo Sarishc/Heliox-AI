@@ -3,6 +3,7 @@ Admin authorization: RBAC (platform admin) or legacy API key.
 
 Replaces global admin god-mode with role-based access.
 """
+
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -33,6 +34,7 @@ async def require_admin(
     # 2. Try legacy admin API key (deprecated)
     if settings.ADMIN_API_KEY and x_api_key:
         import secrets
+
         if secrets.compare_digest(x_api_key, settings.ADMIN_API_KEY):
             return "api_key"
 

@@ -18,8 +18,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from app.core.cache import get_redis  # imported at module level for test patchability
 
@@ -51,9 +50,7 @@ class HelioxEvent:
     team_id: str
     payload: dict
     event_id: str = field(default_factory=lambda: f"evt_{uuid4().hex[:16]}")
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_json(self) -> str:
         return json.dumps(
@@ -84,6 +81,7 @@ def get_channel(team_id: str) -> str:
 
 # ── Synchronous publish (for Celery tasks and sync service code) ──────────────
 
+
 def publish_event_sync(team_id: str, event: HelioxEvent) -> None:
     """Publish event to Redis channel + append to history sorted set.
 
@@ -109,25 +107,27 @@ def publish_event_sync(team_id: str, event: HelioxEvent) -> None:
     except Exception as exc:
         logger.warning(
             "events: publish failed for team=%s event=%s — %s",
-            team_id, event.event_id, exc,
+            team_id,
+            event.event_id,
+            exc,
         )
 
 
 # ── Async publish (for FastAPI route handlers) ────────────────────────────────
+
 
 async def publish_event(team_id: str, event: HelioxEvent) -> None:
     """Async fire-and-forget publish. Never raises."""
     import asyncio
 
     try:
-        await asyncio.get_event_loop().run_in_executor(
-            None, publish_event_sync, team_id, event
-        )
+        await asyncio.get_event_loop().run_in_executor(None, publish_event_sync, team_id, event)
     except Exception as exc:
         logger.warning("events: async publish failed — %s", exc)
 
 
 # ── Connection counter helpers ────────────────────────────────────────────────
+
 
 def increment_conn(team_id: str) -> int:
     """Increment SSE connection count for team. Returns new count."""
@@ -170,6 +170,7 @@ def get_conn_count(team_id: str) -> int:
 
 # ── History + read-state helpers ──────────────────────────────────────────────
 
+
 def get_recent_events(team_id: str, limit: int = 50) -> list[dict]:
     """Return last `limit` events from history sorted set, newest first."""
     r = get_redis()
@@ -177,9 +178,7 @@ def get_recent_events(team_id: str, limit: int = 50) -> list[dict]:
         return []
     try:
         raws = r.zrevrange(f"{HISTORY_PREFIX}{team_id}", 0, limit - 1)
-        read_ids: set[str] = set(
-            r.smembers(f"{READ_PREFIX}{team_id}") or []
-        )
+        read_ids: set[str] = set(r.smembers(f"{READ_PREFIX}{team_id}") or [])
         result = []
         for raw in raws:
             try:

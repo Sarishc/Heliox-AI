@@ -4,6 +4,7 @@ Weekly report generation service.
 Produces a team-scoped weekly summary for proactive value delivery.
 Reuses ROI dashboard and analytics data.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WeeklyReportData:
     """Payload for weekly report email/Slack."""
+
     team_id: UUID
     team_name: str
     start_date: date

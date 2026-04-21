@@ -1,7 +1,8 @@
 """
 Analytics API endpoints for cost and usage insights.
 """
-from datetime import date, datetime, timedelta
+
+from datetime import date, timedelta
 from typing import List, Union
 
 from typing import Any
@@ -39,6 +40,7 @@ router = APIRouter()
 
 class CostByModelResponse(BaseModel):
     """Response schema for cost aggregated by model."""
+
     model_name: str
     total_cost_usd: float = Field(description="Total cost in USD")
     job_count: int = Field(description="Number of jobs for this model")
@@ -50,6 +52,7 @@ class CostByModelResponse(BaseModel):
 
 class CostByTeamResponse(BaseModel):
     """Response schema for cost aggregated by team."""
+
     team_name: str
     team_id: str
     total_cost_usd: float = Field(description="Total cost in USD")
@@ -75,7 +78,7 @@ class CostByTeamEnvelope(BaseModel):
 @router.get(
     "/cost/by-model",
     response_model=Union[List[CostByModelResponse], CostByModelEnvelope],
-    summary="Get cost aggregated by model"
+    summary="Get cost aggregated by model",
 )
 def get_cost_by_model(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
@@ -86,32 +89,32 @@ def get_cost_by_model(
 ) -> Any:
     """
     Get total cost aggregated by ML model for a date range.
-    
+
     This endpoint:
     1. Finds all jobs in the date range
     2. Groups by model_name
     3. Calculates total cost from CostSnapshot table
     4. Returns summarized data per model
-    
+
     Query Parameters:
     - start: Start date (inclusive)
     - end: End date (inclusive)
-    
+
     Note: Cost calculation is based on daily CostSnapshot data.
     The calculation sums costs for GPU types used by each model's jobs
     within the specified date range.
     """
     # Fetch cost by model for date range
-    
+
     # Validate date range
     if end < start:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="end_date must be >= start_date"
+            detail="end_date must be >= start_date",
         )
-    
+
     team_id = get_effective_team_id(team_api_key)
-    
+
     # Aggregate job runtime per model per day
     dialect_name = db.bind.dialect.name if db.bind else ""
     daily_runtime = {}
@@ -119,7 +122,7 @@ def get_cost_by_model(
     model_runtime = {}
     model_job_count = {}
     model_job_count_by_day = {}
-    
+
     if dialect_name == "sqlite":
         jobs = (
             db.query(Job)
@@ -169,8 +172,10 @@ def get_cost_by_model(
             daily_job_count[day] = daily_job_count.get(day, 0) + int(job_count)
             model_runtime[(day, model_name)] = model_runtime.get((day, model_name), 0.0) + runtime
             model_job_count[model_name] = model_job_count.get(model_name, 0) + int(job_count)
-            model_job_count_by_day[(day, model_name)] = model_job_count_by_day.get((day, model_name), 0) + int(job_count)
-    
+            model_job_count_by_day[(day, model_name)] = model_job_count_by_day.get((day, model_name), 0) + int(
+                job_count
+            )
+
     daily_cost_rows = db.execute(
         select(CostSnapshot.date, func.sum(CostSnapshot.cost_usd))
         .where(
@@ -181,7 +186,7 @@ def get_cost_by_model(
         .group_by(CostSnapshot.date)
     ).all()
     daily_costs = {row[0]: float(row[1] or 0.0) for row in daily_cost_rows}
-    
+
     model_costs = {}
     model_total_runtime = {}
     for (day, model_name), runtime in model_runtime.items():
@@ -197,7 +202,7 @@ def get_cost_by_model(
             share = (model_jobs / total_jobs) if total_jobs > 0 else 0.0
         model_costs[model_name] = model_costs.get(model_name, 0.0) + (daily_cost * share)
         model_total_runtime[model_name] = model_total_runtime.get(model_name, 0.0) + runtime
-    
+
     total_runtime = sum(model_total_runtime.values()) if model_total_runtime else 0.0
     cost_by_model = [
         CostByModelResponse(
@@ -207,9 +212,7 @@ def get_cost_by_model(
             start_date=start,
             end_date=end,
             runtime_share=(
-                round(model_total_runtime.get(model_name, 0.0) / total_runtime, 4)
-                if total_runtime > 0
-                else None
+                round(model_total_runtime.get(model_name, 0.0) / total_runtime, 4) if total_runtime > 0 else None
             ),
             explain=(
                 explain_metric(
@@ -218,14 +221,24 @@ def get_cost_by_model(
                     window=f"{start.isoformat()} to {end.isoformat()}",
                     formula="sum(daily_cost * runtime_share)",
                     components=[
-                        Component(name="model_runtime_seconds", value=round(model_total_runtime.get(model_name, 0.0), 2), unit="seconds", source="jobs"),
-                        Component(name="job_count", value=model_job_count.get(model_name, 0), unit="jobs", source="jobs"),
+                        Component(
+                            name="model_runtime_seconds",
+                            value=round(model_total_runtime.get(model_name, 0.0), 2),
+                            unit="seconds",
+                            source="jobs",
+                        ),
+                        Component(
+                            name="job_count",
+                            value=model_job_count.get(model_name, 0),
+                            unit="jobs",
+                            source="jobs",
+                        ),
                     ],
                     assumptions=["Runtime share falls back to job-count share when runtime missing."],
                     inputs={
                         "data_points": (end - start).days + 1,
                         "window_days": (end - start).days + 1,
-                        "telemetry_coverage": 1.0 if model_total_runtime.get(model_name, 0.0) > 0 else 0.6,
+                        "telemetry_coverage": (1.0 if model_total_runtime.get(model_name, 0.0) > 0 else 0.6),
                     },
                 )
                 if include_explain
@@ -237,11 +250,7 @@ def get_cost_by_model(
     cost_by_model.sort(key=lambda x: x.total_cost_usd, reverse=True)
     record_api_usage(db, team_id=team_id, endpoint="analytics_cost_by_model")
     if include_explain:
-        point_explain = {
-            item.model_name: item.explain
-            for item in cost_by_model
-            if item.explain is not None
-        }
+        point_explain = {item.model_name: item.explain for item in cost_by_model if item.explain is not None}
         return CostByModelEnvelope(
             items=cost_by_model,
             explain=explain_metric(
@@ -250,8 +259,18 @@ def get_cost_by_model(
                 window=f"{start.isoformat()} to {end.isoformat()}",
                 formula="sum(daily_cost * runtime_share) across models",
                 components=[
-                    Component(name="total_cost", value=round(sum(model_costs.values()), 2), unit="USD", source="cost_snapshots"),
-                    Component(name="total_runtime_seconds", value=round(total_runtime, 2), unit="seconds", source="jobs"),
+                    Component(
+                        name="total_cost",
+                        value=round(sum(model_costs.values()), 2),
+                        unit="USD",
+                        source="cost_snapshots",
+                    ),
+                    Component(
+                        name="total_runtime_seconds",
+                        value=round(total_runtime, 2),
+                        unit="seconds",
+                        source="jobs",
+                    ),
                 ],
                 assumptions=["Runtime share falls back to job-count share when runtime missing."],
                 inputs={
@@ -268,7 +287,7 @@ def get_cost_by_model(
 @router.get(
     "/cost/by-team",
     response_model=Union[List[CostByTeamResponse], CostByTeamEnvelope],
-    summary="Get cost aggregated by team"
+    summary="Get cost aggregated by team",
 )
 def get_cost_by_team(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
@@ -280,52 +299,58 @@ def get_cost_by_team(
 ) -> Any:
     """
     Get total cost aggregated by team for a date range.
-    
+
     This endpoint:
     1. Finds all jobs in the date range
     2. Groups by team
     3. Calculates total cost from CostSnapshot table
     4. Returns summarized data per team
-    
+
     Query Parameters:
     - start: Start date (inclusive)
     - end: End date (inclusive)
-    
+
     Note: Cost calculation is based on daily CostSnapshot data.
     The calculation sums costs for GPU types used by each team's jobs
     within the specified date range.
     """
     # Fetch cost by team for date range
-    
+
     # Validate date range
     if end < start:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="end_date must be >= start_date"
+            detail="end_date must be >= start_date",
         )
-    
+
     team_id = get_effective_team_id(team_api_key)
-    
+
     team_record = db.query(Team).filter(Team.id == team_id).first()
     if not team_record:
         return []
-    
-    job_count = db.execute(
-        select(func.count(Job.id)).where(
-            Job.team_id == team_id,
-            func.date(Job.start_time) >= start,
-            func.date(Job.start_time) <= end,
-        )
-    ).scalar_one_or_none() or 0
-    
-    total_cost = db.execute(
-        select(func.sum(CostSnapshot.cost_usd)).where(
-            CostSnapshot.team_id == team_id,
-            CostSnapshot.date >= start,
-            CostSnapshot.date <= end,
-        )
-    ).scalar_one_or_none() or 0.0
-    
+
+    job_count = (
+        db.execute(
+            select(func.count(Job.id)).where(
+                Job.team_id == team_id,
+                func.date(Job.start_time) >= start,
+                func.date(Job.start_time) <= end,
+            )
+        ).scalar_one_or_none()
+        or 0
+    )
+
+    total_cost = (
+        db.execute(
+            select(func.sum(CostSnapshot.cost_usd)).where(
+                CostSnapshot.team_id == team_id,
+                CostSnapshot.date >= start,
+                CostSnapshot.date <= end,
+            )
+        ).scalar_one_or_none()
+        or 0.0
+    )
+
     cost_by_team = [
         CostByTeamResponse(
             team_name=team_record.name,
@@ -342,8 +367,18 @@ def get_cost_by_team(
                     window=f"{start.isoformat()} to {end.isoformat()}",
                     formula="sum(cost_usd) across cost snapshots in window",
                     components=[
-                        Component(name="total_cost", value=round(float(total_cost), 2), unit="USD", source="cost_snapshots"),
-                        Component(name="job_count", value=int(job_count), unit="jobs", source="jobs"),
+                        Component(
+                            name="total_cost",
+                            value=round(float(total_cost), 2),
+                            unit="USD",
+                            source="cost_snapshots",
+                        ),
+                        Component(
+                            name="job_count",
+                            value=int(job_count),
+                            unit="jobs",
+                            source="jobs",
+                        ),
                     ],
                     assumptions=["Cost snapshots are scoped to the authenticated team."],
                     inputs={
@@ -357,14 +392,10 @@ def get_cost_by_team(
             ),
         )
     ]
-    
+
     record_api_usage(db, team_id=team_id, endpoint="analytics_cost_by_team")
     if include_explain:
-        point_explain = {
-            item.team_name: item.explain
-            for item in cost_by_team
-            if item.explain is not None
-        }
+        point_explain = {item.team_name: item.explain for item in cost_by_team if item.explain is not None}
         return CostByTeamEnvelope(
             items=cost_by_team,
             explain=explain_metric(
@@ -373,8 +404,18 @@ def get_cost_by_team(
                 window=f"{start.isoformat()} to {end.isoformat()}",
                 formula="sum(cost_usd) across cost snapshots in window",
                 components=[
-                    Component(name="total_cost", value=round(float(total_cost), 2), unit="USD", source="cost_snapshots"),
-                    Component(name="job_count", value=int(job_count), unit="jobs", source="jobs"),
+                    Component(
+                        name="total_cost",
+                        value=round(float(total_cost), 2),
+                        unit="USD",
+                        source="cost_snapshots",
+                    ),
+                    Component(
+                        name="job_count",
+                        value=int(job_count),
+                        unit="jobs",
+                        source="jobs",
+                    ),
                 ],
                 assumptions=["Cost snapshots are scoped to the authenticated team."],
                 inputs={
@@ -391,7 +432,7 @@ def get_cost_by_team(
 @router.get(
     "/savings/summary",
     response_model=SavingsSummaryResponse,
-    summary="Get savings summary for a team"
+    summary="Get savings summary for a team",
 )
 def get_savings_summary(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
@@ -403,20 +444,23 @@ def get_savings_summary(
     if end < start:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="end_date must be >= start_date"
+            detail="end_date must be >= start_date",
         )
     team_id = get_effective_team_id(team_api_key)
-    
+
     # Total spend
-    total_cost = db.execute(
-        select(func.sum(CostSnapshot.cost_usd)).where(
-            CostSnapshot.team_id == team_id,
-            CostSnapshot.date >= start,
-            CostSnapshot.date <= end
-        )
-    ).scalar_one_or_none() or 0.0
+    total_cost = (
+        db.execute(
+            select(func.sum(CostSnapshot.cost_usd)).where(
+                CostSnapshot.team_id == team_id,
+                CostSnapshot.date >= start,
+                CostSnapshot.date <= end,
+            )
+        ).scalar_one_or_none()
+        or 0.0
+    )
     total_cost = float(total_cost)
-    
+
     days = (end - start).days + 1
     # Estimate idle waste: compare expected hours (24h/day) to actual usage
     cost_stmt = (
@@ -438,32 +482,35 @@ def get_savings_summary(
     total_usage_hours = 0.0
     for gpu_type, provider, cost_sum, days_count in db.execute(cost_stmt).all():
         expected_hours = float(days_count) * 24.0
-        usage_hours = db.execute(
-            select(func.sum(UsageSnapshot.gpu_hours)).where(
-                UsageSnapshot.team_id == team_id,
-                UsageSnapshot.date >= start,
-                UsageSnapshot.date <= end,
-                UsageSnapshot.gpu_type == gpu_type,
-                UsageSnapshot.provider == provider,
-            )
-        ).scalar_one_or_none() or 0.0
+        usage_hours = (
+            db.execute(
+                select(func.sum(UsageSnapshot.gpu_hours)).where(
+                    UsageSnapshot.team_id == team_id,
+                    UsageSnapshot.date >= start,
+                    UsageSnapshot.date <= end,
+                    UsageSnapshot.gpu_type == gpu_type,
+                    UsageSnapshot.provider == provider,
+                )
+            ).scalar_one_or_none()
+            or 0.0
+        )
         total_expected_hours += expected_hours
         total_usage_hours += float(usage_hours)
         if expected_hours > 0:
             waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
             idle_waste += float(cost_sum or 0.0) * waste_ratio
-    
+
     # Recommended savings based on recommendations
     filters = RecommendationFilters(start_date=start, end_date=end, team_id=team_id)
     recs = RecommendationEngine(db).generate_recommendations(filters)
     recommended_savings = float(recs.total_estimated_savings_usd)
-    
+
     response = SavingsSummaryResponse(
         start_date=start,
         end_date=end,
         total_spend_usd=round(total_cost, 2),
         estimated_idle_waste_usd=round(idle_waste, 2),
-        recommended_savings_usd=round(recommended_savings, 2)
+        recommended_savings_usd=round(recommended_savings, 2),
     )
     if include_explain:
         window_label = f"{start.isoformat()} to {end.isoformat()}"
@@ -473,7 +520,12 @@ def get_savings_summary(
             window=window_label,
             formula="sum(cost_usd) across cost snapshots in window",
             components=[
-                Component(name="cost_snapshot_sum", value=round(total_cost, 2), unit="USD", source="cost_snapshots"),
+                Component(
+                    name="cost_snapshot_sum",
+                    value=round(total_cost, 2),
+                    unit="USD",
+                    source="cost_snapshots",
+                ),
             ],
             assumptions=["Cost snapshots are complete for the selected window."],
             inputs={
@@ -487,14 +539,24 @@ def get_savings_summary(
             window=window_label,
             formula="sum(cost_usd * idle_ratio), idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)",
             components=[
-                Component(name="expected_hours", value=round(total_expected_hours, 2), unit="hours", source="assumption"),
-                Component(name="usage_hours", value=round(total_usage_hours, 2), unit="hours", source="usage_snapshots"),
+                Component(
+                    name="expected_hours",
+                    value=round(total_expected_hours, 2),
+                    unit="hours",
+                    source="assumption",
+                ),
+                Component(
+                    name="usage_hours",
+                    value=round(total_usage_hours, 2),
+                    unit="hours",
+                    source="usage_snapshots",
+                ),
             ],
             assumptions=["Expected hours = 24h/day per GPU type/provider."],
             inputs={
                 "data_points": int(days),
                 "window_days": int(days),
-                "telemetry_coverage": (total_usage_hours / total_expected_hours) if total_expected_hours else 0.0,
+                "telemetry_coverage": ((total_usage_hours / total_expected_hours) if total_expected_hours else 0.0),
             },
         )
         response.recommended_savings_explain = explain_metric(
@@ -503,7 +565,12 @@ def get_savings_summary(
             window=window_label,
             formula="sum(recommendation.savings_estimate) for window",
             components=[
-                Component(name="recommendation_savings_sum", value=round(recommended_savings, 2), unit="USD", source="recommendations"),
+                Component(
+                    name="recommendation_savings_sum",
+                    value=round(recommended_savings, 2),
+                    unit="USD",
+                    source="recommendations",
+                ),
             ],
             assumptions=["Recommendations are deterministic for the window."],
             inputs={
@@ -515,11 +582,7 @@ def get_savings_summary(
     return response
 
 
-@router.get(
-    "/roi",
-    response_model=ROIDashboardResponse,
-    summary="Get ROI / savings dashboard"
-)
+@router.get("/roi", response_model=ROIDashboardResponse, summary="Get ROI / savings dashboard")
 def get_roi_dashboard_endpoint(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
@@ -550,11 +613,7 @@ def get_roi_dashboard_endpoint(
     )
 
 
-@router.get(
-    "/spend",
-    response_model=MetricValue,
-    summary="Get total spend with explainability"
-)
+@router.get("/spend", response_model=MetricValue, summary="Get total spend with explainability")
 def get_total_spend(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end: date = Query(..., description="End date (YYYY-MM-DD)"),
@@ -564,13 +623,16 @@ def get_total_spend(
     if end < start:
         raise HTTPException(status_code=400, detail="end_date must be >= start_date")
     team_id = get_effective_team_id(team_api_key)
-    total_cost = db.execute(
-        select(func.sum(CostSnapshot.cost_usd)).where(
-            CostSnapshot.team_id == team_id,
-            CostSnapshot.date >= start,
-            CostSnapshot.date <= end,
-        )
-    ).scalar_one_or_none() or 0.0
+    total_cost = (
+        db.execute(
+            select(func.sum(CostSnapshot.cost_usd)).where(
+                CostSnapshot.team_id == team_id,
+                CostSnapshot.date >= start,
+                CostSnapshot.date <= end,
+            )
+        ).scalar_one_or_none()
+        or 0.0
+    )
     days = (end - start).days + 1
     return explain_metric(
         value=round(float(total_cost), 2),
@@ -578,7 +640,12 @@ def get_total_spend(
         window=f"{start.isoformat()} to {end.isoformat()}",
         formula="sum(cost_usd) across cost snapshots in window",
         components=[
-            Component(name="cost_snapshot_sum", value=round(float(total_cost), 2), unit="USD", source="cost_snapshots"),
+            Component(
+                name="cost_snapshot_sum",
+                value=round(float(total_cost), 2),
+                unit="USD",
+                source="cost_snapshots",
+            ),
         ],
         assumptions=["Cost snapshots are complete for the selected window."],
         inputs={"data_points": int(days), "window_days": int(days)},
@@ -588,7 +655,7 @@ def get_total_spend(
 @router.get(
     "/idle-waste",
     response_model=MetricValue,
-    summary="Get idle waste with explainability"
+    summary="Get idle waste with explainability",
 )
 def get_idle_waste(
     start: date = Query(..., description="Start date (YYYY-MM-DD)"),
@@ -616,15 +683,18 @@ def get_idle_waste(
     idle_waste = 0.0
     for gpu_type, provider, cost_sum, days_count in db.execute(cost_stmt).all():
         expected_hours = float(days_count) * 24.0
-        usage_hours = db.execute(
-            select(func.sum(UsageSnapshot.gpu_hours)).where(
-                UsageSnapshot.team_id == team_id,
-                UsageSnapshot.date >= start,
-                UsageSnapshot.date <= end,
-                UsageSnapshot.provider == provider,
-                UsageSnapshot.gpu_type == gpu_type,
-            )
-        ).scalar_one_or_none() or 0.0
+        usage_hours = (
+            db.execute(
+                select(func.sum(UsageSnapshot.gpu_hours)).where(
+                    UsageSnapshot.team_id == team_id,
+                    UsageSnapshot.date >= start,
+                    UsageSnapshot.date <= end,
+                    UsageSnapshot.provider == provider,
+                    UsageSnapshot.gpu_type == gpu_type,
+                )
+            ).scalar_one_or_none()
+            or 0.0
+        )
         if expected_hours > 0:
             waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
             idle_waste += float(cost_sum or 0.0) * waste_ratio
@@ -636,7 +706,12 @@ def get_idle_waste(
         window=f"{start.isoformat()} to {end.isoformat()}",
         formula="sum(cost_usd * idle_ratio), idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)",
         components=[
-            Component(name="idle_waste", value=round(idle_waste, 2), unit="USD", source="cost_snapshots"),
+            Component(
+                name="idle_waste",
+                value=round(idle_waste, 2),
+                unit="USD",
+                source="cost_snapshots",
+            ),
         ],
         assumptions=["Expected hours = 24h/day per GPU type/provider."],
         inputs={
@@ -650,7 +725,7 @@ def get_idle_waste(
 @router.post(
     "/business-metrics",
     response_model=list[BusinessMetricResponse],
-    summary="Ingest business KPI metrics"
+    summary="Ingest business KPI metrics",
 )
 def ingest_business_metrics(
     payload: BusinessMetricIngestRequest,
@@ -688,7 +763,7 @@ def ingest_business_metrics(
 @router.get(
     "/business-efficiency",
     response_model=BusinessEfficiencyResponse,
-    summary="Get cost to business KPI efficiency"
+    summary="Get cost to business KPI efficiency",
 )
 def get_business_efficiency(
     start: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
@@ -701,43 +776,52 @@ def get_business_efficiency(
     if end and start and end < start:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="end_date must be >= start_date"
+            detail="end_date must be >= start_date",
         )
     end_date = end or date.today()
     start_date = start or (end_date - timedelta(days=30))
     team_id = get_effective_team_id(team_api_key)
-    
-    total_cost = db.execute(
-        select(func.sum(CostSnapshot.cost_usd)).where(
-            CostSnapshot.team_id == team_id,
-            CostSnapshot.date >= start_date,
-            CostSnapshot.date <= end_date,
-        )
-    ).scalar_one_or_none() or 0.0
-    
-    total_revenue = db.execute(
-        select(func.sum(BusinessMetric.revenue_usd)).where(
-            BusinessMetric.team_id == team_id,
-            BusinessMetric.date >= start_date,
-            BusinessMetric.date <= end_date,
-        )
-    ).scalar_one_or_none() or 0.0
-    
-    avg_active_users = db.execute(
-        select(func.avg(BusinessMetric.active_users)).where(
-            BusinessMetric.team_id == team_id,
-            BusinessMetric.date >= start_date,
-            BusinessMetric.date <= end_date,
-        )
-    ).scalar_one_or_none() or 0.0
-    
+
+    total_cost = (
+        db.execute(
+            select(func.sum(CostSnapshot.cost_usd)).where(
+                CostSnapshot.team_id == team_id,
+                CostSnapshot.date >= start_date,
+                CostSnapshot.date <= end_date,
+            )
+        ).scalar_one_or_none()
+        or 0.0
+    )
+
+    total_revenue = (
+        db.execute(
+            select(func.sum(BusinessMetric.revenue_usd)).where(
+                BusinessMetric.team_id == team_id,
+                BusinessMetric.date >= start_date,
+                BusinessMetric.date <= end_date,
+            )
+        ).scalar_one_or_none()
+        or 0.0
+    )
+
+    avg_active_users = (
+        db.execute(
+            select(func.avg(BusinessMetric.active_users)).where(
+                BusinessMetric.team_id == team_id,
+                BusinessMetric.date >= start_date,
+                BusinessMetric.date <= end_date,
+            )
+        ).scalar_one_or_none()
+        or 0.0
+    )
+
     total_cost = float(total_cost)
     total_revenue = float(total_revenue)
     avg_active_users = float(avg_active_users)
-    
+
     revenue_per_gpu_dollar = round(total_revenue / total_cost, 4) if total_cost > 0 else 0.0
     cost_per_active_user = round(total_cost / avg_active_users, 4) if avg_active_users > 0 else 0.0
-    
+
     metrics_rows = db.execute(
         select(
             BusinessMetric.date,
@@ -770,7 +854,7 @@ def get_business_efficiency(
         .group_by(CostSnapshot.date)
     ).all()
     cost_by_date = {row[0]: float(row[1] or 0.0) for row in cost_rows}
-    
+
     trends = []
     current_date = start_date
     while current_date <= end_date:
@@ -794,7 +878,7 @@ def get_business_efficiency(
             )
         )
         current_date += timedelta(days=1)
-    
+
     window = window_days
     for idx, item in enumerate(trends):
         start_idx = max(0, idx - window + 1)
@@ -810,7 +894,7 @@ def get_business_efficiency(
         item.requests_per_gpu_dollar_smoothed = round(
             sum(t.requests_per_gpu_dollar for t in window_items) / len(window_items), 4
         )
-    
+
     response = BusinessEfficiencyResponse(
         start_date=start_date,
         end_date=end_date,
@@ -826,8 +910,18 @@ def get_business_efficiency(
             window=window_label,
             formula="total_revenue / total_cost",
             components=[
-                Component(name="total_revenue", value=round(total_revenue, 2), unit="USD", source="business_metrics"),
-                Component(name="total_cost", value=round(total_cost, 2), unit="USD", source="cost_snapshots"),
+                Component(
+                    name="total_revenue",
+                    value=round(total_revenue, 2),
+                    unit="USD",
+                    source="business_metrics",
+                ),
+                Component(
+                    name="total_cost",
+                    value=round(total_cost, 2),
+                    unit="USD",
+                    source="cost_snapshots",
+                ),
             ],
             assumptions=["Revenue and cost are summed over the same window."],
             inputs={
@@ -842,8 +936,18 @@ def get_business_efficiency(
             window=window_label,
             formula="total_cost / avg_active_users",
             components=[
-                Component(name="total_cost", value=round(total_cost, 2), unit="USD", source="cost_snapshots"),
-                Component(name="avg_active_users", value=round(avg_active_users, 2), unit="users", source="business_metrics"),
+                Component(
+                    name="total_cost",
+                    value=round(total_cost, 2),
+                    unit="USD",
+                    source="cost_snapshots",
+                ),
+                Component(
+                    name="avg_active_users",
+                    value=round(avg_active_users, 2),
+                    unit="users",
+                    source="business_metrics",
+                ),
             ],
             assumptions=["Active users averaged over the window."],
             inputs={
@@ -854,4 +958,3 @@ def get_business_efficiency(
         )
     record_api_usage(db, team_id=team_id, endpoint="business_efficiency")
     return response
-

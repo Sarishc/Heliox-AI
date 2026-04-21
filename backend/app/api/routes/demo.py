@@ -3,6 +3,7 @@
 Mounted at /api/v1/admin/demo (admin-gated) and /api/v1/demo (public status).
 Available when ENV=dev OR DEMO_MODE=True.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -45,24 +46,24 @@ DEMO_USER_PASSWORD = "demo"
 
 # (provider=cluster_name, gpu_type, base_weekday_cost, base_weekend_cost, volatility)
 COST_CONFIGS = [
-    ("prod-training",    "A100",  720.0, 180.0, 0.15),
-    ("prod-training",    "V100",  180.0,  45.0, 0.10),
-    ("prod-inference",   "V100",  450.0, 450.0, 0.05),
-    ("prod-inference",   "A10G",  225.0, 225.0, 0.05),
-    ("dev-experiments",  "T4",     90.0,  10.0, 0.20),
-    ("dev-experiments",  "A100",   60.0,   5.0, 0.25),
+    ("prod-training", "A100", 720.0, 180.0, 0.15),
+    ("prod-training", "V100", 180.0, 45.0, 0.10),
+    ("prod-inference", "V100", 450.0, 450.0, 0.05),
+    ("prod-inference", "A10G", 225.0, 225.0, 0.05),
+    ("dev-experiments", "T4", 90.0, 10.0, 0.20),
+    ("dev-experiments", "A100", 60.0, 5.0, 0.25),
 ]
 
 # (provider, gpu_type, environment, project, weekday_hours, weekend_hours)
 USAGE_CONFIGS = [
-    ("prod-training",   "A100", "prod", "nlp-team",       10.0, 2.5),
-    ("prod-training",   "A100", "prod", "cv-team",         6.0, 1.0),
-    ("prod-training",   "V100", "prod", "nlp-team",        6.0, 1.5),
-    ("prod-inference",  "V100", "prod", "nlp-team",        8.0, 8.0),
-    ("prod-inference",  "A10G", "prod", "cv-team",         6.0, 6.0),
-    ("dev-experiments", "T4",   "dev",  "platform-team",   4.0, 0.5),
-    ("dev-experiments", "A100", "dev",  "cv-team",         2.0, 0.2),
-    ("prod-training",   "V100", "prod", "platform-team",   3.0, 0.5),
+    ("prod-training", "A100", "prod", "nlp-team", 10.0, 2.5),
+    ("prod-training", "A100", "prod", "cv-team", 6.0, 1.0),
+    ("prod-training", "V100", "prod", "nlp-team", 6.0, 1.5),
+    ("prod-inference", "V100", "prod", "nlp-team", 8.0, 8.0),
+    ("prod-inference", "A10G", "prod", "cv-team", 6.0, 6.0),
+    ("dev-experiments", "T4", "dev", "platform-team", 4.0, 0.5),
+    ("dev-experiments", "A100", "dev", "cv-team", 2.0, 0.2),
+    ("prod-training", "V100", "prod", "platform-team", 3.0, 0.5),
 ]
 
 RECOMMENDATIONS = [
@@ -173,6 +174,7 @@ RECOMMENDATIONS = [
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def _fp(val: str) -> str:
     """Stable 16-char fingerprint for deduplication."""
     return hashlib.sha256(val.encode()).hexdigest()[:16]
@@ -207,11 +209,7 @@ def _seed_demo_team_and_user(db: Session) -> tuple[Team, User, str]:
     db.flush()
 
     # Membership (viewer role)
-    membership = (
-        db.query(TeamMember)
-        .filter(TeamMember.team_id == team.id, TeamMember.user_id == user.id)
-        .first()
-    )
+    membership = db.query(TeamMember).filter(TeamMember.team_id == team.id, TeamMember.user_id == user.id).first()
     if not membership:
         membership = TeamMember(
             id=uuid4(),
@@ -248,24 +246,12 @@ def _clear_demo_data(db: Session, team_id) -> dict:
     counts["recommendation_actions"] = db.execute(
         delete(RecommendationAction).where(RecommendationAction.team_id == team_id)
     ).rowcount
-    counts["budget_events"] = db.execute(
-        delete(BudgetEvent).where(BudgetEvent.team_id == team_id)
-    ).rowcount
-    counts["budget_policies"] = db.execute(
-        delete(BudgetPolicy).where(BudgetPolicy.team_id == team_id)
-    ).rowcount
-    counts["usage_snapshots"] = db.execute(
-        delete(UsageSnapshot).where(UsageSnapshot.team_id == team_id)
-    ).rowcount
-    counts["cost_snapshots"] = db.execute(
-        delete(CostSnapshot).where(CostSnapshot.team_id == team_id)
-    ).rowcount
-    counts["jobs"] = db.execute(
-        delete(Job).where(Job.team_id == team_id)
-    ).rowcount
-    counts["inference_spans"] = db.execute(
-        delete(InferenceSpan).where(InferenceSpan.team_id == team_id)
-    ).rowcount
+    counts["budget_events"] = db.execute(delete(BudgetEvent).where(BudgetEvent.team_id == team_id)).rowcount
+    counts["budget_policies"] = db.execute(delete(BudgetPolicy).where(BudgetPolicy.team_id == team_id)).rowcount
+    counts["usage_snapshots"] = db.execute(delete(UsageSnapshot).where(UsageSnapshot.team_id == team_id)).rowcount
+    counts["cost_snapshots"] = db.execute(delete(CostSnapshot).where(CostSnapshot.team_id == team_id)).rowcount
+    counts["jobs"] = db.execute(delete(Job).where(Job.team_id == team_id)).rowcount
+    counts["inference_spans"] = db.execute(delete(InferenceSpan).where(InferenceSpan.team_id == team_id)).rowcount
     db.flush()
     return counts
 
@@ -289,14 +275,16 @@ def _seed_costs(db: Session, team_id, today: date) -> int:
             if current == anomaly_day and provider == "prod-training" and gpu_type == "A100":
                 cost = round(base_wd * 2.5, 2)
 
-            db.add(CostSnapshot(
-                id=uuid4(),
-                team_id=team_id,
-                date=current,
-                provider=provider,
-                gpu_type=gpu_type,
-                cost_usd=Decimal(str(cost)),
-            ))
+            db.add(
+                CostSnapshot(
+                    id=uuid4(),
+                    team_id=team_id,
+                    date=current,
+                    provider=provider,
+                    gpu_type=gpu_type,
+                    cost_usd=Decimal(str(cost)),
+                )
+            )
             count += 1
         current += timedelta(days=1)
 
@@ -316,16 +304,18 @@ def _seed_usage(db: Session, team_id, today: date) -> int:
         for provider, gpu_type, env, project, wday_hrs, wend_hrs in USAGE_CONFIGS:
             base_hrs = wend_hrs if is_weekend else wday_hrs
             hrs = round(base_hrs * (1.0 + rng.uniform(-0.1, 0.1)), 2)
-            db.add(UsageSnapshot(
-                id=uuid4(),
-                team_id=team_id,
-                date=current,
-                provider=provider,
-                gpu_type=gpu_type,
-                environment=env,
-                project=project,
-                gpu_hours=Decimal(str(hrs)),
-            ))
+            db.add(
+                UsageSnapshot(
+                    id=uuid4(),
+                    team_id=team_id,
+                    date=current,
+                    provider=provider,
+                    gpu_type=gpu_type,
+                    environment=env,
+                    project=project,
+                    gpu_hours=Decimal(str(hrs)),
+                )
+            )
             count += 1
         current += timedelta(days=1)
 
@@ -341,10 +331,10 @@ def _seed_budgets(db: Session, team_id, today: date) -> dict:
     # Budget policies: org-wide + per sub-team
     budget_defs = [
         # (environment, project, monthly_usd, thresholds)
-        (BudgetEnvironment.prod, None,             50_000.0, [75, 90, 100]),
-        (BudgetEnvironment.prod, "nlp-team",       20_000.0, [80, 100]),
-        (BudgetEnvironment.prod, "cv-team",        15_000.0, [80, 100]),
-        (BudgetEnvironment.dev,  "platform-team",  10_000.0, [90, 100]),
+        (BudgetEnvironment.prod, None, 50_000.0, [75, 90, 100]),
+        (BudgetEnvironment.prod, "nlp-team", 20_000.0, [80, 100]),
+        (BudgetEnvironment.prod, "cv-team", 15_000.0, [80, 100]),
+        (BudgetEnvironment.dev, "platform-team", 10_000.0, [90, 100]),
     ]
 
     created_policies = []
@@ -369,32 +359,36 @@ def _seed_budgets(db: Session, team_id, today: date) -> dict:
     # Resolved anomaly event — 21 days ago when the spike hit 78% of month budget
     anomaly_day = today - timedelta(days=21)
     spike_spend = round(org_budget * 0.78, 2)
-    db.add(BudgetEvent(
-        id=uuid4(),
-        team_id=team_id,
-        budget_policy_id=org_policy.id,
-        date=anomaly_day,
-        threshold=Decimal("0.75"),
-        spend_usd=Decimal(str(spike_spend)),
-        budget_usd=Decimal(str(org_budget)),
-        predicted_breach_date=anomaly_day + timedelta(days=4),
-        delivered_via="slack",
-    ))
+    db.add(
+        BudgetEvent(
+            id=uuid4(),
+            team_id=team_id,
+            budget_policy_id=org_policy.id,
+            date=anomaly_day,
+            threshold=Decimal("0.75"),
+            spend_usd=Decimal(str(spike_spend)),
+            budget_usd=Decimal(str(org_budget)),
+            predicted_breach_date=anomaly_day + timedelta(days=4),
+            delivered_via="slack",
+        )
+    )
     events_created += 1
 
     # Active warning — current month at ~85% of budget
     mtd_spend = round(org_budget * 0.85, 2)
-    db.add(BudgetEvent(
-        id=uuid4(),
-        team_id=team_id,
-        budget_policy_id=org_policy.id,
-        date=today,
-        threshold=Decimal("0.90"),
-        spend_usd=Decimal(str(mtd_spend)),
-        budget_usd=Decimal(str(org_budget)),
-        predicted_breach_date=today + timedelta(days=3),
-        delivered_via="none",
-    ))
+    db.add(
+        BudgetEvent(
+            id=uuid4(),
+            team_id=team_id,
+            budget_policy_id=org_policy.id,
+            date=today,
+            threshold=Decimal("0.90"),
+            spend_usd=Decimal(str(mtd_spend)),
+            budget_usd=Decimal(str(org_budget)),
+            predicted_breach_date=today + timedelta(days=3),
+            delivered_via="none",
+        )
+    )
     events_created += 1
     db.flush()
 
@@ -413,16 +407,24 @@ def _seed_inference_spans(db: Session, team_id, today: date) -> int:
 
     models = [
         # (model_name, cluster_name, base_reqs_per_day, avg_duration_ms, avg_input, avg_output, cost_per_span)
-        ("llama-3-70b",         "prod-inference", 200, 1400.0, 512, 256, 0.0025),
-        ("stable-diffusion-xl", "prod-inference",  80, 4500.0,   0,   0, 0.0180),
-        ("llama-3-70b",         "dev-experiments",  20,  900.0, 256, 128, 0.0012),
+        ("llama-3-70b", "prod-inference", 200, 1400.0, 512, 256, 0.0025),
+        ("stable-diffusion-xl", "prod-inference", 80, 4500.0, 0, 0, 0.0180),
+        ("llama-3-70b", "dev-experiments", 20, 900.0, 256, 128, 0.0012),
     ]
 
     for days_ago in range(30, -1, -1):
         day = today - timedelta(days=days_ago)
         is_weekend = day.weekday() >= 5
 
-        for model_name, cluster, base_reqs, avg_dur, avg_in, avg_out, cost_per in models:
+        for (
+            model_name,
+            cluster,
+            base_reqs,
+            avg_dur,
+            avg_in,
+            avg_out,
+            cost_per,
+        ) in models:
             load = 0.4 if is_weekend else 1.0
             n = max(1, int(base_reqs * load * rng.uniform(0.8, 1.2)))
 
@@ -431,8 +433,12 @@ def _seed_inference_spans(db: Session, team_id, today: date) -> int:
                 minute = rng.randint(0, 59)
                 second = rng.randint(0, 59)
                 started_at = datetime(
-                    day.year, day.month, day.day,
-                    hour, minute, second,
+                    day.year,
+                    day.month,
+                    day.day,
+                    hour,
+                    minute,
+                    second,
                     tzinfo=timezone.utc,
                 )
                 dur = max(50.0, rng.gauss(avg_dur, avg_dur * 0.3))
@@ -445,23 +451,25 @@ def _seed_inference_spans(db: Session, team_id, today: date) -> int:
                 cost = round(cost_per * rng.uniform(0.7, 1.3), 8)
                 cost_per_1k = round((cost / total_tok) * 1000, 8) if total_tok else None
 
-                db.add(InferenceSpan(
-                    id=uuid4(),
-                    team_id=team_id,
-                    model_name=model_name,
-                    serving_framework="vllm" if "llama" in model_name else "custom",
-                    cluster_name=cluster,
-                    request_id=f"demo-{uuid4().hex[:16]}",
-                    duration_ms=round(dur, 2),
-                    started_at=started_at,
-                    ended_at=ended_at,
-                    input_tokens=in_tok,
-                    output_tokens=out_tok,
-                    total_tokens=total_tok,
-                    gpu_type="V100" if cluster == "prod-inference" else "T4",
-                    cost_usd=cost,
-                    cost_per_1k_tokens=cost_per_1k,
-                ))
+                db.add(
+                    InferenceSpan(
+                        id=uuid4(),
+                        team_id=team_id,
+                        model_name=model_name,
+                        serving_framework="vllm" if "llama" in model_name else "custom",
+                        cluster_name=cluster,
+                        request_id=f"demo-{uuid4().hex[:16]}",
+                        duration_ms=round(dur, 2),
+                        started_at=started_at,
+                        ended_at=ended_at,
+                        input_tokens=in_tok,
+                        output_tokens=out_tok,
+                        total_tokens=total_tok,
+                        gpu_type="V100" if cluster == "prod-inference" else "T4",
+                        cost_usd=cost,
+                        cost_per_1k_tokens=cost_per_1k,
+                    )
+                )
                 count += 1
 
     db.flush()
@@ -472,24 +480,27 @@ def _seed_recommendations(db: Session, team_id, user_id) -> int:
     """Seed 5 recommendation actions. Returns count."""
     count = 0
     for rec in RECOMMENDATIONS:
-        db.add(RecommendationAction(
-            id=uuid4(),
-            team_id=team_id,
-            recommendation_fingerprint=_fp(rec["fingerprint"]),
-            status="dismissed",  # visible as a past recommendation
-            action_type=rec["action_type"],
-            estimated_savings_usd=rec["savings"],
-            recommendation_snapshot=rec["snapshot"],
-            applied_by_user_id=None,
-            provider=rec.get("provider"),
-            gpu_type=rec.get("gpu_type"),
-        ))
+        db.add(
+            RecommendationAction(
+                id=uuid4(),
+                team_id=team_id,
+                recommendation_fingerprint=_fp(rec["fingerprint"]),
+                status="dismissed",  # visible as a past recommendation
+                action_type=rec["action_type"],
+                estimated_savings_usd=rec["savings"],
+                recommendation_snapshot=rec["snapshot"],
+                applied_by_user_id=None,
+                provider=rec.get("provider"),
+                gpu_type=rec.get("gpu_type"),
+            )
+        )
         count += 1
     db.flush()
     return count
 
 
 # ── admin-gated routes ────────────────────────────────────────────────────────
+
 
 class SeedResponse(BaseModel):
     status: str
@@ -578,13 +589,15 @@ def seed_demo_data(
                 TeamAPIKey.key_name == "load-test",
             ).update({"is_active": False})
             raw_lt = TeamAPIKey.generate_key()
-            db.add(TeamAPIKey(
-                id=uuid4(),
-                team_id=lt_team.id,
-                key_name="load-test",
-                key_hash=TeamAPIKey.hash_key(raw_lt),
-                is_active=True,
-            ))
+            db.add(
+                TeamAPIKey(
+                    id=uuid4(),
+                    team_id=lt_team.id,
+                    key_name="load-test",
+                    key_hash=TeamAPIKey.hash_key(raw_lt),
+                    is_active=True,
+                )
+            )
             db.commit()
             load_test_api_key = raw_lt
         except Exception as e:
@@ -677,6 +690,7 @@ def get_demo_teams(
 
 # ── public routes (no auth) ───────────────────────────────────────────────────
 
+
 @public_router.get(
     "/status",
     summary="Demo environment status (public)",
@@ -688,8 +702,7 @@ def get_public_demo_status() -> Any:
         return {"is_demo": False}
 
     expires_at = (
-        datetime.now(timezone.utc).replace(hour=3, minute=0, second=0, microsecond=0)
-        + timedelta(days=1)
+        datetime.now(timezone.utc).replace(hour=3, minute=0, second=0, microsecond=0) + timedelta(days=1)
     ).isoformat()
 
     return {

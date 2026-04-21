@@ -1,4 +1,5 @@
 """Pytest fixtures for database sessions."""
+
 import os
 import pytest
 from sqlalchemy import create_engine
@@ -35,11 +36,7 @@ def db_engine():
         "SECRET_KEY",
         "test-secret-key-at-least-32-characters-long-for-pytest",
     )
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool
-    )
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(bind=engine)
     return engine
 

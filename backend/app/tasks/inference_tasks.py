@@ -7,7 +7,6 @@ from datetime import date, datetime, timedelta, timezone
 
 from app.celery_app import celery_app
 from app.core.db import SessionLocal
-from app.models.team import Team
 from app.services.inference_cost_attribution import (
     attribute_costs_for_window,
     rollup_daily_summaries,
@@ -50,10 +49,13 @@ def attribute_inference_costs(
         )
         db.commit()
         logger.info(
-            "inference.attribute_costs: team=%s window=[%s, %s] "
-            "attributed=%d skipped=%d errors=%d",
-            team_id, start_iso, end_iso,
-            result.spans_attributed, result.spans_skipped, len(result.errors),
+            "inference.attribute_costs: team=%s window=[%s, %s] " "attributed=%d skipped=%d errors=%d",
+            team_id,
+            start_iso,
+            end_iso,
+            result.spans_attributed,
+            result.spans_skipped,
+            len(result.errors),
         )
         return {
             "spans_attributed": result.spans_attributed,
@@ -93,11 +95,13 @@ def inference_daily_rollup(self, rollup_date_iso: str | None = None) -> dict:
     db = SessionLocal()
     try:
         # Find all teams with spans on this date
-        team_ids = db.execute(
-            select(InferenceSpan.team_id)
-            .where(func.date(InferenceSpan.started_at) == target_date)
-            .distinct()
-        ).scalars().all()
+        team_ids = (
+            db.execute(
+                select(InferenceSpan.team_id).where(func.date(InferenceSpan.started_at) == target_date).distinct()
+            )
+            .scalars()
+            .all()
+        )
 
         written_total = 0
         for team_id in team_ids:
@@ -107,7 +111,9 @@ def inference_daily_rollup(self, rollup_date_iso: str | None = None) -> dict:
         db.commit()
         logger.info(
             "inference.daily_rollup: date=%s teams=%d summaries_written=%d",
-            target_date, len(team_ids), written_total,
+            target_date,
+            len(team_ids),
+            written_total,
         )
         return {
             "date": str(target_date),

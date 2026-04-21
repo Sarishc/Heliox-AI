@@ -1,16 +1,25 @@
 """Prometheus metrics for request latency, error rate, and throughput."""
-from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+from prometheus_client import (
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 
 # Paths excluded from metrics (health probes, metrics endpoint - avoid noise)
-METRICS_EXCLUDED_PATHS = frozenset({
-    "/health",
-    "/health/db",
-    "/liveness",
-    "/readiness",
-    "/ready",
-    "/metrics",
-    "/",
-})
+METRICS_EXCLUDED_PATHS = frozenset(
+    {
+        "/health",
+        "/health/db",
+        "/liveness",
+        "/readiness",
+        "/ready",
+        "/metrics",
+        "/",
+    }
+)
 
 # Request count by method, path, status
 REQUEST_COUNT = Counter(

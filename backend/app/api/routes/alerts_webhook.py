@@ -1,8 +1,9 @@
 """Team-scoped Slack webhook and email alert management."""
-from typing import Any, Optional
+
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_active_user
@@ -35,11 +36,7 @@ def set_slack_webhook(
         team_id=team_id,
         allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
     )
-    settings = (
-        db.query(AlertSettings)
-        .filter(AlertSettings.team_id == team_id)
-        .first()
-    )
+    settings = db.query(AlertSettings).filter(AlertSettings.team_id == team_id).first()
     set_webhook_url(db, team_id, payload.slack_webhook_url)
     return SlackWebhookResponse(
         team_id=team_id,
@@ -99,11 +96,7 @@ def get_email_alerts(
         team_id=team_id,
         allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
     )
-    settings = (
-        db.query(AlertSettings)
-        .filter(AlertSettings.team_id == team_id)
-        .first()
-    )
+    settings = db.query(AlertSettings).filter(AlertSettings.team_id == team_id).first()
     if not settings:
         return EmailAlertsResponse(
             team_id=team_id,
@@ -133,11 +126,7 @@ def set_email_alerts(
         team_id=payload.team_id,
         allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
     )
-    settings = (
-        db.query(AlertSettings)
-        .filter(AlertSettings.team_id == payload.team_id)
-        .first()
-    )
+    settings = db.query(AlertSettings).filter(AlertSettings.team_id == payload.team_id).first()
     if not settings:
         settings = AlertSettings(team_id=payload.team_id)
         db.add(settings)
@@ -177,11 +166,7 @@ def delete_email_alerts(
         team_id=team_id,
         allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
     )
-    settings = (
-        db.query(AlertSettings)
-        .filter(AlertSettings.team_id == team_id)
-        .first()
-    )
+    settings = db.query(AlertSettings).filter(AlertSettings.team_id == team_id).first()
     if settings:
         settings.enable_email = False
         settings.email_recipients = None

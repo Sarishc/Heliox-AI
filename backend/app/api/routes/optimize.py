@@ -1,4 +1,5 @@
 """Optimization recommendations endpoint."""
+
 from datetime import date
 from typing import Any
 
@@ -21,7 +22,7 @@ router = APIRouter()
 @router.get(
     "/recommendations",
     summary="Self-Optimizing Advisor recommendations",
-    description="Generate deterministic optimization actions for a team."
+    description="Generate deterministic optimization actions for a team.",
 )
 def get_optimizer_recommendations(
     start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
@@ -47,7 +48,12 @@ def get_optimizer_recommendations(
                 window=f"{window_days} days",
                 formula="total_cost * idle_pct",
                 components=[
-                    Component(name="savings_estimate", value=float(action.get("savings_estimate") or 0.0), unit="USD", source="optimizer"),
+                    Component(
+                        name="savings_estimate",
+                        value=float(action.get("savings_estimate") or 0.0),
+                        unit="USD",
+                        source="optimizer",
+                    ),
                 ],
                 assumptions=["Idle percentage derived from usage vs expected hours."],
                 inputs={
@@ -62,7 +68,7 @@ def get_optimizer_recommendations(
 @router.get(
     "/roi",
     summary="Optimization ROI recommendations",
-    description="Generate optimization actions with ROI and payback details."
+    description="Generate optimization actions with ROI and payback details.",
 )
 def get_optimizer_roi(
     start_date: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
@@ -96,10 +102,22 @@ def get_optimizer_roi(
                 window=f"{window_days} days",
                 formula="(savings_estimate - execution_cost) / execution_cost",
                 components=[
-                    Component(name="savings_estimate", value=float(action.get("savings_estimate") or 0.0), unit="USD", source="optimizer"),
-                    Component(name="execution_cost", value=float(action.get("execution_cost") or 0.0), unit="USD", source="optimizer"),
+                    Component(
+                        name="savings_estimate",
+                        value=float(action.get("savings_estimate") or 0.0),
+                        unit="USD",
+                        source="optimizer",
+                    ),
+                    Component(
+                        name="execution_cost",
+                        value=float(action.get("execution_cost") or 0.0),
+                        unit="USD",
+                        source="optimizer",
+                    ),
                 ],
-                assumptions=[str(action.get("execution_cost_assumptions") or "Execution cost derived from optimizer heuristics.")],
+                assumptions=[
+                    str(action.get("execution_cost_assumptions") or "Execution cost derived from optimizer heuristics.")
+                ],
                 inputs={
                     "window_days": window_days,
                     "data_points": window_days,

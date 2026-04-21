@@ -1,9 +1,9 @@
 """Schemas for savings summary endpoint."""
+
 from __future__ import annotations
 
 from datetime import date
 from pydantic import BaseModel, Field
-from typing import Optional
 
 
 class SavingsSummaryResponse(BaseModel):

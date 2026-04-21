@@ -1,4 +1,5 @@
 """Base CRUD operations."""
+
 from typing import Generic, List, Optional, Type, TypeVar
 from uuid import UUID
 
@@ -15,60 +16,54 @@ UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
 class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     """
     Base class for CRUD operations.
-    
+
     Provides generic create, read, update, delete operations.
     """
-    
+
     def __init__(self, model: Type[ModelType]):
         """
         Initialize CRUD object with model class.
-        
+
         Args:
             model: SQLAlchemy model class
         """
         self.model = model
-    
+
     def get(self, db: Session, id: UUID) -> Optional[ModelType]:
         """
         Get a single record by ID.
-        
+
         Args:
             db: Database session
             id: Record UUID
-            
+
         Returns:
             Model instance or None if not found
         """
         return db.query(self.model).filter(self.model.id == id).first()
-    
-    def get_multi(
-        self,
-        db: Session,
-        *,
-        skip: int = 0,
-        limit: int = 100
-    ) -> List[ModelType]:
+
+    def get_multi(self, db: Session, *, skip: int = 0, limit: int = 100) -> List[ModelType]:
         """
         Get multiple records with pagination.
-        
+
         Args:
             db: Database session
             skip: Number of records to skip
             limit: Maximum number of records to return
-            
+
         Returns:
             List of model instances
         """
         return db.query(self.model).offset(skip).limit(limit).all()
-    
+
     def create(self, db: Session, *, obj_in: CreateSchemaType) -> ModelType:
         """
         Create a new record.
-        
+
         Args:
             db: Database session
             obj_in: Pydantic schema with create data
-            
+
         Returns:
             Created model instance
         """
@@ -78,22 +73,16 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.commit()
         db.refresh(db_obj)
         return db_obj
-    
-    def update(
-        self,
-        db: Session,
-        *,
-        db_obj: ModelType,
-        obj_in: UpdateSchemaType
-    ) -> ModelType:
+
+    def update(self, db: Session, *, db_obj: ModelType, obj_in: UpdateSchemaType) -> ModelType:
         """
         Update an existing record.
-        
+
         Args:
             db: Database session
             db_obj: Existing model instance
             obj_in: Pydantic schema with update data
-            
+
         Returns:
             Updated model instance
         """
@@ -104,15 +93,15 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         db.commit()
         db.refresh(db_obj)
         return db_obj
-    
+
     def delete(self, db: Session, *, id: UUID) -> Optional[ModelType]:
         """
         Delete a record by ID.
-        
+
         Args:
             db: Database session
             id: Record UUID
-            
+
         Returns:
             Deleted model instance or None if not found
         """
@@ -121,4 +110,3 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             db.delete(obj)
             db.commit()
         return obj
-

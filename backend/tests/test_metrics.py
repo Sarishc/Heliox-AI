@@ -1,5 +1,4 @@
 """Tests for Prometheus metrics endpoint and middleware."""
-import re
 
 import pytest
 
@@ -67,7 +66,7 @@ def test_request_metrics_increment_after_api_call(client: TestClient):
 
 def test_health_paths_excluded_from_metrics(client: TestClient):
     """Health and probe paths are excluded from request metrics (no probe noise)."""
-    from app.core.metrics import METRICS_EXCLUDED_PATHS, should_record_metrics
+    from app.core.metrics import should_record_metrics
 
     assert not should_record_metrics("/health")
     assert not should_record_metrics("/metrics")

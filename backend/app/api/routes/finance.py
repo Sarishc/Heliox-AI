@@ -1,4 +1,5 @@
 """Finance runway endpoint."""
+
 from datetime import date
 from typing import Any, Optional
 
@@ -20,7 +21,7 @@ router = APIRouter()
 @router.get(
     "/runway",
     summary="Infra runway forecast",
-    description="Predict infra runway based on current burn."
+    description="Predict infra runway based on current burn.",
 )
 def get_runway_forecast(
     budget_usd_monthly: float | None = Query(None, gt=0),
@@ -42,9 +43,9 @@ def get_runway_forecast(
     if budget is None:
         raise HTTPException(
             status_code=400,
-            detail="budget_usd_monthly is required or set team.monthly_budget_usd"
+            detail="budget_usd_monthly is required or set team.monthly_budget_usd",
         )
-    
+
     service = FinanceForecastService(db)
     result = service.compute_runway(
         team_id=team_id,
@@ -52,7 +53,7 @@ def get_runway_forecast(
         start_date=start_date,
         end_date=end_date,
         method=method,
-        top_n=top_n
+        top_n=top_n,
     )
     record_api_usage(db, team_id=team_id, endpoint="finance_runway")
     return result

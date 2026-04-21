@@ -1,4 +1,5 @@
 """Tests for email alert functionality."""
+
 import pytest
 from uuid import uuid4
 

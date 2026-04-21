@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-from uuid import UUID
 
-import pytest
 
 from app.models.cost import CostSnapshot
 from app.models.inference import InferenceSpan, ModelCostSummary
@@ -17,8 +14,8 @@ from app.services.inference_cost_attribution import (
     rollup_daily_summaries,
 )
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_team(db, name="Test Team"):
     t = Team(name=name)
@@ -74,6 +71,7 @@ def _make_cost_snapshot(db, team_id, cost_usd=100.0, day=None, provider="gpu-pro
 
 # ── attribution engine ────────────────────────────────────────────────────────
 
+
 def test_attribute_costs_proportional_by_duration(db_session):
     """Costs split proportionally: 2x duration → 2x cost."""
     team = _make_team(db_session)
@@ -105,9 +103,12 @@ def test_attribute_costs_sets_cost_per_1k_tokens(db_session):
 
     _make_cost_snapshot(db_session, team.id, cost_usd=100.0, day=day)
     span = _make_span(
-        db_session, team.id,
-        duration_ms=1000.0, started_at=start,
-        input_tokens=500, output_tokens=500,
+        db_session,
+        team.id,
+        duration_ms=1000.0,
+        started_at=start,
+        input_tokens=500,
+        output_tokens=500,
     )
 
     attribute_costs_for_window(db_session, team.id, start, end)
@@ -199,15 +200,14 @@ def test_attribute_costs_cluster_filter(db_session):
     _make_cost_snapshot(db_session, team.id, cost_usd=100.0, day=day, provider="cluster-a")
     span_a = _make_span(db_session, team.id, started_at=start, cluster_name="cluster-a")
     span_b = _make_span(
-        db_session, team.id,
+        db_session,
+        team.id,
         model_name="sd-xl",
         started_at=start,
         cluster_name="cluster-b",
     )
 
-    result = attribute_costs_for_window(
-        db_session, team.id, start, end, cluster_name="cluster-a"
-    )
+    result = attribute_costs_for_window(db_session, team.id, start, end, cluster_name="cluster-a")
 
     assert result.spans_attributed == 1
     assert span_a.cost_usd is not None
@@ -215,6 +215,7 @@ def test_attribute_costs_cluster_filter(db_session):
 
 
 # ── daily rollup ──────────────────────────────────────────────────────────────
+
 
 def test_rollup_creates_model_cost_summary(db_session):
     """rollup_daily_summaries writes one ModelCostSummary per (model, cluster, day)."""
@@ -228,9 +229,7 @@ def test_rollup_creates_model_cost_summary(db_session):
     written = rollup_daily_summaries(db_session, team.id, day)
     assert written >= 1
 
-    summary = db_session.query(ModelCostSummary).filter_by(
-        team_id=team.id, model_name="llama-3-70b", date=day
-    ).first()
+    summary = db_session.query(ModelCostSummary).filter_by(team_id=team.id, model_name="llama-3-70b", date=day).first()
     assert summary is not None
     assert summary.request_count == 3
     assert abs(summary.total_cost_usd - 30.0) < 0.001
@@ -250,13 +249,20 @@ def test_rollup_groups_by_model(db_session):
     t = datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc)
 
     _make_span(db_session, team.id, model_name="llama-3-70b", started_at=t, cost_usd=20.0)
-    _make_span(db_session, team.id, model_name="stable-diffusion-xl", started_at=t, cost_usd=15.0)
+    _make_span(
+        db_session,
+        team.id,
+        model_name="stable-diffusion-xl",
+        started_at=t,
+        cost_usd=15.0,
+    )
 
     written = rollup_daily_summaries(db_session, team.id, day)
     assert written == 2
 
 
 # ── OTLP parsing (unit) ───────────────────────────────────────────────────────
+
 
 def test_parse_otlp_extracts_model_and_tokens():
     """_parse_otlp correctly maps OTel attributes to InferenceSpan fields."""
@@ -265,14 +271,16 @@ def test_parse_otlp_extracts_model_and_tokens():
 
     team_id = uuid4()
     start_ns = 1_700_000_000_000_000_000  # Unix ns
-    end_ns = start_ns + 1_234_000_000     # +1.234s
+    end_ns = start_ns + 1_234_000_000  # +1.234s
 
     payload = {
         "resourceSpans": [
             {
-                "resource": {"attributes": [
-                    {"key": "service.name", "value": {"stringValue": "my-vllm"}},
-                ]},
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": "my-vllm"}},
+                    ]
+                },
                 "scopeSpans": [
                     {
                         "spans": [
@@ -282,9 +290,18 @@ def test_parse_otlp_extracts_model_and_tokens():
                                 "startTimeUnixNano": str(start_ns),
                                 "endTimeUnixNano": str(end_ns),
                                 "attributes": [
-                                    {"key": "llm.model_name", "value": {"stringValue": "llama-3-70b"}},
-                                    {"key": "gen_ai.usage.input_tokens", "value": {"intValue": "512"}},
-                                    {"key": "gen_ai.usage.output_tokens", "value": {"intValue": "256"}},
+                                    {
+                                        "key": "llm.model_name",
+                                        "value": {"stringValue": "llama-3-70b"},
+                                    },
+                                    {
+                                        "key": "gen_ai.usage.input_tokens",
+                                        "value": {"intValue": "512"},
+                                    },
+                                    {
+                                        "key": "gen_ai.usage.output_tokens",
+                                        "value": {"intValue": "256"},
+                                    },
                                 ],
                             }
                         ]

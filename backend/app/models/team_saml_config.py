@@ -1,4 +1,5 @@
 """Team SAML configuration for Okta and other SAML 2.0 IdPs."""
+
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
@@ -32,11 +33,12 @@ class TeamSamlConfig(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     default_role: Mapped[str] = mapped_column(String(32), nullable=False, default="viewer")
 
-    created_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     team = relationship("Team", back_populates="saml_config", uselist=False)

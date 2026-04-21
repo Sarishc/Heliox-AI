@@ -1,6 +1,7 @@
 """Schemas for optimization experiments."""
+
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Dict
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -26,7 +27,7 @@ class ExperimentResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 

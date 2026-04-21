@@ -1,23 +1,23 @@
 """Celery application for async tasks and scheduled jobs."""
+
 from celery import Celery, signals
 from celery.schedules import crontab
 
 from app.core.config import get_settings
 
+
 # Initialize Sentry when worker starts (must run before tasks are loaded)
 @signals.worker_init.connect
 def _init_sentry_on_worker(**kwargs):
     from app.core.observability import init_sentry_celery
+
     init_sentry_celery()
+
 
 settings = get_settings()
 
 # Create Celery app first (before importing tasks to avoid circular import)
-celery_app = Celery(
-    "heliox",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL
-)
+celery_app = Celery("heliox", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
 
 # Celery configuration
 celery_app.conf.update(
@@ -31,7 +31,7 @@ celery_app.conf.update(
     task_soft_time_limit=240,  # 4 minutes soft limit
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
-    beat_schedule_filename='celerybeat-schedule.db',  # Local; use /app/data in Docker
+    beat_schedule_filename="celerybeat-schedule.db",  # Local; use /app/data in Docker
 )
 
 # Celery Beat schedule
@@ -39,35 +39,22 @@ celery_app.conf.beat_schedule = {
     # Daily summary at 9 AM local time
     "daily-summary": {
         "task": "app.tasks.slack_tasks.send_daily_summary_task",
-        "schedule": crontab(
-            hour=settings.DAILY_SUMMARY_HOUR or 9,
-            minute=0
-        ),
+        "schedule": crontab(hour=settings.DAILY_SUMMARY_HOUR or 9, minute=0),
     },
     # Weekly report every Monday at 9 AM UTC
     "weekly-report": {
         "task": "app.tasks.slack_tasks.send_weekly_report_task",
-        "schedule": crontab(
-            hour=9,
-            minute=0,
-            day_of_week=1
-        ),
+        "schedule": crontab(hour=9, minute=0, day_of_week=1),
     },
     # Check burn rate every hour (8 AM - 8 PM)
     "check-burn-rate": {
         "task": "app.tasks.slack_tasks.check_burn_rate_task",
-        "schedule": crontab(
-            hour="8-20",
-            minute=0
-        ),
+        "schedule": crontab(hour="8-20", minute=0),
     },
     # Check idle spend twice daily (10 AM, 4 PM)
     "check-idle-spend": {
         "task": "app.tasks.slack_tasks.check_idle_spend_task",
-        "schedule": crontab(
-            hour="10,16",
-            minute=0
-        ),
+        "schedule": crontab(hour="10,16", minute=0),
     },
     # Check anomalies every 6 hours
     "check-anomalies": {
@@ -81,10 +68,7 @@ celery_app.conf.beat_schedule = {
     # Daily rollups at 1 AM
     "daily-rollups": {
         "task": "app.tasks.rollup_tasks.compute_daily_rollups",
-        "schedule": crontab(
-            hour=1,
-            minute=0
-        ),
+        "schedule": crontab(hour=1, minute=0),
     },
     # Integration syncs every 5 minutes
     "integration-syncs": {
@@ -136,4 +120,3 @@ import app.tasks.integration_tasks  # noqa: F401
 import app.tasks.rollup_tasks  # noqa: F401
 import app.tasks.slack_tasks  # noqa: F401
 import app.tasks.usage_tasks  # noqa: F401
-

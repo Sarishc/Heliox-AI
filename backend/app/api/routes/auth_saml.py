@@ -1,4 +1,5 @@
 """SAML 2.0 authentication routes for Okta and other IdPs."""
+
 import logging
 from typing import Optional
 
@@ -24,6 +25,7 @@ settings = get_settings()
 
 class SamlLoginRequest(BaseModel):
     """Request to initiate SAML login."""
+
     team_id: str = Field(description="Team ID for SSO")
     redirect_uri: Optional[str] = Field(default=None, description="Frontend redirect after login")
 

@@ -9,26 +9,30 @@ Verifies that:
   5. All expected top-level API prefixes are present.
   6. The six originally-stray route files are now under api/routes/, not api/.
 """
+
 import importlib
 import sys
 from collections import Counter
 
-
 # ── 1. App imports cleanly ────────────────────────────────────────────────────
+
 
 def test_app_imports_without_error():
     """Importing the FastAPI application raises no errors."""
     from app.main import app
+
     assert app is not None
 
 
 def test_api_router_imports_without_error():
     """Importing the top-level api_router succeeds."""
     from app.api import api_router
+
     assert api_router is not None
 
 
 # ── 2. No duplicate routes ────────────────────────────────────────────────────
+
 
 def test_no_duplicate_routes():
     """
@@ -43,7 +47,7 @@ def test_no_duplicate_routes():
     combos = []
     for route in app.routes:
         if hasattr(route, "methods") and hasattr(route, "path"):
-            for method in (route.methods or []):
+            for method in route.methods or []:
                 combos.append((method, route.path))
 
     counts = Counter(combos)
@@ -52,6 +56,7 @@ def test_no_duplicate_routes():
 
 
 # ── 3. Every route has non-empty tags ────────────────────────────────────────
+
 
 def test_every_openapi_route_has_tags():
     """Every endpoint in the OpenAPI schema has at least one tag."""
@@ -65,10 +70,11 @@ def test_every_openapi_route_has_tags():
                 if not op.get("tags"):
                     missing.append(f"{method.upper()} {path}")
 
-    assert not missing, f"Routes missing tags:\n" + "\n".join(f"  {r}" for r in missing)
+    assert not missing, "Routes missing tags:\n" + "\n".join(f"  {r}" for r in missing)
 
 
 # ── 4. Every route has a non-empty summary ───────────────────────────────────
+
 
 def test_every_openapi_route_has_summary():
     """Every endpoint in the OpenAPI schema has a non-empty summary."""
@@ -82,10 +88,11 @@ def test_every_openapi_route_has_summary():
                 if not op.get("summary"):
                     missing.append(f"{method.upper()} {path}")
 
-    assert not missing, f"Routes missing summary:\n" + "\n".join(f"  {r}" for r in missing)
+    assert not missing, "Routes missing summary:\n" + "\n".join(f"  {r}" for r in missing)
 
 
 # ── 5. Expected top-level prefixes are present ───────────────────────────────
+
 
 def test_expected_prefixes_present():
     """
@@ -125,6 +132,7 @@ def test_expected_prefixes_present():
 
 # ── 6. Old api/ files are gone; routes are in api/routes/ ────────────────────
 
+
 def test_stray_route_files_removed_from_api_root():
     """
     The six originally-stray route files (auth, costs, jobs, teams, usage, analytics)
@@ -146,6 +154,7 @@ def test_stray_route_files_removed_from_api_root():
         sys.modules.pop(mod_name, None)
 
     import importlib
+
     for mod_name in stale_modules:
         try:
             importlib.import_module(mod_name)

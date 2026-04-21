@@ -1,4 +1,5 @@
 """Base classes and exceptions for integrations."""
+
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -47,6 +48,7 @@ class IntegrationSyncError(Exception):
 
 class IntegrationProvider(str, Enum):
     """Supported integration providers."""
+
     AWS = "aws"
     GCP = "gcp"
     GCP_BILLING_BIGQUERY = "gcp_billing_bigquery"
@@ -60,6 +62,7 @@ class IntegrationProvider(str, Enum):
 
 class IntegrationStatus(str, Enum):
     """Integration connection status."""
+
     ACTIVE = "active"
     ERROR = "error"
     DISABLED = "disabled"
@@ -68,6 +71,7 @@ class IntegrationStatus(str, Enum):
 
 class SyncStatus(str, Enum):
     """Sync run status."""
+
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
@@ -76,6 +80,7 @@ class SyncStatus(str, Enum):
 
 class IntegrationHealthStatus(str, Enum):
     """Health check status."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -209,8 +214,14 @@ class IntegrationBase(ABC):
         """Return config with secret fields masked."""
         safe_config = config.copy()
         sensitive_patterns = [
-            "key", "secret", "token", "password", "credential",
-            "api_key", "access_key", "private_key"
+            "key",
+            "secret",
+            "token",
+            "password",
+            "credential",
+            "api_key",
+            "access_key",
+            "private_key",
         ]
         for key in safe_config:
             if any(p in key.lower() for p in sensitive_patterns):

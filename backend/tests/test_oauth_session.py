@@ -6,6 +6,7 @@ Verifies:
 - Redirect URL contains no token
 - Session cookie allows access to protected route
 """
+
 import pytest
 from unittest.mock import patch, AsyncMock
 
@@ -27,6 +28,7 @@ def override_get_db(db_session: Session):
             yield db_session
         finally:
             pass
+
     return _get_db
 
 
@@ -57,6 +59,7 @@ def team_with_sso(db_session: Session) -> Team:
 def oauth_state(team_with_sso: Team) -> tuple[str, str]:
     """Create valid OAuth state for callback."""
     from app.core.config import get_settings
+
     settings = get_settings()
     auth_url, state = build_google_auth_url(
         team_id=str(team_with_sso.id),
@@ -88,9 +91,7 @@ def test_oauth_callback_sets_cookie_and_redirects_without_token(
     )
     db_session.add(user)
     db_session.flush()
-    db_session.add(
-        TeamMember(user_id=user.id, team_id=team_with_sso.id, role=TeamRole.MEMBER)
-    )
+    db_session.add(TeamMember(user_id=user.id, team_id=team_with_sso.id, role=TeamRole.MEMBER))
     db_session.commit()
 
     mock_exchange.return_value = {"access_token": "google-token", "expires_in": 3600}

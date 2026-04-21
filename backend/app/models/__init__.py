@@ -1,4 +1,5 @@
 """Heliox-AI database models."""
+
 from app.models.api_usage import ApiUsage
 from app.models.audit_log import AuditLog
 from app.models.alert_settings import AlertSettings
@@ -65,4 +66,3 @@ __all__ = [
     "InferenceSpan",
     "ModelCostSummary",
 ]
-

@@ -5,6 +5,7 @@ Centralizes authorization logic for team-scoped operations.
 - API keys: Full access (created by owner/admin, used for automation)
 - Session: Role check - OWNER/ADMIN for write operations, any member for read
 """
+
 from typing import Union
 from uuid import UUID
 
@@ -67,11 +68,8 @@ def require_team_admin_or_api_key(
     else:
         # Auto-resolve team from user's membership (common case: user belongs to one team)
         from app.models.team_member import TeamMember as TM
-        membership = (
-            db.query(TM)
-            .filter(TM.user_id == current_user.id)
-            .first()
-        )
+
+        membership = db.query(TM).filter(TM.user_id == current_user.id).first()
         if not membership:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -11,6 +11,7 @@ Mapping to the internal BillingPlan enum (stored in DB):
   PlanTier.GROWTH    → BillingPlan.GROWTH
   PlanTier.ENTERPRISE → BillingPlan.ENTERPRISE
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from app.models.billing import BillingPlan
 
 class PlanTier(str, Enum):
     """Public-facing plan tiers used by the enforcement layer."""
+
     STARTER = "starter"
     GROWTH = "growth"
     ENTERPRISE = "enterprise"
@@ -29,10 +31,10 @@ class PlanTier(str, Enum):
 
 @dataclass(frozen=True)
 class PlanLimits:
-    max_clusters: int       # max cloud integrations; -1 = unlimited
-    history_days: int       # cost data retention; -1 = unlimited
-    max_api_keys: int       # team API keys; -1 = unlimited
-    max_team_members: int   # users per team; -1 = unlimited
+    max_clusters: int  # max cloud integrations; -1 = unlimited
+    history_days: int  # cost data retention; -1 = unlimited
+    max_api_keys: int  # team API keys; -1 = unlimited
+    max_team_members: int  # users per team; -1 = unlimited
     slack_alerts: bool
     sso_enabled: bool
     api_access: bool

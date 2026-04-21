@@ -1,5 +1,6 @@
 """Tests for cost attribution logic."""
-from datetime import datetime, date, timedelta
+
+from datetime import datetime, date
 from decimal import Decimal
 
 from app.api.routes.analytics import get_cost_by_model
@@ -12,7 +13,7 @@ def test_cost_by_model_runtime_allocation(db_session):
     team = Team(name="Attribution Team")
     db_session.add(team)
     db_session.commit()
-    
+
     day = date(2026, 1, 1)
     db_session.add(
         CostSnapshot(
@@ -48,7 +49,7 @@ def test_cost_by_model_runtime_allocation(db_session):
         )
     )
     db_session.commit()
-    
+
     response = get_cost_by_model(
         start=day,
         end=day,

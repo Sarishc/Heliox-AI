@@ -1,4 +1,5 @@
 """Tests for saved reports and exports."""
+
 from datetime import date, datetime, timedelta
 import hashlib
 from pathlib import Path
@@ -12,7 +13,12 @@ from app.models.cost import CostSnapshot, UsageSnapshot
 from app.models.job import Job
 from app.models.reporting import ReportShareLink
 from app.models.team import Team
-from app.schemas.reporting import ReportConfig, ReportFilters, ReportSection, SavedReportCreate
+from app.schemas.reporting import (
+    ReportConfig,
+    ReportFilters,
+    ReportSection,
+    SavedReportCreate,
+)
 from app.services import reports as reports_service
 from app.services.reports import ReportService
 

@@ -1,4 +1,5 @@
 """Report generation service for CSV/PDF exports."""
+
 from __future__ import annotations
 
 import csv
@@ -165,10 +166,13 @@ class ReportService:
         return output.getvalue()
 
     def _render_pdf(self, payload: dict[str, Any], storage_path: Path) -> None:
-        from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.platypus import (
+            SimpleDocTemplate,
+            Paragraph,
+            Spacer,
+        )
 
         styles = getSampleStyleSheet()
         doc = SimpleDocTemplate(str(storage_path), pagesize=letter)
@@ -176,7 +180,12 @@ class ReportService:
         data = payload["data"]
 
         story.append(Paragraph("Heliox Report Summary", styles["Title"]))
-        story.append(Paragraph(f"Generated at {payload['generated_at'].isoformat()} UTC", styles["Normal"]))
+        story.append(
+            Paragraph(
+                f"Generated at {payload['generated_at'].isoformat()} UTC",
+                styles["Normal"],
+            )
+        )
         story.append(Spacer(1, 12))
 
         if "overview_kpis" in data:
@@ -198,7 +207,12 @@ class ReportService:
         if "idle_waste" in data:
             story.append(Paragraph("Idle Waste", styles["Heading2"]))
             table_data = [["Metric", "Value"]]
-            table_data.append(["Total Idle Waste (USD)", f"{data['idle_waste']['total_idle_waste_usd']}"])
+            table_data.append(
+                [
+                    "Total Idle Waste (USD)",
+                    f"{data['idle_waste']['total_idle_waste_usd']}",
+                ]
+            )
             story.append(self._build_table(table_data))
             story.append(Spacer(1, 12))
 
@@ -206,7 +220,13 @@ class ReportService:
             story.append(Paragraph("Top Models", styles["Heading2"]))
             table_data = [["Model", "Total Cost (USD)", "Job Count"]]
             for row in data["top_models"]:
-                table_data.append([row["model_name"], f"{row['total_cost_usd']}", f"{row['job_count']}"])
+                table_data.append(
+                    [
+                        row["model_name"],
+                        f"{row['total_cost_usd']}",
+                        f"{row['job_count']}",
+                    ]
+                )
             story.append(self._build_table(table_data))
             story.append(Spacer(1, 12))
 
@@ -238,13 +258,16 @@ class ReportService:
         return table
 
     def _get_total_spend(self, team_id: UUID, start: date, end: date) -> float:
-        total_cost = self.db.execute(
-            select(func.sum(CostSnapshot.cost_usd)).where(
-                CostSnapshot.team_id == team_id,
-                CostSnapshot.date >= start,
-                CostSnapshot.date <= end,
-            )
-        ).scalar_one_or_none() or 0.0
+        total_cost = (
+            self.db.execute(
+                select(func.sum(CostSnapshot.cost_usd)).where(
+                    CostSnapshot.team_id == team_id,
+                    CostSnapshot.date >= start,
+                    CostSnapshot.date <= end,
+                )
+            ).scalar_one_or_none()
+            or 0.0
+        )
         return round(float(total_cost), 2)
 
     def _get_daily_spend(self, team_id: UUID, start: date, end: date) -> list[dict[str, Any]]:
@@ -262,7 +285,12 @@ class ReportService:
         results = []
         current = start
         while current <= end:
-            results.append({"date": current.isoformat(), "spend_usd": spend_by_date.get(current, 0.0)})
+            results.append(
+                {
+                    "date": current.isoformat(),
+                    "spend_usd": spend_by_date.get(current, 0.0),
+                }
+            )
             current += timedelta(days=1)
         return results
 
@@ -284,15 +312,18 @@ class ReportService:
         idle_waste = 0.0
         for gpu_type, provider, cost_sum, days_count in self.db.execute(cost_stmt).all():
             expected_hours = float(days_count) * 24.0
-            usage_hours = self.db.execute(
-                select(func.sum(UsageSnapshot.gpu_hours)).where(
-                    UsageSnapshot.team_id == team_id,
-                    UsageSnapshot.date >= start,
-                    UsageSnapshot.date <= end,
-                    UsageSnapshot.gpu_type == gpu_type,
-                    UsageSnapshot.provider == provider,
-                )
-            ).scalar_one_or_none() or 0.0
+            usage_hours = (
+                self.db.execute(
+                    select(func.sum(UsageSnapshot.gpu_hours)).where(
+                        UsageSnapshot.team_id == team_id,
+                        UsageSnapshot.date >= start,
+                        UsageSnapshot.date <= end,
+                        UsageSnapshot.gpu_type == gpu_type,
+                        UsageSnapshot.provider == provider,
+                    )
+                ).scalar_one_or_none()
+                or 0.0
+            )
             if expected_hours > 0:
                 waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
                 idle_waste += float(cost_sum or 0.0) * waste_ratio
@@ -360,7 +391,9 @@ class ReportService:
                 daily_job_count[day] = daily_job_count.get(day, 0) + int(job_count)
                 model_runtime[(day, model_name)] = model_runtime.get((day, model_name), 0.0) + runtime
                 model_job_count[model_name] = model_job_count.get(model_name, 0) + int(job_count)
-                model_job_count_by_day[(day, model_name)] = model_job_count_by_day.get((day, model_name), 0) + int(job_count)
+                model_job_count_by_day[(day, model_name)] = model_job_count_by_day.get((day, model_name), 0) + int(
+                    job_count
+                )
 
         daily_cost_rows = self.db.execute(
             select(CostSnapshot.date, func.sum(CostSnapshot.cost_usd))
@@ -401,7 +434,11 @@ class ReportService:
     def _get_top_recommendations(self, team_id: UUID, start: date, end: date) -> list[dict[str, Any]]:
         filters = RecommendationFilters(start_date=start, end_date=end, team_id=team_id)
         recs = RecommendationEngine(self.db).generate_recommendations(filters)
-        sorted_recs = sorted(recs.recommendations, key=lambda item: item.estimated_savings_usd, reverse=True)
+        sorted_recs = sorted(
+            recs.recommendations,
+            key=lambda item: item.estimated_savings_usd,
+            reverse=True,
+        )
         return [
             {
                 "title": rec.title,

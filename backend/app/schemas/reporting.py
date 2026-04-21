@@ -1,4 +1,5 @@
 """Schemas for saved reports and exports."""
+
 from datetime import date, datetime
 from enum import Enum
 from typing import Optional

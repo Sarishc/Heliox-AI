@@ -1,4 +1,5 @@
 """Tests for finance runway forecasting."""
+
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -12,7 +13,7 @@ def test_runway_calculation(db_session):
     team = Team(name="Finance Team")
     db_session.add(team)
     db_session.commit()
-    
+
     start = date(2026, 1, 1)
     for i in range(10):
         db_session.add(
@@ -21,7 +22,7 @@ def test_runway_calculation(db_session):
                 date=start + timedelta(days=i),
                 provider="aws",
                 gpu_type="a100",
-                cost_usd=Decimal("100.00")
+                cost_usd=Decimal("100.00"),
             )
         )
         db_session.add(
@@ -34,18 +35,13 @@ def test_runway_calculation(db_session):
                 job_type="training" if i % 2 == 0 else "inference",
                 environment="prod" if i % 2 == 0 else "staging",
                 start_time=start + timedelta(days=i),
-                status="completed"
+                status="completed",
             )
         )
     db_session.commit()
-    
+
     service = FinanceForecastService(db_session)
-    result = service.compute_runway(
-        team_id=team.id,
-        budget_usd_monthly=3000.0,
-        method="ets",
-        top_n=1
-    )
+    result = service.compute_runway(team_id=team.id, budget_usd_monthly=3000.0, method="ets", top_n=1)
     assert result["monthly_burn"] > 0
     assert result["runway_days"] is not None
     assert result["budget_risk_score"] >= 0
@@ -57,7 +53,7 @@ def test_runway_no_cost_data(db_session):
     team = Team(name="Finance Team 2")
     db_session.add(team)
     db_session.commit()
-    
+
     service = FinanceForecastService(db_session)
     result = service.compute_runway(team_id=team.id, budget_usd_monthly=1000.0)
     assert result["monthly_burn"] == 0.0

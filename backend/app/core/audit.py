@@ -1,4 +1,5 @@
 """Audit logging helpers."""
+
 import logging
 from typing import Optional
 from uuid import UUID
@@ -41,14 +42,14 @@ def record_audit_event(
     actor_type: str,
     actor_id: Optional[str],
     action: str,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
 ) -> None:
     log = AuditLog(
         team_id=team_id,
         actor_type=actor_type,
         actor_id=actor_id,
         action=action,
-        event_metadata=metadata or {}
+        event_metadata=metadata or {},
     )
     db.add(log)
     db.commit()

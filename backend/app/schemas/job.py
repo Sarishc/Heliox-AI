@@ -1,4 +1,5 @@
 """Job schemas for request/response validation."""
+
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -8,52 +9,36 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class JobBase(BaseModel):
     """Base job schema with common fields."""
-    
+
     model_name: str = Field(
         ...,
         min_length=1,
         max_length=255,
-        description="Name of the ML model being executed"
+        description="Name of the ML model being executed",
     )
-    
+
     gpu_type: str = Field(
         ...,
         min_length=1,
         max_length=100,
-        description="Type of GPU used (e.g., A100, H100, V100)"
+        description="Type of GPU used (e.g., A100, H100, V100)",
     )
-    
+
     provider: str = Field(
         ...,
         min_length=1,
         max_length=100,
-        description="Cloud provider or platform (e.g., AWS, GCP, Azure)"
-    )
-    
-    job_type: Optional[str] = Field(
-        None,
-        max_length=100,
-        description="Job type (e.g., training, inference)"
-    )
-    
-    environment: Optional[str] = Field(
-        None,
-        max_length=100,
-        description="Environment (e.g., prod, staging, dev)"
+        description="Cloud provider or platform (e.g., AWS, GCP, Azure)",
     )
 
-    project: Optional[str] = Field(
-        None,
-        max_length=120,
-        description="Project or cost center identifier"
-    )
-    
-    status: str = Field(
-        default="pending",
-        max_length=50,
-        description="Current status of the job"
-    )
-    
+    job_type: Optional[str] = Field(None, max_length=100, description="Job type (e.g., training, inference)")
+
+    environment: Optional[str] = Field(None, max_length=100, description="Environment (e.g., prod, staging, dev)")
+
+    project: Optional[str] = Field(None, max_length=120, description="Project or cost center identifier")
+
+    status: str = Field(default="pending", max_length=50, description="Current status of the job")
+
     @field_validator("status")
     @classmethod
     def validate_status(cls, v: str) -> str:
@@ -66,13 +51,14 @@ class JobBase(BaseModel):
 
 class JobCreate(JobBase):
     """Schema for creating a new job."""
-    
+
     team_id: UUID = Field(..., description="ID of the team that owns this job")
     start_time: Optional[datetime] = Field(None, description="When the job started")
 
 
 class JobUpdate(BaseModel):
     """Schema for updating a job. OWASP: extra='forbid' prevents mass assignment."""
+
     model_config = ConfigDict(extra="forbid")
 
     model_name: Optional[str] = Field(None, min_length=1, max_length=255)
@@ -82,7 +68,7 @@ class JobUpdate(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     status: Optional[str] = Field(None, max_length=50)
-    
+
     @field_validator("status")
     @classmethod
     def validate_status(cls, v: Optional[str]) -> Optional[str]:
@@ -97,13 +83,12 @@ class JobUpdate(BaseModel):
 
 class Job(JobBase):
     """Schema for job responses."""
-    
+
     id: UUID
     team_id: UUID
     start_time: Optional[datetime]
     end_time: Optional[datetime]
     created_at: datetime
     updated_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
 
+    model_config = ConfigDict(from_attributes=True)

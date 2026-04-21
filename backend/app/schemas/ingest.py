@@ -1,4 +1,5 @@
 """Schemas for ingestion endpoints."""
+
 from datetime import datetime, date as date_type
 from decimal import Decimal
 from typing import List, Optional

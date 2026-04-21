@@ -4,10 +4,11 @@ Stripe metering export service.
 Exports usage rollups to Stripe Billing Meter Events for usage-based billing.
 Idempotent, retry-safe, and auditable.
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
@@ -86,7 +87,12 @@ def export_usage_to_stripe(
     settings = get_settings()
     if not settings.STRIPE_SECRET_KEY:
         logger.info("Stripe metering skipped: STRIPE_SECRET_KEY not configured")
-        return {"exported": 0, "skipped": 0, "failed": 0, "errors": ["Stripe not configured"]}
+        return {
+            "exported": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": ["Stripe not configured"],
+        }
 
     eligible = _teams_eligible_for_metering(db)
     if not eligible:
@@ -111,18 +117,12 @@ def export_usage_to_stripe(
     # Get stripe_customer_id per team
     sub_map = {
         UUID(str(s.team_id)): s.stripe_customer_id
-        for s in db.query(TeamSubscription)
-        .filter(TeamSubscription.team_id.in_(eligible))
-        .all()
+        for s in db.query(TeamSubscription).filter(TeamSubscription.team_id.in_(eligible)).all()
     }
 
     for rollup in rollups:
         team_id = UUID(str(rollup.team_id))
-        event_type = (
-            rollup.event_type.value
-            if isinstance(rollup.event_type, UsageEventType)
-            else rollup.event_type
-        )
+        event_type = rollup.event_type.value if isinstance(rollup.event_type, UsageEventType) else rollup.event_type
         meter_name = _get_meter_event_name(
             UsageEventType(event_type) if isinstance(event_type, str) else rollup.event_type
         )

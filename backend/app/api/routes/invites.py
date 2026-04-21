@@ -1,4 +1,5 @@
 """Team invite endpoints: validate token and accept invite."""
+
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -133,9 +134,7 @@ def accept_invite(
             path="/",
         )
 
-    existing = crud_team_member.get_by_team_and_user(
-        db, team_id=invite.team_id, user_id=user.id
-    )
+    existing = crud_team_member.get_by_team_and_user(db, team_id=invite.team_id, user_id=user.id)
     if existing:
         invite.accepted_at = datetime.now(timezone.utc)
         invite.accepted_by_user_id = user.id

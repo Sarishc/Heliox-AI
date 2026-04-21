@@ -1,4 +1,5 @@
 """Saved reports CRUD and export endpoints."""
+
 import hashlib
 import secrets
 from datetime import datetime, timedelta
@@ -15,7 +16,6 @@ from app.auth.rbac import require_team_admin_or_api_key
 from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.reporting import ReportRun, ReportShareLink, SavedReport
 from app.models.team_api_key import TeamAPIKey
@@ -65,12 +65,7 @@ def list_reports(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
     team_id = get_effective_team_id(auth_ctx)
-    return (
-        db.query(SavedReport)
-        .filter(SavedReport.team_id == team_id)
-        .order_by(SavedReport.created_at.desc())
-        .all()
-    )
+    return db.query(SavedReport).filter(SavedReport.team_id == team_id).order_by(SavedReport.created_at.desc()).all()
 
 
 @router.get("/{report_id}", response_model=SavedReportResponse)
@@ -80,11 +75,7 @@ def get_report(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
     team_id = get_effective_team_id(auth_ctx)
-    report = (
-        db.query(SavedReport)
-        .filter(SavedReport.id == report_id, SavedReport.team_id == team_id)
-        .first()
-    )
+    report = db.query(SavedReport).filter(SavedReport.id == report_id, SavedReport.team_id == team_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     return report
@@ -98,11 +89,7 @@ def update_report(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> Any:
     team_id = auth_ctx.team_id
-    report = (
-        db.query(SavedReport)
-        .filter(SavedReport.id == report_id, SavedReport.team_id == team_id)
-        .first()
-    )
+    report = db.query(SavedReport).filter(SavedReport.id == report_id, SavedReport.team_id == team_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     if payload.name is not None:
@@ -124,18 +111,18 @@ def delete_report(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> None:
     team_id = auth_ctx.team_id
-    report = (
-        db.query(SavedReport)
-        .filter(SavedReport.id == report_id, SavedReport.team_id == team_id)
-        .first()
-    )
+    report = db.query(SavedReport).filter(SavedReport.id == report_id, SavedReport.team_id == team_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     db.delete(report)
     db.commit()
 
 
-@router.post("/{report_id}/run", response_model=ReportRunResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{report_id}/run",
+    response_model=ReportRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def run_report(
     report_id: UUID,
     payload: ReportRunCreate,
@@ -143,11 +130,7 @@ def run_report(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
     team_id = get_effective_team_id(auth_ctx)
-    report = (
-        db.query(SavedReport)
-        .filter(SavedReport.id == report_id, SavedReport.team_id == team_id)
-        .first()
-    )
+    report = db.query(SavedReport).filter(SavedReport.id == report_id, SavedReport.team_id == team_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     service = ReportService(db)
@@ -166,18 +149,10 @@ def download_report(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> FileResponse:
     team_id = get_effective_team_id(auth_ctx)
-    report_run = (
-        db.query(ReportRun)
-        .filter(ReportRun.id == run_id, ReportRun.team_id == team_id)
-        .first()
-    )
+    report_run = db.query(ReportRun).filter(ReportRun.id == run_id, ReportRun.team_id == team_id).first()
     if not report_run or not report_run.storage_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report run not found")
-    content_type = (
-        "text/csv"
-        if report_run.file_type == ReportFileType.csv
-        else "application/pdf"
-    )
+    content_type = "text/csv" if report_run.file_type == ReportFileType.csv else "application/pdf"
     extension = report_run.file_type.value if report_run.file_type else "bin"
     return FileResponse(
         report_run.storage_path,
@@ -186,7 +161,11 @@ def download_report(
     )
 
 
-@router.post("/{report_id}/share", response_model=ReportShareResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{report_id}/share",
+    response_model=ReportShareResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_share_link(
     report_id: UUID,
     payload: ReportShareCreate,
@@ -195,11 +174,7 @@ def create_share_link(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
     team_id = get_effective_team_id(auth_ctx)
-    report = (
-        db.query(SavedReport)
-        .filter(SavedReport.id == report_id, SavedReport.team_id == team_id)
-        .first()
-    )
+    report = db.query(SavedReport).filter(SavedReport.id == report_id, SavedReport.team_id == team_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     expires_in_days = payload.expires_in_days or settings.REPORT_SHARE_DEFAULT_TTL_DAYS

@@ -1,4 +1,5 @@
 """Assistant query endpoint."""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,7 +19,7 @@ router = APIRouter()
 @router.post(
     "/query",
     response_model=AssistantQueryResponse,
-    summary="Query Heliox analytics with natural language"
+    summary="Query Heliox analytics with natural language",
 )
 def query_assistant(
     payload: AssistantQueryRequest,

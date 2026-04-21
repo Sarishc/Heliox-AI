@@ -1,5 +1,5 @@
 """Unit tests for CAPTCHA verification via hCaptcha siteverify API."""
-import pytest
+
 from unittest.mock import patch, MagicMock
 
 from app.auth.captcha_verify import verify_captcha_token

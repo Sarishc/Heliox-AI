@@ -1,4 +1,5 @@
 """GCP BigQuery billing integration for automatic cost ingestion."""
+
 import json
 import logging
 from datetime import datetime, timedelta
@@ -51,7 +52,11 @@ class GCPBillingBigQueryIntegration(IntegrationBase):
     display_name = "GCP BigQuery Billing"
     description = "Import GPU and infrastructure costs from GCP BigQuery billing export"
 
-    required_config_fields = ["gcp_project_id", "bigquery_dataset", "service_account_json"]
+    required_config_fields = [
+        "gcp_project_id",
+        "bigquery_dataset",
+        "service_account_json",
+    ]
     optional_config_fields = ["billing_export_table", "label_key_for_team"]
 
     config_schema_fields = {
@@ -154,7 +159,13 @@ class GCPBillingBigQueryIntegration(IntegrationBase):
                 field="service_account_json",
             )
 
-        required_sa_fields = ["type", "project_id", "private_key_id", "private_key", "client_email"]
+        required_sa_fields = [
+            "type",
+            "project_id",
+            "private_key_id",
+            "private_key",
+            "client_email",
+        ]
         for field in required_sa_fields:
             if field not in sa_info:
                 raise IntegrationConfigError(
@@ -273,7 +284,11 @@ class GCPBillingBigQueryIntegration(IntegrationBase):
             return {
                 "status": IntegrationHealthStatus.UNHEALTHY.value,
                 "message": f"Invalid request: {str(e)}",
-                "details": {"credentials_valid": True, "error": "BadRequest", "error_message": str(e)},
+                "details": {
+                    "credentials_valid": True,
+                    "error": "BadRequest",
+                    "error_message": str(e),
+                },
             }
 
         except GoogleAPIError as e:
@@ -402,30 +417,38 @@ class GCPBillingBigQueryIntegration(IntegrationBase):
                 else:
                     gpu_type = "unknown"
 
-                existing = db.query(CostSnapshot).filter(
-                    CostSnapshot.team_id == target_team_id,
-                    CostSnapshot.date == usage_date,
-                    CostSnapshot.provider == provider,
-                    CostSnapshot.gpu_type == gpu_type,
-                ).first()
+                existing = (
+                    db.query(CostSnapshot)
+                    .filter(
+                        CostSnapshot.team_id == target_team_id,
+                        CostSnapshot.date == usage_date,
+                        CostSnapshot.provider == provider,
+                        CostSnapshot.gpu_type == gpu_type,
+                    )
+                    .first()
+                )
 
                 if existing:
                     existing.cost_usd = existing.cost_usd + total_cost
                     existing.updated_at = datetime.utcnow()
                 else:
-                    db.add(CostSnapshot(
-                        team_id=target_team_id,
-                        date=usage_date,
-                        provider=provider,
-                        gpu_type=gpu_type,
-                        cost_usd=total_cost,
-                    ))
+                    db.add(
+                        CostSnapshot(
+                            team_id=target_team_id,
+                            date=usage_date,
+                            provider=provider,
+                            gpu_type=gpu_type,
+                            cost_usd=total_cost,
+                        )
+                    )
                 records_saved += 1
 
             db.commit()
             logger.info(
                 "GCP sync completed: %d fetched, %d saved, %d skipped",
-                records_fetched, records_saved, records_skipped,
+                records_fetched,
+                records_saved,
+                records_skipped,
             )
             return {
                 "records_fetched": records_fetched,

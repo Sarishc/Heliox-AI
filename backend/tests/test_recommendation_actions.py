@@ -1,7 +1,7 @@
 """Tests for recommendation apply/dismiss action system."""
+
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.schemas.recommendation import (
     Recommendation,
@@ -13,7 +13,6 @@ from app.services.recommendation_actions import (
     recommendation_fingerprint,
     apply_recommendation,
     get_action_status,
-    list_actions,
 )
 
 
@@ -99,6 +98,7 @@ def test_apply_recommendation_requires_valid_rec():
         "evidence": {"provider": "aws", "gpu_type": "a100"},
     }
     from uuid import uuid4
+
     team_id = uuid4()
 
     with patch("app.services.recommendation_actions.RecommendationAction") as MockAction:
@@ -115,5 +115,6 @@ def test_get_action_status_empty():
     db = MagicMock()
     db.query.return_value.filter.return_value.all.return_value = []
     from uuid import uuid4
+
     status_map = get_action_status(db, uuid4(), [])
     assert status_map == {}

@@ -1,4 +1,5 @@
-"\"\"\"Public endpoints (no auth) for Heliox landing and waitlist.\"\"\""
+'"""Public endpoints (no auth) for Heliox landing and waitlist."""'
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,11 +31,11 @@ def join_waitlist(payload: WaitlistCreate, db: Session = Depends(get_db)):
 
     try:
         entry = WaitlistEntry(
-          email=email,
-          name=payload.name,
-          company=payload.company,
-          role=payload.role,
-          source=payload.source or "landing",
+            email=email,
+            name=payload.name,
+            company=payload.company,
+            role=payload.role,
+            source=payload.source or "landing",
         )
         db.add(entry)
         db.commit()
@@ -55,4 +56,3 @@ def join_waitlist(payload: WaitlistCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to save waitlist entry at this time.",
         )
-

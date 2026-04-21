@@ -1,4 +1,5 @@
 """Observability: OpenTelemetry tracing, Prometheus metrics, Sentry."""
+
 import logging
 from typing import Optional
 
@@ -8,23 +9,37 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 # Headers and keys to scrub from Sentry events (never send to Sentry)
-_SENTRY_SCRUB_HEADERS = frozenset({
-    "authorization",
-    "x-api-key",
-    "x-csrf-token",
-    "cookie",
-    "set-cookie",
-    "proxy-authorization",
-    "x-forwarded-authorization",
-})
+_SENTRY_SCRUB_HEADERS = frozenset(
+    {
+        "authorization",
+        "x-api-key",
+        "x-csrf-token",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+        "x-forwarded-authorization",
+    }
+)
 
 # Keys to scrub from request data / context
-_SENTRY_SCRUB_KEYS = frozenset({
-    "password", "secret", "token", "api_key", "apikey",
-    "authorization", "cookie", "csrf", "credential",
-    "webhook_url", "slack_webhook", "stripe_key",
-    "encryption_key", "private_key",
-})
+_SENTRY_SCRUB_KEYS = frozenset(
+    {
+        "password",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "csrf",
+        "credential",
+        "webhook_url",
+        "slack_webhook",
+        "stripe_key",
+        "encryption_key",
+        "private_key",
+    }
+)
 
 
 def _sentry_before_send(event: dict, hint: dict) -> Optional[dict]:
@@ -140,7 +155,9 @@ def init_opentelemetry() -> None:
         return
     try:
         from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
@@ -162,6 +179,7 @@ def instrument_app(app):  # noqa: ANN001
         return
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
         FastAPIInstrumentor.instrument_app(app)
     except Exception as e:
         logger.warning(f"OpenTelemetry instrumentation failed: {e}")

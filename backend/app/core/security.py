@@ -1,4 +1,5 @@
 """Security utilities for API authentication and authorization."""
+
 import logging
 import secrets
 from datetime import datetime, timedelta
@@ -25,23 +26,23 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
     Create a JWT access token.
-    
+
     Args:
         data: Data to encode in the token (e.g., {"sub": user_id, "email": email})
         expires_delta: Optional custom expiration time
-        
+
     Returns:
         Encoded JWT token
     """
     to_encode = data.copy()
-    
+
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+
     to_encode.update({"exp": expire})
-    
+
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -49,13 +50,13 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
 def decode_access_token(token: str) -> Dict[str, Any]:
     """
     Decode and validate a JWT access token.
-    
+
     Args:
         token: JWT token to decode
-        
+
     Returns:
         Decoded token data
-        
+
     Raises:
         HTTPException: 401 if token is invalid or expired
     """
@@ -74,19 +75,19 @@ def decode_access_token(token: str) -> Dict[str, Any]:
 def verify_admin_api_key(x_api_key: Optional[str] = Header(None)) -> str:
     """
     Verify admin API key from request headers.
-    
+
     Checks the X-API-Key header against the configured ADMIN_API_KEY
     environment variable. Used to protect admin endpoints.
-    
+
     Args:
         x_api_key: API key from X-API-Key header
-        
+
     Returns:
         The verified API key
-        
+
     Raises:
         HTTPException: 401 if API key is missing or invalid
-        
+
     Example:
         ```python
         @router.post("/admin/endpoint")
@@ -96,10 +97,10 @@ def verify_admin_api_key(x_api_key: Optional[str] = Header(None)) -> str:
         ```
     """
     request_id = get_request_id()
-    
+
     # Admin API key is optional (prefer RBAC via is_platform_admin)
     admin_api_key = getattr(settings, "ADMIN_API_KEY", None) or ""
-    
+
     if not admin_api_key:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -108,31 +109,28 @@ def verify_admin_api_key(x_api_key: Optional[str] = Header(None)) -> str:
     if not x_api_key:
         logger.warning(
             "Admin API key authentication failed: missing X-API-Key header",
-            extra={"request_id": request_id}
+            extra={"request_id": request_id},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing X-API-Key header",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    
+
     # Verify API key matches using constant-time comparison
     if not secrets.compare_digest(x_api_key, admin_api_key):
         logger.warning(
             "Admin API key authentication failed: invalid key",
-            extra={"request_id": request_id}
+            extra={"request_id": request_id},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    
-    logger.debug(
-        "Admin API key authentication successful",
-        extra={"request_id": request_id}
-    )
-    
+
+    logger.debug("Admin API key authentication successful", extra={"request_id": request_id})
+
     return x_api_key
 
 
@@ -140,40 +138,33 @@ def verify_admin_api_key(x_api_key: Optional[str] = Header(None)) -> str:
 get_api_key = verify_admin_api_key
 
 
-def _get_team_api_key_by_value(
-    x_api_key: str,
-    db: Session,
-    request_id: str
-) -> TeamAPIKey:
+def _get_team_api_key_by_value(x_api_key: str, db: Session, request_id: str) -> TeamAPIKey:
     """
     Resolve and validate a team API key value.
-    
+
     Used by both strict and optional API key dependencies.
     """
     # Hash the provided key
     key_hash = TeamAPIKey.hash_key(x_api_key)
-    
+
     # Look up API key by hash
-    api_key = db.query(TeamAPIKey).filter(
-        TeamAPIKey.key_hash == key_hash,
-        TeamAPIKey.is_active == True
-    ).first()
-    
+    api_key = db.query(TeamAPIKey).filter(TeamAPIKey.key_hash == key_hash, TeamAPIKey.is_active == True).first()
+
     if not api_key:
         # Log failed authentication attempt (without the key)
         logger.warning(
             "Team API key authentication failed: invalid key",
             extra={
                 "request_id": request_id,
-                "key_hash_prefix": key_hash[:8]  # Only log prefix for security
-            }
+                "key_hash_prefix": key_hash[:8],  # Only log prefix for security
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    
+
     # Verify key using constant-time comparison
     if not api_key.verify_key(x_api_key):
         logger.warning(
@@ -181,52 +172,52 @@ def _get_team_api_key_by_value(
             extra={
                 "request_id": request_id,
                 "team_id": str(api_key.team_id),
-                "key_name": api_key.key_name
-            }
+                "key_name": api_key.key_name,
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    
+
     # Update last_used_at
     api_key.last_used_at = datetime.utcnow()
     db.commit()
-    
+
     # Log successful authentication (without sensitive data)
     logger.debug(
         "Team API key authentication successful",
         extra={
             "request_id": request_id,
             "team_id": str(api_key.team_id),
-            "key_name": api_key.key_name
-        }
+            "key_name": api_key.key_name,
+        },
     )
-    
+
     return api_key
 
 
 def verify_team_api_key(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> TeamAPIKey:
     """
     Verify team API key from request headers.
-    
+
     Checks the X-API-Key header against team API keys in the database.
     Uses constant-time comparison to prevent timing attacks.
-    
+
     Args:
         x_api_key: API key from X-API-Key header
         db: Database session
-        
+
     Returns:
         TeamAPIKey instance
-        
+
     Raises:
         HTTPException: 401 if API key is missing or invalid
-        
+
     Example:
         ```python
         @router.get("/teams/{team_id}/costs")
@@ -236,38 +227,38 @@ def verify_team_api_key(
         ```
     """
     request_id = get_request_id()
-    
+
     if not x_api_key:
         logger.warning(
             "Team API key authentication failed: missing X-API-Key header",
-            extra={"request_id": request_id}
+            extra={"request_id": request_id},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing X-API-Key header",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    
+
     return _get_team_api_key_by_value(x_api_key, db, request_id)
 
 
 def get_team_api_key_optional(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Optional[TeamAPIKey]:
     """
     Optional team API key dependency.
-    
+
     In production/staging, a missing key is rejected.
     In dev, missing key is allowed for local demo convenience.
     """
     request_id = get_request_id()
-    
+
     if not x_api_key:
         if settings.ENV in ("production", "staging"):
             logger.warning(
                 "Team API key authentication required in production/staging",
-                extra={"request_id": request_id}
+                extra={"request_id": request_id},
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -275,13 +266,13 @@ def get_team_api_key_optional(
                 headers={"WWW-Authenticate": "ApiKey"},
             )
         return None
-    
+
     return _get_team_api_key_by_value(x_api_key, db, request_id)
 
 
 def get_team_api_key_if_present(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Optional[TeamAPIKey]:
     """
     Return team API key if provided, otherwise None (no enforcement).
@@ -292,30 +283,23 @@ def get_team_api_key_if_present(
     return _get_team_api_key_by_value(x_api_key, db, request_id)
 
 
-def get_team_from_api_key(
-    api_key: TeamAPIKey = Depends(verify_team_api_key),
-    db: Session = Depends(get_db)
-) -> Team:
+def get_team_from_api_key(api_key: TeamAPIKey = Depends(verify_team_api_key), db: Session = Depends(get_db)) -> Team:
     """
     Get team from verified API key.
-    
+
     Convenience dependency that returns the Team associated with the API key.
-    
+
     Args:
         api_key: Verified TeamAPIKey instance
         db: Database session
-        
+
     Returns:
         Team instance
-        
+
     Raises:
         HTTPException: 404 if team not found
     """
     team = db.query(Team).filter(Team.id == api_key.team_id).first()
     if not team:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Team not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
     return team
-

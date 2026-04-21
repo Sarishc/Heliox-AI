@@ -1,4 +1,5 @@
 """Budget policy and budget event models."""
+
 from datetime import date
 from decimal import Decimal
 from enum import Enum

@@ -4,6 +4,7 @@ Cross-tenant security tests.
 Ensures Tenant A cannot access Tenant B data.
 Must return 404 without leaking existence.
 """
+
 import pytest
 from datetime import date
 from decimal import Decimal
@@ -25,6 +26,7 @@ def override_get_db(db_session: Session):
             yield db_session
         finally:
             pass
+
     return _get_db
 
 

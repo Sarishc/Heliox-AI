@@ -1,4 +1,5 @@
 """Tests for SAML/Okta SSO configuration and flow."""
+
 import pytest
 from uuid import uuid4
 
@@ -7,8 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.main import app
 from app.core.db import get_db
-from app.auth.deps import get_current_active_user
-from app.auth.rbac import require_team_admin_or_api_key
 from app.models.team import Team
 from app.models.user import User
 from app.models.team_member import TeamMember, TeamRole
@@ -22,6 +21,7 @@ def override_get_db(db_session: Session):
             yield db_session
         finally:
             pass
+
     return _get_db
 
 

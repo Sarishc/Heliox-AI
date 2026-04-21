@@ -1,6 +1,6 @@
 """Usage ingestion service for GPU usage metrics."""
+
 import logging
-from datetime import date as date_type
 from decimal import Decimal
 from typing import List
 from uuid import UUID
@@ -19,13 +19,8 @@ logger = logging.getLogger(__name__)
 class UsageIngestionService:
     def __init__(self, db: Session):
         self.db = db
-    
-    def ingest_usage_metrics(
-        self,
-        *,
-        team_id: UUID,
-        metrics: List[UsageMetric]
-    ) -> dict:
+
+    def ingest_usage_metrics(self, *, team_id: UUID, metrics: List[UsageMetric]) -> dict:
         inserted = 0
         updated = 0
         for metric in metrics:
@@ -44,7 +39,14 @@ class UsageIngestionService:
             }
             stmt = insert(UsageSnapshot).values(**normalized)
             stmt = stmt.on_conflict_do_update(
-                index_elements=["team_id", "date", "provider", "gpu_type", "environment", "project"],
+                index_elements=[
+                    "team_id",
+                    "date",
+                    "provider",
+                    "gpu_type",
+                    "environment",
+                    "project",
+                ],
                 set_={
                     "gpu_hours": UsageSnapshot.gpu_hours + stmt.excluded.gpu_hours,
                     "updated_at": stmt.excluded.updated_at,

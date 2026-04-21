@@ -1,16 +1,28 @@
 """Authentication endpoints with httpOnly cookie support."""
+
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from app.auth.security import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.auth.cookie_auth import get_token_from_cookie_or_header, blacklist_token, is_token_blacklisted
+from app.auth.cookie_auth import (
+    get_token_from_cookie_or_header,
+    blacklist_token,
+)
 from app.models.team import Team
 from app.models.team_member import TeamMember, TeamRole
 from app.auth.brute_force import (
@@ -23,7 +35,7 @@ from app.auth.brute_force import (
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.crud import user as crud_user
-from app.schemas.user import User, UserCreate, Token
+from app.schemas.user import UserCreate
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +48,6 @@ def _get_client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
-
-
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -64,7 +74,11 @@ def _clear_auth_cookie(response: Response) -> None:
     )
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED, summary="Register a new user account")
+@router.post(
+    "/register",
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a new user account",
+)
 def register(
     *,
     db: Session = Depends(get_db),
@@ -78,14 +92,14 @@ def register(
     Returns email_configured=false in response when RESEND_API_KEY is not set so the
     frontend can display an inline notice to the user.
     """
-    from app.services.email_notifications import send_email_verification, is_email_configured
+    from app.services.email_notifications import (
+        send_email_verification,
+        is_email_configured,
+    )
 
     existing_user = crud_user.get_by_email(db, email=user_in.email)
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     user = crud_user.create(db, obj_in=user_in)
     # Create default team and add user as owner (required for dashboard access)
     base = (user_in.full_name or user_in.email.split("@")[0]).strip() or "My"
@@ -121,8 +135,7 @@ def register(
         logger.info(f"Registered user {user.id}, verification email queued")
     else:
         logger.warning(
-            f"Registered user {user.id} but RESEND_API_KEY is not configured; "
-            "verification email was NOT sent"
+            f"Registered user {user.id} but RESEND_API_KEY is not configured; " "verification email was NOT sent"
         )
 
     # Return user dict with extra email_configured flag so frontend can show notice
@@ -143,7 +156,7 @@ def login(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-    form_data: OAuth2PasswordRequestForm = Depends()
+    form_data: OAuth2PasswordRequestForm = Depends(),
 ) -> Any:
     """
     Login with email/password. OWASP: rate limit 5/min, lockout after 5 failures,
@@ -179,13 +192,9 @@ def login(
                 detail="CAPTCHA required. Please complete the CAPTCHA and resubmit.",
             )
 
-    user = crud_user.authenticate(
-        db, email=form_data.username, password=form_data.password
-    )
+    user = crud_user.authenticate(db, email=form_data.username, password=form_data.password)
     if not user:
-        locked_out, captcha_required, lockout_sec = record_login_attempt(
-            client_ip, form_data.username, success=False
-        )
+        locked_out, captcha_required, lockout_sec = record_login_attempt(client_ip, form_data.username, success=False)
         if locked_out:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -200,10 +209,7 @@ def login(
             detail=detail,
         )
     if not crud_user.is_active(user):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
 
     record_login_attempt(client_ip, form_data.username, success=True)
 
@@ -221,9 +227,7 @@ def login(
         db.commit()
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
+    access_token = create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     _set_auth_cookie(response, access_token)
     return {
         "user": {
@@ -237,6 +241,7 @@ def login(
 
 class SetSessionRequest(BaseModel):
     """Request body for set-session endpoint."""
+
     token: str
     redirect: str = "/"
 
@@ -288,9 +293,7 @@ def set_session(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    session_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
+    session_token = create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
     _set_auth_cookie(response, session_token)
     return {"redirect": body.redirect or "/", "message": "Session established"}
 
@@ -314,6 +317,7 @@ def logout(
 # Password reset
 # ---------------------------------------------------------------------------
 
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
@@ -330,7 +334,11 @@ class ResetPasswordRequest(BaseModel):
         return v
 
 
-@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED, summary="Request password reset email")
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Request password reset email",
+)
 def forgot_password(
     body: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
@@ -342,15 +350,15 @@ def forgot_password(
     Returns 503 if email delivery is not configured — the user must know so they
     can contact support rather than waiting for an email that will never arrive.
     """
-    from app.services.email_notifications import send_password_reset_email, is_email_configured
+    from app.services.email_notifications import (
+        send_password_reset_email,
+        is_email_configured,
+    )
 
     if not is_email_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Email delivery is not configured. "
-                "Contact support to reset your password."
-            ),
+            detail=("Email delivery is not configured. " "Contact support to reset your password."),
         )
 
     user = crud_user.get_by_email(db, email=body.email)
@@ -412,6 +420,7 @@ def reset_password(
 # Email verification
 # ---------------------------------------------------------------------------
 
+
 class ResendVerificationRequest(BaseModel):
     email: EmailStr
 
@@ -436,7 +445,11 @@ def verify_email(
     return {"message": "Email verified successfully. You can now log in."}
 
 
-@router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED, summary="Resend email verification link")
+@router.post(
+    "/resend-verification",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Resend email verification link",
+)
 def resend_verification(
     body: ResendVerificationRequest,
     background_tasks: BackgroundTasks,
@@ -447,15 +460,15 @@ def resend_verification(
     Returns 503 if email delivery is not configured — otherwise returns 202 to
     prevent email enumeration.
     """
-    from app.services.email_notifications import send_email_verification, is_email_configured
+    from app.services.email_notifications import (
+        send_email_verification,
+        is_email_configured,
+    )
 
     if not is_email_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Email delivery is not configured. "
-                "Contact support to verify your email address."
-            ),
+            detail=("Email delivery is not configured. " "Contact support to verify your email address."),
         )
 
     user = crud_user.get_by_email(db, email=body.email)
@@ -470,4 +483,3 @@ def resend_verification(
         logger.info(f"Verification email re-queued for user {user.id}")
 
     return {"message": "If that address is registered and unverified, a new link has been sent"}
-

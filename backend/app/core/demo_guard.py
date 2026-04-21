@@ -10,6 +10,7 @@ Usage in routes:
 Usage as middleware (automatic for all routes):
     app.add_middleware(DemoModeMiddleware)
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,19 +28,18 @@ logger = logging.getLogger(__name__)
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Paths that are always allowed even in demo mode (seed/reset by admin)
-_DEMO_ADMIN_PATHS = frozenset({
-    "/api/v1/admin/demo/seed",
-    "/api/v1/admin/demo/reset",
-})
+_DEMO_ADMIN_PATHS = frozenset(
+    {
+        "/api/v1/admin/demo/seed",
+        "/api/v1/admin/demo/reset",
+    }
+)
 
 
 def _demo_403_body(signup_url: str) -> dict:
     return {
         "error": "demo_mode",
-        "message": (
-            "This action is disabled in the demo environment. "
-            "Sign up for a free account to get started."
-        ),
+        "message": ("This action is disabled in the demo environment. " "Sign up for a free account to get started."),
         "signup_url": signup_url,
     }
 
@@ -87,9 +87,7 @@ class DemoModeMiddleware(BaseHTTPMiddleware):
         ):
             tenant_id = getattr(request.state, "tenant_id", None)
             if tenant_id and str(tenant_id) == settings.DEMO_TENANT_ID:
-                logger.info(
-                    "Demo write blocked: %s %s", request.method, request.url.path
-                )
+                logger.info("Demo write blocked: %s %s", request.method, request.url.path)
                 body = _demo_403_body(settings.DEMO_SIGNUP_URL)
                 return JSONResponse(
                     status_code=status.HTTP_403_FORBIDDEN,

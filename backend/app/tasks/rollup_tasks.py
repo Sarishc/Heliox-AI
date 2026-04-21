@@ -1,4 +1,5 @@
 """Celery tasks for rollups."""
+
 import logging
 from datetime import date, timedelta
 

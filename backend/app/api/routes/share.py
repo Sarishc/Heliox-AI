@@ -1,4 +1,5 @@
 """Public share link endpoint."""
+
 import hashlib
 from datetime import datetime
 
@@ -20,11 +21,7 @@ def _hash_token(token: str) -> str:
 @router.get("/share/{token}", response_model=PublicReportResponse, tags=["Public"])
 def get_shared_report(token: str, db: Session = Depends(get_db)) -> PublicReportResponse:
     token_hash = _hash_token(token)
-    link = (
-        db.query(ReportShareLink)
-        .filter(ReportShareLink.token_hash == token_hash)
-        .first()
-    )
+    link = db.query(ReportShareLink).filter(ReportShareLink.token_hash == token_hash).first()
     now = datetime.utcnow()
     if not link or link.revoked_at or link.expires_at <= now:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share link not found")

@@ -1,4 +1,5 @@
 """Alert settings model for team-specific notification configuration."""
+
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -11,55 +12,45 @@ from app.models.base import Base
 
 class AlertSettings(Base):
     """Alert configuration settings for teams."""
-    
+
     __tablename__ = "alert_settings"
-    
+
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    team_id: Mapped[UUID] = mapped_column(
-        ForeignKey("teams.id"),
-        unique=True,
-        nullable=False,
-        index=True
-    )
-    
+    team_id: Mapped[UUID] = mapped_column(ForeignKey("teams.id"), unique=True, nullable=False, index=True)
+
     # Thresholds
     burn_rate_threshold_usd_per_day = Column(
         Numeric(10, 2),
         nullable=False,
         default=Decimal("10000.00"),
-        comment="Daily spend threshold for burn rate alerts (USD)"
+        comment="Daily spend threshold for burn rate alerts (USD)",
     )
-    
+
     # Notification channels
     enable_slack = Column(
         Boolean,
         nullable=False,
         default=True,
-        comment="Enable Slack notifications for this team"
+        comment="Enable Slack notifications for this team",
     )
     enable_email = Column(
         Boolean,
         nullable=False,
         default=False,
-        comment="Enable email notifications for this team"
+        comment="Enable email notifications for this team",
     )
     slack_webhook_encrypted = Column(
         Text,
         nullable=True,
-        comment="Encrypted Slack webhook URL (use webhook helpers to read/write)"
+        comment="Encrypted Slack webhook URL (use webhook helpers to read/write)",
     )
-    
+
     # Email configuration
-    email_recipients = Column(
-        String,
-        nullable=True,
-        comment="Comma-separated list of email addresses"
-    )
-    
+    email_recipients = Column(String, nullable=True, comment="Comma-separated list of email addresses")
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
+
     # Relationships
     team = relationship("Team", back_populates="alert_settings")
-

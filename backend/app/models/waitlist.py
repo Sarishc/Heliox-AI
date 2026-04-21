@@ -1,4 +1,5 @@
-"\"\"\"Waitlist model for capturing landing page leads.\"\"\""
+'"""Waitlist model for capturing landing page leads."""'
+
 from sqlalchemy import String, text
 from sqlalchemy.orm import Mapped, mapped_column
 

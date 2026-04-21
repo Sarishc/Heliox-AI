@@ -141,18 +141,25 @@ class InferenceSpan(Base, UUIDMixin, TimestampMixin):
 
     __table_args__ = (
         # Primary lookup: team + model + time window
-        Index("ix_inference_spans_team_model_started", "team_id", "model_name", "started_at"),
+        Index(
+            "ix_inference_spans_team_model_started",
+            "team_id",
+            "model_name",
+            "started_at",
+        ),
         # Attribution engine polls for uncosted spans
         Index("ix_inference_spans_team_cost_null", "team_id", "started_at"),
         # Cluster join for attribution
-        Index("ix_inference_spans_team_cluster_started", "team_id", "cluster_name", "started_at"),
+        Index(
+            "ix_inference_spans_team_cluster_started",
+            "team_id",
+            "cluster_name",
+            "started_at",
+        ),
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<InferenceSpan(model={self.model_name}, "
-            f"tokens={self.total_tokens}, cost={self.cost_usd})>"
-        )
+        return f"<InferenceSpan(model={self.model_name}, " f"tokens={self.total_tokens}, cost={self.cost_usd})>"
 
 
 class ModelCostSummary(Base, UUIDMixin, TimestampMixin):
@@ -258,7 +265,10 @@ class ModelCostSummary(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         # Idempotent upsert key
         UniqueConstraint(
-            "team_id", "model_name", "cluster_name", "date",
+            "team_id",
+            "model_name",
+            "cluster_name",
+            "date",
             name="uq_model_cost_summary_team_model_cluster_date",
         ),
         Index("ix_model_cost_summaries_team_date", "team_id", "date"),
@@ -266,7 +276,4 @@ class ModelCostSummary(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<ModelCostSummary(model={self.model_name}, "
-            f"date={self.date}, cost=${self.total_cost_usd:.4f})>"
-        )
+        return f"<ModelCostSummary(model={self.model_name}, " f"date={self.date}, cost=${self.total_cost_usd:.4f})>"

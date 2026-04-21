@@ -1,6 +1,7 @@
 ## chart-releaser configuration
 ## https://github.com/helm/chart-releaser
-owner: heliox-ai
+owner: Sarishc
+repository: Heliox-AI
 git-base-url: https://api.github.com/
 git-upload-url: https://uploads.github.com/
-charts-repo-url: https://heliox-ai.github.io/heliox
+charts-repo-url: https://sarishc.github.io/Heliox-AI

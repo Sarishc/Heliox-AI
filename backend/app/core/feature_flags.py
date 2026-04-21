@@ -1,6 +1,6 @@
 """Feature flags for gradual rollouts and enterprise controls."""
+
 from functools import lru_cache
-from typing import Any
 
 from app.core.config import get_settings
 
@@ -22,6 +22,7 @@ def get_feature_flags() -> dict[str, bool]:
     if isinstance(raw, str):
         if raw.strip().startswith("{"):
             import json
+
             try:
                 return {k: bool(v) for k, v in json.loads(raw).items()}
             except Exception:

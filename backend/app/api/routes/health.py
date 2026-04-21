@@ -1,4 +1,5 @@
 """Comprehensive health check endpoint for ECS container health checks and monitoring."""
+
 import time
 import logging
 from typing import Any, Dict
@@ -6,7 +7,7 @@ from typing import Any, Dict
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.core.db import check_db_connection, get_db
+from app.core.db import check_db_connection
 from app.core.cache import get_redis
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ def health_check() -> Any:
     # Celery (best-effort — degraded if unavailable, not unhealthy)
     try:
         from app.celery_app import celery_app
+
         inspect = celery_app.control.inspect(timeout=1.0)
         active = inspect.active()
         checks["celery"] = {"status": "ok" if active is not None else "degraded"}

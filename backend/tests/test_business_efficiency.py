@@ -1,4 +1,5 @@
 """Tests for business efficiency analytics."""
+
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -12,7 +13,7 @@ def test_business_efficiency_metrics(db_session):
     team = Team(name="Biz Team")
     db_session.add(team)
     db_session.commit()
-    
+
     start = date(2026, 1, 1)
     for i in range(5):
         db_session.add(
@@ -34,7 +35,7 @@ def test_business_efficiency_metrics(db_session):
             )
         )
     db_session.commit()
-    
+
     response = get_business_efficiency(
         start=start,
         end=start + timedelta(days=4),

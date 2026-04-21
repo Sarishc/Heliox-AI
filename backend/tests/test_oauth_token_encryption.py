@@ -8,15 +8,15 @@ Covers:
   4. Config startup error when INTEGRATIONS_ENCRYPTION_KEY is missing/malformed
   5. Graceful plaintext fallback during the migration window
 """
-import os
+
 import uuid
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from cryptography.fernet import Fernet
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def _set_test_encryption_key(monkeypatch):
@@ -25,12 +25,14 @@ def _set_test_encryption_key(monkeypatch):
     monkeypatch.setenv("INTEGRATIONS_ENCRYPTION_KEY", test_key)
     # Clear singleton so it picks up the new key
     import app.integrations.encryption as enc_module
+
     enc_module._encryption = None
     yield test_key
     enc_module._encryption = None
 
 
 # ── Test 1: Round-trip ────────────────────────────────────────────────────────
+
 
 def test_encrypt_decrypt_roundtrip(_set_test_encryption_key):
     """encrypt_string(x) followed by decrypt_string produces the original value."""
@@ -39,8 +41,8 @@ def test_encrypt_decrypt_roundtrip(_set_test_encryption_key):
     enc = get_encryption()
     for token in [
         "ya29.short",
-        "ya29." + "x" * 300,   # long access token
-        "1//0g" + "y" * 200,   # typical refresh token
+        "ya29." + "x" * 300,  # long access token
+        "1//0g" + "y" * 200,  # typical refresh token
         "special chars: !@#$%^&*()",
     ]:
         assert enc.decrypt_string(enc.encrypt_string(token)) == token
@@ -66,6 +68,7 @@ def test_is_fernet_token_rejects_plaintext():
 
 
 # ── Test 2: End-to-end through upsert / get_decrypted_* ──────────────────────
+
 
 def test_oauth_flow_stores_encrypted_and_decrypts_correctly(db_session, _set_test_encryption_key):
     """
@@ -116,6 +119,7 @@ def test_oauth_flow_stores_encrypted_and_decrypts_correctly(db_session, _set_tes
 
     # Stored value must look like a Fernet token
     from app.integrations.encryption import is_fernet_token
+
     assert is_fernet_token(identity.access_token_encrypted)
     assert is_fernet_token(identity.refresh_token_encrypted)
 
@@ -125,6 +129,7 @@ def test_oauth_flow_stores_encrypted_and_decrypts_correctly(db_session, _set_tes
 
 
 # ── Test 3: Migration logic — idempotent encrypt ──────────────────────────────
+
 
 def test_migration_encrypts_plaintext_and_is_idempotent(_set_test_encryption_key):
     """
@@ -161,6 +166,7 @@ def test_migration_encrypts_plaintext_and_is_idempotent(_set_test_encryption_key
 
 
 # ── Test 4: Config startup error ──────────────────────────────────────────────
+
 
 def test_config_raises_on_missing_key_in_production(monkeypatch):
     """
@@ -202,14 +208,17 @@ def test_config_raises_on_malformed_key(monkeypatch):
 
 # ── Test 5: Graceful plaintext fallback ───────────────────────────────────────
 
+
 def test_decrypt_returns_plaintext_for_pre_migration_row(_set_test_encryption_key):
     """
     If a stored token is NOT Fernet-encrypted (legacy plaintext row from before
     the encryption was deployed), the decrypt helpers return the raw value and
     emit a deprecation warning rather than returning None or raising.
     """
-    import logging
-    from app.auth.oauth_google import get_decrypted_access_token, get_decrypted_refresh_token
+    from app.auth.oauth_google import (
+        get_decrypted_access_token,
+        get_decrypted_refresh_token,
+    )
 
     plaintext_access = "ya29.legacy_plaintext_access_token"
     plaintext_refresh = "1//legacy_plaintext_refresh_token"
@@ -224,9 +233,9 @@ def test_decrypt_returns_plaintext_for_pre_migration_row(_set_test_encryption_ke
         access_result = get_decrypted_access_token(identity)
         refresh_result = get_decrypted_refresh_token(identity)
 
-    assert access_result == plaintext_access, (
-        "Expected plaintext fallback to return the raw token during migration window"
-    )
+    assert (
+        access_result == plaintext_access
+    ), "Expected plaintext fallback to return the raw token during migration window"
     assert refresh_result == plaintext_refresh
 
 

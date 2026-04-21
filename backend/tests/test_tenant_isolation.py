@@ -1,4 +1,5 @@
 """Tests for tenant isolation helpers."""
+
 import pytest
 from uuid import UUID
 from fastapi import HTTPException

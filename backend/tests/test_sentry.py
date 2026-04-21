@@ -1,13 +1,9 @@
 """Tests for Sentry configuration and safety."""
-import os
-
-import pytest
 
 from app.core.observability import (
     _sentry_before_send,
     _should_enable_sentry,
     init_sentry,
-    init_sentry_celery,
 )
 
 
@@ -52,11 +48,7 @@ def test_before_send_scrubs_authorization_header():
 
 def test_before_send_scrubs_cookies():
     """before_send scrubs cookies."""
-    event = {
-        "request": {
-            "cookies": "session=abc123; auth=xyz789"
-        }
-    }
+    event = {"request": {"cookies": "session=abc123; auth=xyz789"}}
     result = _sentry_before_send(event, {})
     assert result is not None
     assert result["request"]["cookies"] == "[Filtered]"

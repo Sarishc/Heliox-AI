@@ -1,9 +1,10 @@
 """Stripe meter export audit model."""
-from datetime import date, datetime
-from uuid import UUID, uuid4
+
+from datetime import date
+from uuid import UUID
 
 from sqlalchemy import Date, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 

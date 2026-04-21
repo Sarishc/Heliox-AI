@@ -1,4 +1,5 @@
 """Pydantic schemas for integrations."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,8 +11,14 @@ from pydantic import BaseModel, Field
 
 class IntegrationConnectionCreate(BaseModel):
     """Schema for creating an integration connection."""
+
     provider: str = Field(..., description="Integration provider (aws, gcp, stripe, etc.)")
-    name: str = Field(..., min_length=1, max_length=200, description="User-friendly name for this integration")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="User-friendly name for this integration",
+    )
     description: Optional[str] = Field(None, description="Optional description")
     config: Dict[str, Any] = Field(..., description="Integration configuration (will be encrypted)")
     auto_sync_enabled: bool = Field(True, description="Enable automatic syncing")
@@ -20,6 +27,7 @@ class IntegrationConnectionCreate(BaseModel):
 
 class IntegrationConnectionResponse(BaseModel):
     """Schema for integration connection response."""
+
     id: UUID
     team_id: UUID
     provider: str
@@ -34,18 +42,20 @@ class IntegrationConnectionResponse(BaseModel):
     sync_interval_minutes: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = {"from_attributes": True}
 
 
 class IntegrationListResponse(BaseModel):
     """Schema for listing integrations."""
+
     connections: List[IntegrationConnectionResponse]
     total: int
 
 
 class IntegrationSyncRunResponse(BaseModel):
     """Schema for sync run response."""
+
     id: UUID
     connection_id: UUID
     started_at: datetime
@@ -54,12 +64,13 @@ class IntegrationSyncRunResponse(BaseModel):
     error: Optional[str]
     metrics: Optional[Dict[str, Any]]
     triggered_by: str
-    
+
     model_config = {"from_attributes": True}
 
 
 class IntegrationHealthResponse(BaseModel):
     """Schema for health check response."""
+
     connection_id: UUID
     status: str  # healthy, degraded, unhealthy
     message: str
@@ -68,6 +79,7 @@ class IntegrationHealthResponse(BaseModel):
 
 class AvailableIntegrationResponse(BaseModel):
     """Schema for available integration metadata."""
+
     provider: str
     display_name: str
     description: str

@@ -11,12 +11,12 @@ Verifies that:
   7. GET /api/v1/health returns the expected schema.
   8. App startup fails (RuntimeError) when Redis ping fails.
 """
-import os
+
 import pytest
 from unittest.mock import MagicMock, patch
 
-
 # ── 1. Config: REDIS_URL is required ─────────────────────────────────────────
+
 
 def test_redis_url_required_in_settings():
     """Settings raises ValidationError when REDIS_URL is absent."""
@@ -36,6 +36,7 @@ def test_redis_url_required_in_settings():
 
 
 # ── 2 & 3. cache.get_redis() vs require_redis() ───────────────────────────────
+
 
 def test_get_redis_returns_none_on_connection_failure():
     """get_redis() returns None when Redis is unreachable (safe for caching callers)."""
@@ -86,6 +87,7 @@ def test_require_redis_returns_client_when_available():
 
 # ── 4. Rate limiter: no silent fallback ──────────────────────────────────────
 
+
 def test_rate_limiter_returns_503_when_redis_unavailable():
     """RateLimitMiddleware returns HTTP 503 (not 200) when Redis is down."""
     from fastapi.testclient import TestClient
@@ -100,7 +102,11 @@ def test_rate_limiter_returns_503_when_redis_unavailable():
         return {"ok": True}
 
     from fastapi import HTTPException
-    with patch("app.core.rate_limit.require_redis", side_effect=HTTPException(status_code=503, detail="Redis unavailable")):
+
+    with patch(
+        "app.core.rate_limit.require_redis",
+        side_effect=HTTPException(status_code=503, detail="Redis unavailable"),
+    ):
         client = TestClient(test_app, raise_server_exceptions=False)
         response = client.get("/test-endpoint")
 
@@ -136,12 +142,16 @@ def test_rate_limiter_enforces_limit_with_redis():
 
 # ── 5. Brute-force protection: no silent fallback ────────────────────────────
 
+
 def test_check_login_rate_limit_raises_503_without_redis():
     """check_login_rate_limit raises HTTP 503 when Redis is unavailable."""
     from fastapi import HTTPException
     from app.auth.brute_force import check_login_rate_limit
 
-    with patch("app.auth.brute_force.require_redis", side_effect=HTTPException(503, "Redis down")):
+    with patch(
+        "app.auth.brute_force.require_redis",
+        side_effect=HTTPException(503, "Redis down"),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             check_login_rate_limit("192.168.1.1")
     assert exc_info.value.status_code == 503
@@ -152,7 +162,10 @@ def test_is_locked_out_raises_503_without_redis():
     from fastapi import HTTPException
     from app.auth.brute_force import is_locked_out
 
-    with patch("app.auth.brute_force.require_redis", side_effect=HTTPException(503, "Redis down")):
+    with patch(
+        "app.auth.brute_force.require_redis",
+        side_effect=HTTPException(503, "Redis down"),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             is_locked_out("192.168.1.1")
     assert exc_info.value.status_code == 503
@@ -160,12 +173,16 @@ def test_is_locked_out_raises_503_without_redis():
 
 # ── 6. Token blacklist: no silent fallback ───────────────────────────────────
 
+
 def test_is_token_blacklisted_raises_503_without_redis():
     """is_token_blacklisted raises HTTP 503 when Redis is unavailable."""
     from fastapi import HTTPException
     from app.auth.cookie_auth import is_token_blacklisted
 
-    with patch("app.auth.cookie_auth.require_redis", side_effect=HTTPException(503, "Redis down")):
+    with patch(
+        "app.auth.cookie_auth.require_redis",
+        side_effect=HTTPException(503, "Redis down"),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             is_token_blacklisted("some.jwt.token")
     assert exc_info.value.status_code == 503
@@ -176,13 +193,17 @@ def test_blacklist_token_raises_503_without_redis():
     from fastapi import HTTPException
     from app.auth.cookie_auth import blacklist_token
 
-    with patch("app.auth.cookie_auth.require_redis", side_effect=HTTPException(503, "Redis down")):
+    with patch(
+        "app.auth.cookie_auth.require_redis",
+        side_effect=HTTPException(503, "Redis down"),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             blacklist_token("some.jwt.token")
     assert exc_info.value.status_code == 503
 
 
 # ── 7. GET /api/v1/health endpoint schema ────────────────────────────────────
+
 
 def test_health_endpoint_schema_when_healthy():
     """GET /api/v1/health returns the expected JSON schema when all checks pass."""
@@ -195,9 +216,11 @@ def test_health_endpoint_schema_when_healthy():
     mock_redis.expire.return_value = True
 
     # Patch at the import site — health.py imports these by reference
-    with patch("app.api.routes.health.get_redis", return_value=mock_redis), \
-         patch("app.api.routes.health.check_db_connection", return_value=True), \
-         patch("app.core.rate_limit.require_redis", return_value=mock_redis):
+    with (
+        patch("app.api.routes.health.get_redis", return_value=mock_redis),
+        patch("app.api.routes.health.check_db_connection", return_value=True),
+        patch("app.core.rate_limit.require_redis", return_value=mock_redis),
+    ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get("/api/v1/health")
 
@@ -223,9 +246,11 @@ def test_health_endpoint_returns_503_when_redis_down():
     mock_redis.incr.return_value = 1
     mock_redis.expire.return_value = True
 
-    with patch("app.api.routes.health.get_redis", return_value=None), \
-         patch("app.api.routes.health.check_db_connection", return_value=True), \
-         patch("app.core.rate_limit.require_redis", return_value=mock_redis):
+    with (
+        patch("app.api.routes.health.get_redis", return_value=None),
+        patch("app.api.routes.health.check_db_connection", return_value=True),
+        patch("app.core.rate_limit.require_redis", return_value=mock_redis),
+    ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get("/api/v1/health")
 
@@ -245,9 +270,11 @@ def test_health_endpoint_returns_503_when_db_down():
     mock_redis.incr.return_value = 1
     mock_redis.expire.return_value = True
 
-    with patch("app.api.routes.health.get_redis", return_value=mock_redis), \
-         patch("app.api.routes.health.check_db_connection", return_value=False), \
-         patch("app.core.rate_limit.require_redis", return_value=mock_redis):
+    with (
+        patch("app.api.routes.health.get_redis", return_value=mock_redis),
+        patch("app.api.routes.health.check_db_connection", return_value=False),
+        patch("app.core.rate_limit.require_redis", return_value=mock_redis),
+    ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get("/api/v1/health")
 
@@ -259,10 +286,10 @@ def test_health_endpoint_returns_503_when_db_down():
 
 # ── 8. Startup fails when Redis ping fails ───────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_startup_raises_if_redis_ping_fails():
     """App lifespan raises RuntimeError when Redis is unreachable at startup."""
-    from contextlib import asynccontextmanager
     from fastapi import FastAPI
 
     # Re-import the lifespan function and test it directly
@@ -271,8 +298,7 @@ async def test_startup_raises_if_redis_ping_fails():
     mock_redis = MagicMock()
     mock_redis.ping.side_effect = ConnectionError("refused")
 
-    with patch("app.main.get_redis", return_value=mock_redis), \
-         patch("app.main.check_db_connection", return_value=True):
+    with patch("app.main.get_redis", return_value=mock_redis), patch("app.main.check_db_connection", return_value=True):
         with pytest.raises(RuntimeError, match="Redis connection failed on startup"):
             async with main_module.lifespan(FastAPI()):
                 pass  # pragma: no cover

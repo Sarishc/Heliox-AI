@@ -1,6 +1,6 @@
 """Tests for RBAC (Role-Based Access Control) enforcement."""
+
 import pytest
-from uuid import uuid4
 
 from fastapi import HTTPException
 

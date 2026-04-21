@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.cost import CostSnapshot
@@ -48,14 +48,11 @@ def attribute_costs_for_window(
     result = AttributionResult()
 
     # ── 1. Find uncosted spans in window ─────────────────────────────────────
-    span_q = (
-        select(InferenceSpan)
-        .where(
-            InferenceSpan.team_id == team_id,
-            InferenceSpan.started_at >= start_time,
-            InferenceSpan.started_at < end_time,
-            InferenceSpan.cost_usd.is_(None),
-        )
+    span_q = select(InferenceSpan).where(
+        InferenceSpan.team_id == team_id,
+        InferenceSpan.started_at >= start_time,
+        InferenceSpan.started_at < end_time,
+        InferenceSpan.cost_usd.is_(None),
     )
     if cluster_name:
         span_q = span_q.where(InferenceSpan.cluster_name == cluster_name)
@@ -64,13 +61,16 @@ def attribute_costs_for_window(
     if not spans:
         logger.debug(
             "attribution: no uncosted spans for team=%s window=[%s, %s]",
-            team_id, start_time.isoformat(), end_time.isoformat(),
+            team_id,
+            start_time.isoformat(),
+            end_time.isoformat(),
         )
         return result
 
     # ── 2. Group spans by (cluster_name, day) ─────────────────────────────────
     # For each (cluster, day) pair we need one CostSnapshot lookup.
     from collections import defaultdict
+
     cluster_day_spans: dict[tuple[str | None, date], list[InferenceSpan]] = defaultdict(list)
     for span in spans:
         day = span.started_at.date()
@@ -92,7 +92,9 @@ def attribute_costs_for_window(
         if not cluster_cost or float(cluster_cost) == 0:
             logger.info(
                 "attribution: no GPU cost data for team=%s cluster=%s day=%s; skipping",
-                team_id, c_name, day,
+                team_id,
+                c_name,
+                day,
             )
             result.spans_skipped += len(day_spans)
             continue
@@ -115,9 +117,7 @@ def attribute_costs_for_window(
             cost = cluster_cost_f * share
             span.cost_usd = round(cost, 8)
 
-            total_tokens = span.total_tokens or (
-                (span.input_tokens or 0) + (span.output_tokens or 0)
-            )
+            total_tokens = span.total_tokens or ((span.input_tokens or 0) + (span.output_tokens or 0))
             if total_tokens and total_tokens > 0:
                 span.cost_per_1k_tokens = round((cost / total_tokens) * 1000, 8)
                 span.total_tokens = total_tokens
@@ -155,6 +155,7 @@ def _maybe_publish_inference_alerts(
             return
 
         from collections import defaultdict
+
         by_model: dict[str, list[float]] = defaultdict(list)
         for s in costed:
             if s.cost_per_1k_tokens:
@@ -191,8 +192,7 @@ def _maybe_publish_inference_alerts(
                             "baseline_cost_per_1k_tokens": round(baseline, 6),
                             "multiple": round(avg_current / baseline, 2),
                             "message": (
-                                f"{model_name} cost/1k tokens is "
-                                f"{avg_current/baseline:.1f}x above 7-day baseline."
+                                f"{model_name} cost/1k tokens is " f"{avg_current/baseline:.1f}x above 7-day baseline."
                             ),
                         },
                     ),
@@ -224,6 +224,7 @@ def rollup_daily_summaries(
 
     # Group by (model_name, serving_framework, cluster_name)
     from collections import defaultdict
+
     groups: dict[tuple[str, str, str | None], list[InferenceSpan]] = defaultdict(list)
     for s in spans:
         groups[(s.model_name, s.serving_framework, s.cluster_name)].append(s)
@@ -233,9 +234,7 @@ def rollup_daily_summaries(
         costed = [s for s in group_spans if s.cost_usd is not None]
         costs = [s.cost_usd for s in costed]  # type: ignore[misc]
         durations = [s.duration_ms for s in group_spans]
-        token_costs_per_1k = [
-            s.cost_per_1k_tokens for s in costed if s.cost_per_1k_tokens is not None
-        ]
+        token_costs_per_1k = [s.cost_per_1k_tokens for s in costed if s.cost_per_1k_tokens is not None]
 
         total_cost = sum(costs) if costs else 0.0
         avg_cost = total_cost / len(costed) if costed else 0.0
@@ -278,10 +277,7 @@ def rollup_daily_summaries(
             stmt = pg_insert(ModelCostSummary).values(**values)
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_model_cost_summary_team_model_cluster_date",
-                set_={
-                    k: v for k, v in values.items()
-                    if k not in ("team_id", "model_name", "cluster_name", "date")
-                },
+                set_={k: v for k, v in values.items() if k not in ("team_id", "model_name", "cluster_name", "date")},
             )
             db.execute(stmt)
             written += 1
@@ -310,7 +306,5 @@ def rollup_daily_summaries(
         db.rollback()
         return 0
 
-    logger.info(
-        "rollup: wrote %d summaries for team=%s date=%s", written, team_id, rollup_date
-    )
+    logger.info("rollup: wrote %d summaries for team=%s date=%s", written, team_id, rollup_date)
     return written

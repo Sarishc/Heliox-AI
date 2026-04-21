@@ -1,4 +1,5 @@
 """Schemas for team membership and roles."""
+
 from datetime import datetime
 from uuid import UUID
 
@@ -25,5 +26,5 @@ class TeamMemberResponse(BaseModel):
     role: TeamRole
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)

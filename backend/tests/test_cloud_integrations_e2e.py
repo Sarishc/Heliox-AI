@@ -14,27 +14,29 @@ These tests verify that:
 Cloud SDKs (boto3, google-cloud-bigquery, azure-identity) are mocked so these
 tests run without real credentials and work in CI.
 """
+
 import json
 import uuid
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-VALID_SA_JSON = json.dumps({
-    "type": "service_account",
-    "project_id": "test-project",
-    "private_key_id": "key-id",
-    "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\n",
-    "client_email": "billing@test-project.iam.gserviceaccount.com",
-    "client_id": "123456",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-})
+VALID_SA_JSON = json.dumps(
+    {
+        "type": "service_account",
+        "project_id": "test-project",
+        "private_key_id": "key-id",
+        "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\n",
+        "client_email": "billing@test-project.iam.gserviceaccount.com",
+        "client_id": "123456",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+)
 
 AWS_CONFIG = {
     "aws_access_key_id": "AKIAIOSFODNN7EXAMPLE",
@@ -70,6 +72,7 @@ def _mock_db_with_team(team_id: uuid.UUID):
 
 # ── Regression: dead plugins layer must be gone ───────────────────────────────
 
+
 def test_plugins_module_does_not_exist():
     """
     Importing app.plugins raises ModuleNotFoundError.
@@ -78,6 +81,7 @@ def test_plugins_module_does_not_exist():
     never silently come back and shadow the real integrations.
     """
     import importlib
+
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("app.plugins")
 
@@ -85,11 +89,13 @@ def test_plugins_module_does_not_exist():
 def test_plugins_registry_does_not_exist():
     """The old plugin registry sub-module is gone."""
     import importlib
+
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("app.plugins.registry")
 
 
 # ── Integration registry ──────────────────────────────────────────────────────
+
 
 def test_all_three_providers_registered():
     """AWS, GCP BigQuery, and Azure are registered in the real integration_registry."""
@@ -121,6 +127,7 @@ def test_list_available_returns_real_integrations():
 
 # ── AWS Cost Explorer sync ────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_aws_sync_returns_saved_records():
     """
@@ -139,7 +146,10 @@ async def test_aws_sync_returns_saved_records():
                 "TimePeriod": {"Start": "2026-04-01", "End": "2026-04-02"},
                 "Groups": [
                     {
-                        "Keys": ["Amazon Elastic Compute Cloud - Compute", "111122223333"],
+                        "Keys": [
+                            "Amazon Elastic Compute Cloud - Compute",
+                            "111122223333",
+                        ],
                         "Metrics": {"UnblendedCost": {"Amount": "125.50", "Unit": "USD"}},
                     },
                     {
@@ -218,6 +228,7 @@ async def test_aws_sync_skips_zero_cost_rows():
 
 # ── GCP BigQuery sync ─────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_gcp_sync_returns_saved_records():
     """
@@ -225,7 +236,9 @@ async def test_gcp_sync_returns_saved_records():
 
     Fixture represents two rows from a billing export query.
     """
-    from app.integrations.providers.gcp_billing_bigquery import GCPBillingBigQueryIntegration
+    from app.integrations.providers.gcp_billing_bigquery import (
+        GCPBillingBigQueryIntegration,
+    )
 
     team_id = uuid.uuid4()
     mock_db = _mock_db_with_team(team_id)
@@ -265,6 +278,7 @@ async def test_gcp_sync_returns_saved_records():
 
 # ── Azure Cost Management sync ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_azure_sync_returns_saved_records():
     """
@@ -272,7 +286,9 @@ async def test_azure_sync_returns_saved_records():
 
     Fixture matches the real Azure Cost Management query response schema.
     """
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
 
     team_id = uuid.uuid4()
     mock_db = _mock_db_with_team(team_id)
@@ -309,9 +325,7 @@ async def test_azure_sync_returns_saved_records():
             mock_resp.json.return_value = azure_response
 
             with patch("httpx.AsyncClient") as mock_httpx:
-                mock_httpx.return_value.__aenter__.return_value.post = AsyncMock(
-                    return_value=mock_resp
-                )
+                mock_httpx.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
                 result = await integration.sync(team_id=str(team_id))
 
     assert result["records_saved"] >= 2  # 2 non-zero rows
@@ -319,6 +333,7 @@ async def test_azure_sync_returns_saved_records():
 
 
 # ── /plugins route now returns real integration catalog ───────────────────────
+
 
 def test_get_plugins_route_returns_integrations_catalog():
     """GET /api/v1/plugins returns the real integration catalog, not stub plugin names."""
@@ -342,8 +357,10 @@ def test_get_plugins_route_returns_integrations_catalog():
     app.dependency_overrides[get_team_api_key_optional] = lambda: mock_api_key
     app.dependency_overrides[get_current_user_optional] = lambda: None
     try:
-        with patch("app.core.cache.get_redis", return_value=mock_redis), \
-             patch("app.core.rate_limit.require_redis", return_value=mock_redis):
+        with (
+            patch("app.core.cache.get_redis", return_value=mock_redis),
+            patch("app.core.rate_limit.require_redis", return_value=mock_redis),
+        ):
             client = TestClient(app)
             response = client.get("/api/v1/plugins")
             assert response.status_code == 200
@@ -367,6 +384,7 @@ def test_get_plugins_route_returns_integrations_catalog():
 
 # ── Step 6: validate_config() raises IntegrationConfigError ──────────────────
 
+
 def test_aws_validate_config_raises_on_missing_key():
     """AWS validate_config raises IntegrationConfigError when aws_access_key_id is absent."""
     from app.integrations.providers.aws_cost_explorer import AWSCostExplorerIntegration
@@ -381,7 +399,9 @@ def test_aws_validate_config_raises_on_missing_key():
 
 def test_gcp_validate_config_raises_on_missing_project():
     """GCP validate_config raises IntegrationConfigError when gcp_project_id is absent."""
-    from app.integrations.providers.gcp_billing_bigquery import GCPBillingBigQueryIntegration
+    from app.integrations.providers.gcp_billing_bigquery import (
+        GCPBillingBigQueryIntegration,
+    )
     from app.integrations.base import IntegrationConfigError
 
     bad_config = {
@@ -396,7 +416,9 @@ def test_gcp_validate_config_raises_on_missing_project():
 
 def test_azure_validate_config_raises_on_missing_tenant():
     """Azure validate_config raises IntegrationConfigError when azure_tenant_id is absent."""
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
     from app.integrations.base import IntegrationConfigError
 
     bad_config = {
@@ -412,7 +434,9 @@ def test_azure_validate_config_raises_on_missing_tenant():
 
 def test_azure_validate_config_rejects_empty_config():
     """Azure validate_config raises IntegrationConfigError for empty config (no silent bypass)."""
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
     from app.integrations.base import IntegrationConfigError
 
     with pytest.raises(IntegrationConfigError):
@@ -421,45 +445,62 @@ def test_azure_validate_config_rejects_empty_config():
 
 # ── Step 6: health_check() returns bool, never raises ────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_aws_health_check_returns_true_when_healthy():
     """health_check() returns True when AWS credentials are valid."""
     from app.integrations.providers.aws_cost_explorer import AWSCostExplorerIntegration
 
     integration = AWSCostExplorerIntegration(AWS_CONFIG)
-    with patch.object(integration, "health", return_value={
-        "status": "healthy",
-        "message": "AWS Cost Explorer connection successful",
-        "details": {},
-    }):
+    with patch.object(
+        integration,
+        "health",
+        return_value={
+            "status": "healthy",
+            "message": "AWS Cost Explorer connection successful",
+            "details": {},
+        },
+    ):
         assert await integration.health_check() is True
 
 
 @pytest.mark.asyncio
 async def test_gcp_health_check_returns_true_when_healthy():
     """health_check() returns True when GCP BigQuery is reachable."""
-    from app.integrations.providers.gcp_billing_bigquery import GCPBillingBigQueryIntegration
+    from app.integrations.providers.gcp_billing_bigquery import (
+        GCPBillingBigQueryIntegration,
+    )
 
     integration = GCPBillingBigQueryIntegration(GCP_CONFIG)
-    with patch.object(integration, "health", return_value={
-        "status": "healthy",
-        "message": "GCP BigQuery billing connection successful",
-        "details": {},
-    }):
+    with patch.object(
+        integration,
+        "health",
+        return_value={
+            "status": "healthy",
+            "message": "GCP BigQuery billing connection successful",
+            "details": {},
+        },
+    ):
         assert await integration.health_check() is True
 
 
 @pytest.mark.asyncio
 async def test_azure_health_check_returns_true_when_healthy():
     """health_check() returns True when Azure Cost Management is reachable."""
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
 
     integration = AzureCostManagementIntegration(AZURE_CONFIG)
-    with patch.object(integration, "health", return_value={
-        "status": "healthy",
-        "message": "Azure Cost Management connection successful",
-        "details": {},
-    }):
+    with patch.object(
+        integration,
+        "health",
+        return_value={
+            "status": "healthy",
+            "message": "Azure Cost Management connection successful",
+            "details": {},
+        },
+    ):
         assert await integration.health_check() is True
 
 
@@ -467,7 +508,6 @@ async def test_azure_health_check_returns_true_when_healthy():
 async def test_aws_health_check_returns_false_when_unreachable():
     """health_check() returns False (never raises) when AWS API is unreachable."""
     from app.integrations.providers.aws_cost_explorer import AWSCostExplorerIntegration
-    from botocore.exceptions import BotoCoreError
 
     integration = AWSCostExplorerIntegration(AWS_CONFIG)
     with patch.object(integration, "_get_caller_identity", side_effect=ConnectionError("refused")):
@@ -478,7 +518,9 @@ async def test_aws_health_check_returns_false_when_unreachable():
 @pytest.mark.asyncio
 async def test_gcp_health_check_returns_false_when_unreachable():
     """health_check() returns False (never raises) when GCP API is unreachable."""
-    from app.integrations.providers.gcp_billing_bigquery import GCPBillingBigQueryIntegration
+    from app.integrations.providers.gcp_billing_bigquery import (
+        GCPBillingBigQueryIntegration,
+    )
 
     integration = GCPBillingBigQueryIntegration(GCP_CONFIG)
     with patch.object(integration, "_get_bigquery_client", side_effect=ConnectionError("refused")):
@@ -489,7 +531,9 @@ async def test_gcp_health_check_returns_false_when_unreachable():
 @pytest.mark.asyncio
 async def test_azure_health_check_returns_false_when_unreachable():
     """health_check() returns False (never raises) when Azure API is unreachable."""
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
 
     integration = AzureCostManagementIntegration(AZURE_CONFIG)
     with patch.object(integration, "_get_token", side_effect=ConnectionError("refused")):
@@ -499,6 +543,7 @@ async def test_azure_health_check_returns_false_when_unreachable():
 
 # ── Step 6: Azure 429 and 401 retry logic ────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_azure_429_sleeps_retry_after_and_retries():
     """
@@ -507,7 +552,9 @@ async def test_azure_429_sleeps_retry_after_and_retries():
     Verifies that asyncio.sleep is called with the correct delay extracted from
     the 429 response headers.
     """
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
     from datetime import date
 
     integration = AzureCostManagementIntegration(AZURE_CONFIG)
@@ -579,7 +626,9 @@ async def test_azure_401_refreshes_token_and_retries_exactly_once():
     Verifies that _get_token() is called once (the refresh) and that the
     second POST uses the fresh token in its Authorization header.
     """
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
     from datetime import date
 
     integration = AzureCostManagementIntegration(AZURE_CONFIG)
@@ -614,6 +663,7 @@ async def test_azure_401_refreshes_token_and_retries_exactly_once():
 
 # ── Step 6: IntegrationSyncError raised on API failure ───────────────────────
 
+
 @pytest.mark.asyncio
 async def test_aws_sync_raises_integration_sync_error_on_api_failure():
     """AWS sync raises IntegrationSyncError (not ClientError) when Cost Explorer returns an error."""
@@ -631,13 +681,19 @@ async def test_aws_sync_raises_integration_sync_error_on_api_failure():
         "GetCostAndUsage",
     )
 
-    with patch("app.integrations.providers.aws_cost_explorer.get_db", return_value=iter([mock_db])):
+    with patch(
+        "app.integrations.providers.aws_cost_explorer.get_db",
+        return_value=iter([mock_db]),
+    ):
         mock_boto3_session = MagicMock()
         mock_ce_client = MagicMock()
         mock_boto3_session.client.return_value = mock_ce_client
         mock_ce_client.get_cost_and_usage.side_effect = client_error
 
-        with patch("app.integrations.providers.aws_cost_explorer.boto3.Session", return_value=mock_boto3_session):
+        with patch(
+            "app.integrations.providers.aws_cost_explorer.boto3.Session",
+            return_value=mock_boto3_session,
+        ):
             with pytest.raises(IntegrationSyncError) as exc_info:
                 await integration.sync(team_id=str(team_id))
 
@@ -649,7 +705,9 @@ async def test_aws_sync_raises_integration_sync_error_on_api_failure():
 @pytest.mark.asyncio
 async def test_gcp_sync_raises_integration_sync_error_on_api_failure():
     """GCP sync raises IntegrationSyncError (not GoogleAPIError) when BigQuery fails."""
-    from app.integrations.providers.gcp_billing_bigquery import GCPBillingBigQueryIntegration
+    from app.integrations.providers.gcp_billing_bigquery import (
+        GCPBillingBigQueryIntegration,
+    )
     from app.integrations.base import IntegrationSyncError
     from google.api_core.exceptions import GoogleAPIError
 
@@ -660,7 +718,10 @@ async def test_gcp_sync_raises_integration_sync_error_on_api_failure():
 
     gcp_error = GoogleAPIError("Quota exceeded")
 
-    with patch("app.integrations.providers.gcp_billing_bigquery.get_db", return_value=iter([mock_db])):
+    with patch(
+        "app.integrations.providers.gcp_billing_bigquery.get_db",
+        return_value=iter([mock_db]),
+    ):
         mock_bq_client = MagicMock()
         mock_bq_client.query.side_effect = gcp_error
 
@@ -676,7 +737,9 @@ async def test_gcp_sync_raises_integration_sync_error_on_api_failure():
 @pytest.mark.asyncio
 async def test_azure_sync_raises_integration_sync_error_on_token_failure():
     """Azure sync raises IntegrationSyncError when token acquisition fails."""
-    from app.integrations.providers.azure_cost_management import AzureCostManagementIntegration
+    from app.integrations.providers.azure_cost_management import (
+        AzureCostManagementIntegration,
+    )
     from app.integrations.base import IntegrationSyncError
 
     team_id = uuid.uuid4()
@@ -684,7 +747,10 @@ async def test_azure_sync_raises_integration_sync_error_on_token_failure():
 
     integration = AzureCostManagementIntegration(AZURE_CONFIG)
 
-    with patch("app.integrations.providers.azure_cost_management.get_db", return_value=iter([mock_db])):
+    with patch(
+        "app.integrations.providers.azure_cost_management.get_db",
+        return_value=iter([mock_db]),
+    ):
         with patch.object(integration, "_get_token", side_effect=RuntimeError("auth service down")):
             with pytest.raises(IntegrationSyncError) as exc_info:
                 await integration.sync(team_id=str(team_id))

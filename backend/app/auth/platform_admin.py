@@ -1,4 +1,5 @@
 """Platform admin authorization (replaces global admin API key)."""
+
 from fastapi import Depends, HTTPException, status
 
 from app.auth.deps import get_current_active_user

@@ -1,4 +1,5 @@
 """Resolve team context from API key or session cookie."""
+
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -7,7 +8,7 @@ from jose import jwt
 from sqlalchemy.orm import Session
 
 from app.auth.cookie_auth import get_token_from_cookie_or_header, is_token_blacklisted
-from app.auth.security import SECRET_KEY, ALGORITHM
+from app.auth.security import SECRET_KEY
 from app.core.db import get_db
 from app.core.security import _get_team_api_key_by_value, get_request_id
 from app.models.team_api_key import TeamAPIKey
@@ -57,11 +58,7 @@ async def verify_team_api_key_or_session(
 
                 user = crud_user.get_by_email(db, email=email)
                 if user:
-                    membership = (
-                        db.query(TeamMember)
-                        .filter(TeamMember.user_id == user.id)
-                        .first()
-                    )
+                    membership = db.query(TeamMember).filter(TeamMember.user_id == user.id).first()
                     if membership:
                         ctx = TeamContext(team_id=membership.team_id)
                         request.state.tenant_id = ctx.team_id
@@ -110,11 +107,7 @@ async def get_team_api_key_or_session_optional(
 
                 user = crud_user.get_by_email(db, email=email)
                 if user:
-                    membership = (
-                        db.query(TeamMember)
-                        .filter(TeamMember.user_id == user.id)
-                        .first()
-                    )
+                    membership = db.query(TeamMember).filter(TeamMember.user_id == user.id).first()
                     if membership:
                         return TeamContext(team_id=membership.team_id)
         except Exception:

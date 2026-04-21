@@ -1,7 +1,7 @@
 """Tests for Slack webhook encryption at rest."""
+
 import pytest
 
-from app.integrations.encryption import get_encryption
 from app.models.alert_settings import AlertSettings
 from app.models.team import Team
 from app.services.webhook_secrets import (
@@ -27,11 +27,7 @@ def test_webhook_stored_encrypted_not_plaintext(db_session, sample_team):
     url = "https://hooks.slack.com/services/T000/B000/secret123"
     set_webhook_url(db_session, sample_team.id, url)
 
-    row = (
-        db_session.query(AlertSettings)
-        .filter(AlertSettings.team_id == sample_team.id)
-        .first()
-    )
+    row = db_session.query(AlertSettings).filter(AlertSettings.team_id == sample_team.id).first()
     assert row is not None
     assert row.slack_webhook_encrypted is not None
     # Stored value must NOT be the plaintext URL
@@ -78,11 +74,7 @@ def test_set_webhook_url_clears_when_none(db_session, sample_team):
     assert not is_webhook_configured(db_session, sample_team.id)
     assert get_webhook_url(db_session, sample_team.id) is None
 
-    row = (
-        db_session.query(AlertSettings)
-        .filter(AlertSettings.team_id == sample_team.id)
-        .first()
-    )
+    row = db_session.query(AlertSettings).filter(AlertSettings.team_id == sample_team.id).first()
     assert row.slack_webhook_encrypted is None
 
 
@@ -106,11 +98,7 @@ def test_update_webhook_overwrites(db_session, sample_team):
 def test_delete_settings_removes_encrypted_value(db_session, sample_team):
     """Deleting alert settings removes the encrypted webhook."""
     set_webhook_url(db_session, sample_team.id, "https://hooks.slack.com/z")
-    db_session.delete(
-        db_session.query(AlertSettings)
-        .filter(AlertSettings.team_id == sample_team.id)
-        .first()
-    )
+    db_session.delete(db_session.query(AlertSettings).filter(AlertSettings.team_id == sample_team.id).first())
     db_session.commit()
 
     # Row is gone; get_webhook_url returns None

@@ -1,14 +1,45 @@
 """API routers for Heliox-AI."""
+
 from fastapi import APIRouter
 
 from app.core.config import get_settings
 from app.api.routes import (
-    auth, teams, jobs, costs, usage, analytics,
-    admin, recommendations, demo, forecast, alert_settings, daily_digest,
-    public, ingest, onboarding, me, optimize, schedule, finance, experiments,
-    assistant, plugins, alerts_webhook, anomalies, budgets, reports,
-    integrations, billing, billing_usage, auth_oauth, auth_saml, team_sso,
-    invites, health, inference, events,
+    auth,
+    teams,
+    jobs,
+    costs,
+    usage,
+    analytics,
+    admin,
+    recommendations,
+    demo,
+    forecast,
+    alert_settings,
+    daily_digest,
+    public,
+    ingest,
+    onboarding,
+    me,
+    optimize,
+    schedule,
+    finance,
+    experiments,
+    assistant,
+    plugins,
+    alerts_webhook,
+    anomalies,
+    budgets,
+    reports,
+    integrations,
+    billing,
+    billing_usage,
+    auth_oauth,
+    auth_saml,
+    team_sso,
+    invites,
+    health,
+    inference,
+    events,
 )
 from app.api.routes.demo import public_router as demo_public_router
 
@@ -61,4 +92,3 @@ api_router.include_router(invites.router, prefix="/invite", tags=["Invites"])
 api_router.include_router(health.router, prefix="/health", tags=["Health"])
 api_router.include_router(inference.router, prefix="/inference", tags=["Inference Tracking"])
 api_router.include_router(events.router, prefix="/events", tags=["Real-time Events"])
-

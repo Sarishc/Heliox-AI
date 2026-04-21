@@ -1,7 +1,7 @@
 """Azure Cost Management integration for automatic cost ingestion."""
+
 import asyncio
 import logging
-import time as _time
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -9,7 +9,6 @@ from uuid import UUID
 
 import httpx
 from azure.identity import ClientSecretCredential
-from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.integrations.base import (
@@ -264,14 +263,22 @@ class AzureCostManagementIntegration(IntegrationBase):
                 return {
                     "status": IntegrationHealthStatus.UNHEALTHY.value,
                     "message": "Invalid Azure credentials or insufficient permissions",
-                    "details": {"credentials_valid": False, "api_reachable": True, "error": "Unauthorized"},
+                    "details": {
+                        "credentials_valid": False,
+                        "api_reachable": True,
+                        "error": "Unauthorized",
+                    },
                 }
 
             if resp.status_code == 403:
                 return {
                     "status": IntegrationHealthStatus.UNHEALTHY.value,
                     "message": "Access denied — ensure the app has Cost Management Reader role on the subscription",
-                    "details": {"credentials_valid": True, "api_reachable": True, "error": "Forbidden"},
+                    "details": {
+                        "credentials_valid": True,
+                        "api_reachable": True,
+                        "error": "Forbidden",
+                    },
                 }
 
             try:
@@ -296,7 +303,11 @@ class AzureCostManagementIntegration(IntegrationBase):
             return {
                 "status": IntegrationHealthStatus.UNHEALTHY.value,
                 "message": f"Health check failed: {str(e)}",
-                "details": {"credentials_valid": False, "api_reachable": False, "error": str(e)[:200]},
+                "details": {
+                    "credentials_valid": False,
+                    "api_reachable": False,
+                    "error": str(e)[:200],
+                },
             }
 
     async def _query_subscription(
@@ -346,16 +357,15 @@ class AzureCostManagementIntegration(IntegrationBase):
             retry_after = min(retry_after, _MAX_RETRY_AFTER_SECONDS)
             logger.warning(
                 "Azure 429 rate limit on subscription %s — sleeping %ds (Retry-After)",
-                sub_id, retry_after,
+                sub_id,
+                retry_after,
             )
             await asyncio.sleep(retry_after)
             resp = await client.post(url, params=params, json=body, headers=headers)
 
         # 401 — token may have expired mid-sync: refresh and retry once
         if resp.status_code == 401:
-            logger.warning(
-                "Azure 401 on subscription %s — refreshing token and retrying", sub_id
-            )
+            logger.warning("Azure 401 on subscription %s — refreshing token and retrying", sub_id)
             fresh_token = self._get_token()
             headers["Authorization"] = f"Bearer {fresh_token}"
             resp = await client.post(url, params=params, json=body, headers=headers)
@@ -395,9 +405,7 @@ class AzureCostManagementIntegration(IntegrationBase):
             async with httpx.AsyncClient(timeout=60.0) as http_client:
                 for sub_id in self.subscription_ids:
                     try:
-                        resp = await self._query_subscription(
-                            http_client, sub_id, token, start_date, end_date
-                        )
+                        resp = await self._query_subscription(http_client, sub_id, token, start_date, end_date)
                     except Exception as e:
                         errors.append(f"Subscription {sub_id}: {e}")
                         logger.warning("Failed to query subscription %s: %s", sub_id, e)
@@ -412,9 +420,7 @@ class AzureCostManagementIntegration(IntegrationBase):
 
                         # 404 = subscription not found / no access — record and skip
                         if resp.status_code == 404:
-                            errors.append(
-                                f"Subscription {sub_id}: not found or Cost Management not available (404)"
-                            )
+                            errors.append(f"Subscription {sub_id}: not found or Cost Management not available (404)")
                         else:
                             errors.append(f"Subscription {sub_id}: {err_msg[:100]}")
                         continue
@@ -448,9 +454,7 @@ class AzureCostManagementIntegration(IntegrationBase):
                                 if len(s) == 8 and s.isdigit():
                                     snap_date = datetime.strptime(s, "%Y%m%d").date()
                                 elif "T" in s:
-                                    snap_date = datetime.strptime(
-                                        s.split("T")[0][:10], "%Y-%m-%d"
-                                    ).date()
+                                    snap_date = datetime.strptime(s.split("T")[0][:10], "%Y-%m-%d").date()
                                 else:
                                     snap_date = datetime.strptime(s[:10], "%Y-%m-%d").date()
                             except Exception:
@@ -461,30 +465,38 @@ class AzureCostManagementIntegration(IntegrationBase):
                         gpu_type = _map_azure_service_to_gpu_type(service_name)
                         provider = "azure"
 
-                        existing = db.query(CostSnapshot).filter(
-                            CostSnapshot.team_id == target_team_id,
-                            CostSnapshot.date == snap_date,
-                            CostSnapshot.provider == provider,
-                            CostSnapshot.gpu_type == gpu_type,
-                        ).first()
+                        existing = (
+                            db.query(CostSnapshot)
+                            .filter(
+                                CostSnapshot.team_id == target_team_id,
+                                CostSnapshot.date == snap_date,
+                                CostSnapshot.provider == provider,
+                                CostSnapshot.gpu_type == gpu_type,
+                            )
+                            .first()
+                        )
 
                         if existing:
                             existing.cost_usd = existing.cost_usd + cost
                             existing.updated_at = datetime.utcnow()
                         else:
-                            db.add(CostSnapshot(
-                                team_id=target_team_id,
-                                date=snap_date,
-                                provider=provider,
-                                gpu_type=gpu_type,
-                                cost_usd=cost,
-                            ))
+                            db.add(
+                                CostSnapshot(
+                                    team_id=target_team_id,
+                                    date=snap_date,
+                                    provider=provider,
+                                    gpu_type=gpu_type,
+                                    cost_usd=cost,
+                                )
+                            )
                         records_saved += 1
 
             db.commit()
             logger.info(
                 "Azure sync completed: %d fetched, %d saved, %d skipped",
-                records_fetched, records_saved, records_skipped,
+                records_fetched,
+                records_saved,
+                records_skipped,
             )
             return {
                 "records_fetched": records_fetched,

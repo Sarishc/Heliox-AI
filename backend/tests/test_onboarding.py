@@ -1,4 +1,5 @@
 """Tests for onboarding wizard and status endpoint."""
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -152,6 +153,7 @@ def viewer_user(db_session: Session) -> tuple[User, Team]:
 
 def test_onboarding_status_no_team(client: TestClient, user_no_team: User) -> None:
     """GET /onboarding/status returns has_team=false when user has no team."""
+
     def override_user():
         return user_no_team
 

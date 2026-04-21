@@ -1,21 +1,17 @@
 """Tests for Azure Cost Management integration."""
-from datetime import datetime
-from decimal import Decimal
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.integrations.base import IntegrationProvider
 from app.integrations.encryption import get_encryption
-from app.integrations.models import IntegrationConnection, IntegrationSyncRun
 from app.integrations.providers.azure_cost_management import (
     AzureCostManagementIntegration,
     _map_azure_service_to_gpu_type,
 )
 from app.integrations.registry import integration_registry
-from app.models.cost import CostSnapshot
 from app.models.team import Team
-from app.models.team_member import TeamMember, TeamRole
 from app.models.user import User
 
 
@@ -27,6 +23,7 @@ def test_azure_provider_registered():
 def test_azure_validate_config_empty_raises():
     """Empty config raises IntegrationConfigError — schema discovery reads class attrs, never instantiates."""
     from app.integrations.base import IntegrationConfigError
+
     with pytest.raises(IntegrationConfigError):
         AzureCostManagementIntegration({})
 
@@ -40,12 +37,14 @@ def test_azure_validate_config_missing_required():
 def test_azure_validate_config_invalid_subscription():
     """Invalid subscription ID format raises ValueError."""
     with pytest.raises(ValueError, match="subscription_ids"):
-        AzureCostManagementIntegration({
-            "azure_tenant_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "azure_client_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "azure_client_secret": "a" * 40,
-            "subscription_ids": [],
-        })
+        AzureCostManagementIntegration(
+            {
+                "azure_tenant_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "azure_client_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "azure_client_secret": "a" * 40,
+                "subscription_ids": [],
+            }
+        )
 
 
 def test_azure_validate_config_valid():
@@ -100,9 +99,7 @@ async def test_azure_health_success():
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {"properties": {"rows": [], "columns": []}}
-            mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-                return_value=mock_resp
-            )
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
 
             integration = AzureCostManagementIntegration(config)
             result = await integration.health()
@@ -128,9 +125,7 @@ async def test_azure_health_401_unauthorized():
         with patch("httpx.AsyncClient") as mock_client:
             mock_resp = MagicMock()
             mock_resp.status_code = 401
-            mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-                return_value=mock_resp
-            )
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
 
             integration = AzureCostManagementIntegration(config)
             result = await integration.health()

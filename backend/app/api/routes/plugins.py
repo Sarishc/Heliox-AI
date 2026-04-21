@@ -1,4 +1,5 @@
 """Available integrations catalog endpoint."""
+
 from typing import Any
 from uuid import UUID
 

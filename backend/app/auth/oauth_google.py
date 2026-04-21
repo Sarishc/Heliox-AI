@@ -1,5 +1,5 @@
 """Google OAuth authentication implementation."""
-import hashlib
+
 import logging
 import secrets
 from datetime import datetime, timedelta
@@ -32,7 +32,7 @@ _state_cache: Dict[str, dict] = {}
 def generate_state_nonce() -> Tuple[str, str]:
     """
     Generate secure state and nonce for OAuth flow.
-    
+
     Returns:
         Tuple of (state, nonce)
     """
@@ -63,9 +63,9 @@ def store_oauth_state(
         "nonce": nonce,
         "redirect_uri": redirect_uri,
         "frontend_redirect": frontend_redirect or redirect_uri,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.utcnow(),
     }
-    
+
     # Cleanup old states (older than 10 minutes)
     cutoff = datetime.utcnow() - timedelta(minutes=10)
     expired = [k for k, v in _state_cache.items() if v["created_at"] < cutoff]
@@ -76,24 +76,24 @@ def store_oauth_state(
 def validate_and_pop_state(state: str) -> Optional[dict]:
     """
     Validate OAuth state and remove from cache.
-    
+
     Args:
         state: OAuth state token
-        
+
     Returns:
         State data if valid, None otherwise
     """
     state_data = _state_cache.pop(state, None)
-    
+
     if not state_data:
         logger.warning(f"Invalid or expired OAuth state: {state}")
         return None
-    
+
     # Check if state is not too old (10 minutes)
     if datetime.utcnow() - state_data["created_at"] > timedelta(minutes=10):
         logger.warning(f"Expired OAuth state: {state}")
         return None
-    
+
     return state_data
 
 
@@ -118,7 +118,7 @@ def build_google_auth_url(
 
     # Store state for validation
     store_oauth_state(state, team_id, nonce, redirect_uri, frontend_redirect)
-    
+
     # Build authorization URL
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
@@ -130,9 +130,9 @@ def build_google_auth_url(
         "access_type": "offline",  # Get refresh token
         "prompt": "select_account",  # Force account selection
     }
-    
+
     auth_url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
-    
+
     logger.info(f"Generated Google OAuth URL for team {team_id}")
     return auth_url, state
 
@@ -140,14 +140,14 @@ def build_google_auth_url(
 async def exchange_code_for_token(code: str, redirect_uri: str) -> Dict:
     """
     Exchange authorization code for access token.
-    
+
     Args:
         code: Authorization code from Google
         redirect_uri: Redirect URI used in auth request
-        
+
     Returns:
         Token response from Google
-        
+
     Raises:
         Exception if token exchange fails
     """
@@ -156,79 +156,75 @@ async def exchange_code_for_token(code: str, redirect_uri: str) -> Dict:
         "client_id": settings.GOOGLE_CLIENT_ID,
         "client_secret": settings.GOOGLE_CLIENT_SECRET,
         "redirect_uri": redirect_uri,
-        "grant_type": "authorization_code"
+        "grant_type": "authorization_code",
     }
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.post(GOOGLE_TOKEN_URL, data=data)
-        
+
         if response.status_code != 200:
             error_detail = response.json() if response.text else "Unknown error"
             logger.error(f"Google token exchange failed: {error_detail}")
             raise Exception(f"Failed to exchange code for token: {error_detail}")
-        
+
         return response.json()
 
 
 async def get_google_userinfo(access_token: str) -> Dict:
     """
     Get user info from Google.
-    
+
     Args:
         access_token: Google access token
-        
+
     Returns:
         User info from Google
-        
+
     Raises:
         Exception if userinfo request fails
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.get(GOOGLE_USERINFO_URL, headers=headers)
-        
+
         if response.status_code != 200:
             error_detail = response.text
             logger.error(f"Google userinfo request failed: {error_detail}")
             raise Exception(f"Failed to get user info: {error_detail}")
-        
+
         return response.json()
 
 
 def check_domain_allowed(email: str, team: Team) -> bool:
     """
     Check if email domain is allowed for team SSO.
-    
+
     Args:
         email: User email address
         team: Team object
-        
+
     Returns:
         True if domain is allowed, False otherwise
     """
     if not team.sso_enforce_domain:
         # Domain enforcement disabled
         return True
-    
+
     if not team.allowed_email_domains:
         # No domains configured, allow all
         return True
-    
+
     email_domain = email.split("@")[-1].lower()
-    
+
     # Check if domain is in allowed list
-    allowed = any(
-        email_domain == domain.lower()
-        for domain in team.allowed_email_domains
-    )
-    
+    allowed = any(email_domain == domain.lower() for domain in team.allowed_email_domains)
+
     if not allowed:
         logger.warning(
-            f"Email {email} domain not allowed for team {team.id}. "
-            f"Allowed domains: {team.allowed_email_domains}"
+            f"Email {email} domain not allowed for team {team.id}. " f"Allowed domains: {team.allowed_email_domains}"
         )
-    
+
     return allowed
 
 
@@ -243,11 +239,11 @@ def upsert_oauth_identity(
     picture: Optional[str],
     access_token: Optional[str] = None,
     refresh_token: Optional[str] = None,
-    expires_in: Optional[int] = None
+    expires_in: Optional[int] = None,
 ) -> OAuthIdentity:
     """
     Create or update OAuth identity.
-    
+
     Args:
         db: Database session
         team_id: Team ID
@@ -260,16 +256,20 @@ def upsert_oauth_identity(
         access_token: OAuth access token (optional)
         refresh_token: OAuth refresh token (optional)
         expires_in: Token expiration in seconds (optional)
-        
+
     Returns:
         OAuthIdentity object
     """
     # Check if identity already exists
-    identity = db.query(OAuthIdentity).filter(
-        OAuthIdentity.provider == OAuthProvider.GOOGLE,
-        OAuthIdentity.provider_user_id == provider_user_id
-    ).first()
-    
+    identity = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.provider == OAuthProvider.GOOGLE,
+            OAuthIdentity.provider_user_id == provider_user_id,
+        )
+        .first()
+    )
+
     enc = get_encryption()
 
     if identity:
@@ -289,7 +289,7 @@ def upsert_oauth_identity(
             identity.refresh_token_encrypted = enc.encrypt_string(refresh_token)
         if expires_in:
             identity.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
-        
+
         logger.info(f"Updated OAuth identity for user {user.id}")
     else:
         # Create new identity
@@ -302,17 +302,17 @@ def upsert_oauth_identity(
             email_verified=email_verified,
             name=name,
             picture=picture,
-            access_token_encrypted=enc.encrypt_string(access_token) if access_token else None,
-            refresh_token_encrypted=enc.encrypt_string(refresh_token) if refresh_token else None,
-            token_expires_at=datetime.utcnow() + timedelta(seconds=expires_in) if expires_in else None,
-            last_login_at=datetime.utcnow()
+            access_token_encrypted=(enc.encrypt_string(access_token) if access_token else None),
+            refresh_token_encrypted=(enc.encrypt_string(refresh_token) if refresh_token else None),
+            token_expires_at=(datetime.utcnow() + timedelta(seconds=expires_in) if expires_in else None),
+            last_login_at=datetime.utcnow(),
         )
         db.add(identity)
         logger.info(f"Created OAuth identity for user {user.id}")
-    
+
     db.commit()
     db.refresh(identity)
-    
+
     return identity
 
 
@@ -381,70 +381,55 @@ def get_decrypted_access_token(identity: OAuthIdentity) -> Optional[str]:
 
 
 def get_or_create_user_from_oauth(
-    db: Session,
-    team_id: str,
-    email: str,
-    name: Optional[str],
-    email_verified: bool
+    db: Session, team_id: str, email: str, name: Optional[str], email_verified: bool
 ) -> User:
     """
     Get existing user or create new user from OAuth data.
-    
+
     Args:
         db: Database session
         team_id: Team ID
         email: User email
         name: User's full name
         email_verified: Whether email is verified
-        
+
     Returns:
         User object
     """
     # Check if user already exists
     user = db.query(User).filter(User.email == email).first()
-    
+
     if user:
         logger.info(f"Found existing user for email {email}")
-        
+
         # Check if user is member of this team
-        membership = db.query(TeamMember).filter(
-            TeamMember.user_id == user.id,
-            TeamMember.team_id == team_id
-        ).first()
-        
+        membership = db.query(TeamMember).filter(TeamMember.user_id == user.id, TeamMember.team_id == team_id).first()
+
         if not membership:
             # Add user to team
-            membership = TeamMember(
-                user_id=user.id,
-                team_id=team_id,
-                role="member"
-            )
+            membership = TeamMember(user_id=user.id, team_id=team_id, role="member")
             db.add(membership)
             db.commit()
             logger.info(f"Added user {user.id} to team {team_id}")
-        
+
         return user
-    
+
     # Create new user (password not needed for SSO users)
     user = User(
         email=email,
         full_name=name,
         hashed_password=secrets.token_urlsafe(32),  # Random password (not used)
-        is_active=True
+        is_active=True,
     )
     db.add(user)
     db.flush()
-    
+
     # Add user to team
-    membership = TeamMember(
-        user_id=user.id,
-        team_id=team_id,
-        role="member"
-    )
+    membership = TeamMember(user_id=user.id, team_id=team_id, role="member")
     db.add(membership)
     db.commit()
     db.refresh(user)
-    
+
     logger.info(f"Created new user {user.id} for email {email}")
-    
+
     return user

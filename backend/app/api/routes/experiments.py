@@ -1,4 +1,5 @@
 """Experiment endpoints."""
+
 from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,9 +9,13 @@ from app.core.db import get_db
 from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.core.usage_tracking import record_api_usage
-from app.models.experiment import Experiment, ExperimentResult
+from app.models.experiment import Experiment
 from app.models.team_api_key import TeamAPIKey
-from app.schemas.experiment import ExperimentCreate, ExperimentResponse, ExperimentResultResponse
+from app.schemas.experiment import (
+    ExperimentCreate,
+    ExperimentResponse,
+    ExperimentResultResponse,
+)
 from app.services.experiments import ExperimentService
 
 router = APIRouter()
@@ -46,11 +51,7 @@ def get_experiment_results(
     team_api_key: TeamAPIKey | None = Depends(get_team_api_key_optional),
 ) -> Any:
     team_id = get_effective_team_id(team_api_key)
-    experiment = (
-        db.query(Experiment)
-        .filter(Experiment.id == experiment_id, Experiment.team_id == team_id)
-        .first()
-    )
+    experiment = db.query(Experiment).filter(Experiment.id == experiment_id, Experiment.team_id == team_id).first()
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
     service = ExperimentService(db)

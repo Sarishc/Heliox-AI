@@ -1,4 +1,5 @@
 """Redis cache utilities."""
+
 import logging
 from typing import Optional
 

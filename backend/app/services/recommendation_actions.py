@@ -1,4 +1,5 @@
 """Recommendation action service - apply/dismiss tracking with fingerprint deduplication."""
+
 import hashlib
 import json
 import logging
@@ -41,8 +42,8 @@ def recommendation_fingerprint(rec: Recommendation) -> str:
         "gpu_type": evidence.get("gpu_type"),
         "job_id": evidence.get("job_id"),
         "team_name": evidence.get("team_name"),
-        "start_date": date_range.get("start_date") if isinstance(date_range, dict) else None,
-        "end_date": date_range.get("end_date") if isinstance(date_range, dict) else None,
+        "start_date": (date_range.get("start_date") if isinstance(date_range, dict) else None),
+        "end_date": (date_range.get("end_date") if isinstance(date_range, dict) else None),
     }
     canonical = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()[:32]

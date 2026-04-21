@@ -1,4 +1,5 @@
 """Budget policy and guardrail endpoints."""
+
 from datetime import date
 from decimal import Decimal
 from typing import Any, Optional, Union
@@ -10,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.auth.rbac import require_team_admin_or_api_key
 from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.db import get_db
-from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.budget import BudgetPolicy, BudgetEvent
 from app.models.team_api_key import TeamAPIKey
@@ -46,12 +46,7 @@ def list_policies(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
     team_id = get_effective_team_id(auth_ctx)
-    return (
-        db.query(BudgetPolicy)
-        .filter(BudgetPolicy.team_id == team_id)
-        .order_by(BudgetPolicy.created_at.desc())
-        .all()
-    )
+    return db.query(BudgetPolicy).filter(BudgetPolicy.team_id == team_id).order_by(BudgetPolicy.created_at.desc()).all()
 
 
 @router.post("", response_model=BudgetPolicyResponse, status_code=status.HTTP_201_CREATED)
@@ -98,11 +93,7 @@ def update_policy(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> Any:
     team_id = auth_ctx.team_id
-    policy = (
-        db.query(BudgetPolicy)
-        .filter(BudgetPolicy.id == policy_id, BudgetPolicy.team_id == team_id)
-        .first()
-    )
+    policy = db.query(BudgetPolicy).filter(BudgetPolicy.id == policy_id, BudgetPolicy.team_id == team_id).first()
     if not policy:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
 
@@ -130,11 +121,7 @@ def disable_policy(
     auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(require_team_admin_or_api_key),
 ) -> None:
     team_id = auth_ctx.team_id
-    policy = (
-        db.query(BudgetPolicy)
-        .filter(BudgetPolicy.id == policy_id, BudgetPolicy.team_id == team_id)
-        .first()
-    )
+    policy = db.query(BudgetPolicy).filter(BudgetPolicy.id == policy_id, BudgetPolicy.team_id == team_id).first()
     if not policy:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
     policy.is_enabled = False
@@ -162,9 +149,24 @@ def get_budget_status(
                 window=f"{month_start.isoformat()} to {month_end.isoformat()}",
                 formula="mtd_spend / monthly_budget",
                 components=[
-                    Component(name="mtd_spend", value=round(evaluation.mtd_spend, 2), unit="USD", source="cost_snapshots"),
-                    Component(name="monthly_budget", value=float(policy.monthly_budget_usd), unit="USD", source="budget_policy"),
-                    Component(name="forecasted_eom_spend", value=round(evaluation.forecasted_eom_spend, 2), unit="USD", source="forecast"),
+                    Component(
+                        name="mtd_spend",
+                        value=round(evaluation.mtd_spend, 2),
+                        unit="USD",
+                        source="cost_snapshots",
+                    ),
+                    Component(
+                        name="monthly_budget",
+                        value=float(policy.monthly_budget_usd),
+                        unit="USD",
+                        source="budget_policy",
+                    ),
+                    Component(
+                        name="forecasted_eom_spend",
+                        value=round(evaluation.forecasted_eom_spend, 2),
+                        unit="USD",
+                        source="forecast",
+                    ),
                 ],
                 assumptions=["MTD spend is allocated by usage share for environment/project scopes."],
                 inputs={

@@ -1,4 +1,5 @@
 """Cookie-based authentication and token blacklist."""
+
 import hashlib
 import logging
 import time
@@ -9,7 +10,7 @@ from jose import jwt
 
 from app.core.config import get_settings
 from app.core.cache import require_redis
-from app.auth.security import SECRET_KEY, ALGORITHM
+from app.auth.security import SECRET_KEY
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

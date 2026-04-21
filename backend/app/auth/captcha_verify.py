@@ -4,6 +4,7 @@ Server-side CAPTCHA verification via hCaptcha API.
 POST https://api.hcaptcha.com/siteverify
 Only clears brute-force requirement when response.success == True.
 """
+
 import logging
 from typing import Optional
 

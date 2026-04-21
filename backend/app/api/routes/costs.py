@@ -1,4 +1,5 @@
 """Cost snapshot endpoints."""
+
 from datetime import date as date_type, timedelta, date
 from typing import Any, List, Optional
 from uuid import UUID
@@ -30,26 +31,46 @@ def get_cost_kpis(
     last_month_start = (month_start - timedelta(days=1)).replace(day=1)
     last_month_end = month_start - timedelta(days=1)
 
-    mtd = db.query(func.coalesce(func.sum(CostSnapshotModel.cost_usd), 0)).filter(
-        CostSnapshotModel.team_id == team_id,
-        CostSnapshotModel.date >= month_start,
-        CostSnapshotModel.date <= today,
-    ).scalar() or 0
+    mtd = (
+        db.query(func.coalesce(func.sum(CostSnapshotModel.cost_usd), 0))
+        .filter(
+            CostSnapshotModel.team_id == team_id,
+            CostSnapshotModel.date >= month_start,
+            CostSnapshotModel.date <= today,
+        )
+        .scalar()
+        or 0
+    )
 
-    last_month = db.query(func.coalesce(func.sum(CostSnapshotModel.cost_usd), 0)).filter(
-        CostSnapshotModel.team_id == team_id,
-        CostSnapshotModel.date >= last_month_start,
-        CostSnapshotModel.date <= last_month_end,
-    ).scalar() or 0
+    last_month = (
+        db.query(func.coalesce(func.sum(CostSnapshotModel.cost_usd), 0))
+        .filter(
+            CostSnapshotModel.team_id == team_id,
+            CostSnapshotModel.date >= last_month_start,
+            CostSnapshotModel.date <= last_month_end,
+        )
+        .scalar()
+        or 0
+    )
 
-    gpu_count = db.query(func.count(func.distinct(CostSnapshotModel.gpu_type))).filter(
-        CostSnapshotModel.team_id == team_id,
-        CostSnapshotModel.date >= month_start,
-    ).scalar() or 0
+    gpu_count = (
+        db.query(func.count(func.distinct(CostSnapshotModel.gpu_type)))
+        .filter(
+            CostSnapshotModel.team_id == team_id,
+            CostSnapshotModel.date >= month_start,
+        )
+        .scalar()
+        or 0
+    )
 
-    total_all_time = db.query(func.coalesce(func.sum(CostSnapshotModel.cost_usd), 0)).filter(
-        CostSnapshotModel.team_id == team_id,
-    ).scalar() or 0
+    total_all_time = (
+        db.query(func.coalesce(func.sum(CostSnapshotModel.cost_usd), 0))
+        .filter(
+            CostSnapshotModel.team_id == team_id,
+        )
+        .scalar()
+        or 0
+    )
 
     mtd_float = float(mtd)
     last_month_float = float(last_month)
@@ -142,7 +163,7 @@ def list_cost_snapshots(
     provider: Optional[str] = Query(None, description="Filter by provider"),
     skip: int = 0,
     limit: int = 100,
-    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session)
+    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session),
 ) -> Any:
     """
     Retrieve cost snapshots with optional date range filter.
@@ -151,23 +172,30 @@ def list_cost_snapshots(
     if start_date and end_date:
         if provider:
             snapshots = crud_cost.get_by_provider(
-                db, provider=provider, start_date=start_date, end_date=end_date, team_id=team_id
+                db,
+                provider=provider,
+                start_date=start_date,
+                end_date=end_date,
+                team_id=team_id,
             )
         else:
-            snapshots = crud_cost.get_by_date_range(
-                db, start_date=start_date, end_date=end_date, team_id=team_id
-            )
+            snapshots = crud_cost.get_by_date_range(db, start_date=start_date, end_date=end_date, team_id=team_id)
     else:
         snapshots = crud_cost.get_multi(db, skip=skip, limit=limit, team_id=team_id)
     return snapshots
 
 
-@router.post("/", response_model=CostSnapshot, status_code=status.HTTP_201_CREATED, summary="Create a cost snapshot")
+@router.post(
+    "/",
+    response_model=CostSnapshot,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a cost snapshot",
+)
 def create_cost_snapshot(
     *,
     db: Session = Depends(get_db),
     snapshot_in: CostSnapshotCreate,
-    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session)
+    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session),
 ) -> Any:
     """
     Create new cost snapshot.
@@ -183,15 +211,13 @@ def get_total_cost(
     db: Session = Depends(get_db),
     start_date: date_type = Query(..., description="Start date (inclusive)"),
     end_date: date_type = Query(..., description="End date (inclusive)"),
-    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session)
+    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session),
 ) -> Any:
     """
     Get total cost for a date range.
     """
     team_id = get_effective_team_id(api_key)
-    total = crud_cost.get_total_cost(
-        db, start_date=start_date, end_date=end_date, team_id=team_id
-    )
+    total = crud_cost.get_total_cost(db, start_date=start_date, end_date=end_date, team_id=team_id)
     return {"start_date": start_date, "end_date": end_date, "total_cost_usd": total}
 
 
@@ -200,7 +226,7 @@ def read_cost_snapshot(
     *,
     db: Session = Depends(get_db),
     snapshot_id: UUID,
-    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session)
+    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session),
 ) -> Any:
     """
     Get cost snapshot by ID. Scoped by team at DB level.
@@ -208,27 +234,24 @@ def read_cost_snapshot(
     team_id = get_effective_team_id(api_key)
     snapshot = crud_cost.get_by_team(db, id=snapshot_id, team_id=team_id)
     if not snapshot:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Cost snapshot not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cost snapshot not found")
     return snapshot
 
 
-@router.delete("/{snapshot_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a cost snapshot")
+@router.delete(
+    "/{snapshot_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a cost snapshot",
+)
 def delete_cost_snapshot(
     *,
     db: Session = Depends(get_db),
     snapshot_id: UUID,
-    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session)
+    api_key: TeamAPIKey | TeamContext = Depends(verify_team_api_key_or_session),
 ) -> None:
     """
     Delete a cost snapshot. Scoped by team at DB level.
     """
     team_id = get_effective_team_id(api_key)
     if not crud_cost.delete_by_team(db, id=snapshot_id, team_id=team_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Cost snapshot not found"
-        )
-
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cost snapshot not found")

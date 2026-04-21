@@ -13,22 +13,26 @@ Covers:
   9. GET /billing/plan returns correct limits and usage
  10. Stripe webhook subscription.deleted correctly downgrades team to Starter
 """
+
 import uuid
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
-from app.core.plans import PlanTier, PlanLimits, PLAN_LIMITS, get_limits, billing_plan_to_tier
+from app.core.plans import (
+    PlanTier,
+    PLAN_LIMITS,
+    billing_plan_to_tier,
+)
 from app.core.plan_enforcement import (
     require_plan_for_team,
     check_team_limit,
-    get_plan_features,
 )
 from app.models.billing import BillingPlan, TeamSubscription
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _mock_db_with_plan(plan: BillingPlan) -> MagicMock:
     """Return a mock DB session with a TeamSubscription for the given plan."""
@@ -51,6 +55,7 @@ def _mock_db_no_subscription() -> MagicMock:
 
 
 # ── 1-2: require_plan_for_team ────────────────────────────────────────────────
+
 
 def test_require_plan_allows_qualifying_plan():
     """require_plan_for_team does not raise when team is on a qualifying plan."""
@@ -103,6 +108,7 @@ def test_require_plan_no_subscription_treated_as_starter():
 
 # ── 3-4: check_team_limit ─────────────────────────────────────────────────────
 
+
 def test_check_limit_allows_under_limit():
     """check_team_limit does not raise when current count is below the limit."""
     team_id = uuid.uuid4()
@@ -140,6 +146,7 @@ def test_check_limit_raises_403_above_limit():
 
 # ── 5: Starter plan cannot create API keys ────────────────────────────────────
 
+
 def test_starter_cannot_create_api_keys():
     """
     Starter plan has max_api_keys=0 so even the first key creation is blocked.
@@ -158,6 +165,7 @@ def test_starter_cannot_create_api_keys():
 
 # ── 6: Starter plan max 1 cluster ────────────────────────────────────────────
 
+
 def test_starter_cannot_create_second_cluster():
     """Starter plan allows 1 integration (cluster); a second creation is blocked."""
     assert PLAN_LIMITS[PlanTier.STARTER].max_clusters == 1
@@ -173,6 +181,7 @@ def test_starter_cannot_create_second_cluster():
 
 
 # ── 7: Growth plan cannot enable SSO ─────────────────────────────────────────
+
 
 def test_growth_cannot_enable_sso():
     """Growth plan does not have sso_enabled; SSO requires Enterprise."""
@@ -191,6 +200,7 @@ def test_growth_cannot_enable_sso():
 
 
 # ── 8: Enterprise has no cluster limit ───────────────────────────────────────
+
 
 def test_enterprise_has_no_cluster_limit():
     """Enterprise plan has max_clusters=-1 (unlimited); check_team_limit never blocks."""
@@ -213,6 +223,7 @@ def test_enterprise_has_no_api_key_limit():
 
 
 # ── 9: GET /billing/plan returns correct data ─────────────────────────────────
+
 
 def test_get_billing_plan_endpoint_returns_correct_limits():
     """GET /billing/plan returns the team's plan, limits, and usage counts."""
@@ -250,8 +261,10 @@ def test_get_billing_plan_endpoint_returns_correct_limits():
     app.dependency_overrides[get_db] = override_get_db
 
     try:
-        with patch("app.core.rate_limit.require_redis", return_value=mock_redis), \
-             patch("app.core.plan_enforcement._get_team_tier", return_value=PlanTier.GROWTH):
+        with (
+            patch("app.core.rate_limit.require_redis", return_value=mock_redis),
+            patch("app.core.plan_enforcement._get_team_tier", return_value=PlanTier.GROWTH),
+        ):
             client = TestClient(app, raise_server_exceptions=False)
             response = client.get("/api/v1/billing/plan")
 
@@ -275,6 +288,7 @@ def test_get_billing_plan_endpoint_returns_correct_limits():
 
 # ── 10: Webhook subscription.deleted downgrades to Starter ───────────────────
 
+
 def test_webhook_subscription_deleted_downgrades_to_starter():
     """
     handle_subscription_deleted() sets TeamSubscription.plan to FREE (Starter)
@@ -294,8 +308,16 @@ def test_webhook_subscription_deleted_downgrades_to_starter():
 
     stripe_event = MagicMock()
     stripe_event.metadata = {"team_id": str(team_id)}
-    stripe_event.__getitem__ = lambda self, k: {"id": "sub_123", "customer": "cus_test", "status": "canceled"}[k]
-    stripe_event.get = lambda k, default=None: {"id": "sub_123", "customer": "cus_test", "status": "canceled"}.get(k, default)
+    stripe_event.__getitem__ = lambda self, k: {
+        "id": "sub_123",
+        "customer": "cus_test",
+        "status": "canceled",
+    }[k]
+    stripe_event.get = lambda k, default=None: {
+        "id": "sub_123",
+        "customer": "cus_test",
+        "status": "canceled",
+    }.get(k, default)
 
     with patch("app.billing.stripe_client.update_team_entitlements") as mock_update:
         handle_subscription_deleted(mock_db, stripe_event)
@@ -307,6 +329,7 @@ def test_webhook_subscription_deleted_downgrades_to_starter():
 
 
 # ── plan constants correctness ────────────────────────────────────────────────
+
 
 def test_plan_limits_values_match_spec():
     """Verify exact limit values match the product spec."""

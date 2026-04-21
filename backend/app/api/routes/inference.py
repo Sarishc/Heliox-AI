@@ -27,6 +27,7 @@ _MAX_SPANS_PER_REQUEST = 1000
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
+
 class HelioxSpan(BaseModel):
     """Heliox simplified span format."""
 
@@ -50,6 +51,7 @@ class HelioxSpan(BaseModel):
     def set_ended_at(self) -> "HelioxSpan":
         if self.ended_at is None:
             from datetime import timedelta
+
             self.ended_at = self.started_at + timedelta(milliseconds=self.duration_ms)
         return self
 
@@ -61,6 +63,7 @@ class HelioxSpanBatch(BaseModel):
 
 
 # ── OTel OTLP helpers ─────────────────────────────────────────────────────────
+
 
 def _str_attr(attrs: list, key: str) -> Optional[str]:
     for a in attrs:
@@ -105,9 +108,7 @@ def _parse_otlp(payload: dict, team_id: UUID) -> tuple[list[InferenceSpan], list
                     or ""
                 )
                 if not model_name:
-                    errors.append(
-                        f"span {raw.get('spanId', '?')}: missing model_name; skipped"
-                    )
+                    errors.append(f"span {raw.get('spanId', '?')}: missing model_name; skipped")
                     continue
 
                 # Timestamps — OTel uses Unix nanoseconds
@@ -131,9 +132,8 @@ def _parse_otlp(payload: dict, team_id: UUID) -> tuple[list[InferenceSpan], list
                     or _int_attr(span_attrs, "gen_ai.usage.completion_tokens")
                     or _int_attr(span_attrs, "gen_ai.usage.output_tokens")
                 )
-                total_tok = (
-                    _int_attr(span_attrs, "llm.usage.total_tokens")
-                    or ((input_tok or 0) + (output_tok or 0) or None)
+                total_tok = _int_attr(span_attrs, "llm.usage.total_tokens") or (
+                    (input_tok or 0) + (output_tok or 0) or None
                 )
 
                 spans.append(
@@ -201,6 +201,7 @@ def _parse_heliox(payload: dict, team_id: UUID) -> tuple[list[InferenceSpan], li
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @router.post(
     "/spans",
     status_code=status.HTTP_202_ACCEPTED,
@@ -265,6 +266,7 @@ def ingest_spans(
                 min_started = min(s.started_at for s in spans)
                 max_started = max(s.started_at for s in spans)
                 from app.tasks.inference_tasks import attribute_inference_costs
+
                 attribute_inference_costs.delay(
                     str(team_id),
                     min_started.isoformat(),
@@ -337,8 +339,7 @@ def list_models(
                 "last_seen": r.last_seen.isoformat() if r.last_seen else None,
                 "total_requests_today": today_counts.get(r.model_name, 0),
                 "avg_cost_per_1k_tokens": (
-                    round(float(r.avg_cost_per_1k_tokens), 6)
-                    if r.avg_cost_per_1k_tokens else None
+                    round(float(r.avg_cost_per_1k_tokens), 6) if r.avg_cost_per_1k_tokens else None
                 ),
             }
             for r in rows
@@ -439,12 +440,10 @@ def cost_per_request(
             {
                 "model_name": r.model_name,
                 "p50_cost_per_request": round(float(r.p50_cost or 0), 6),
-                "p99_cost_per_request": round(float(r.p99_cost or 0), 6) if r.p99_cost else None,
+                "p99_cost_per_request": (round(float(r.p99_cost or 0), 6) if r.p99_cost else None),
                 "total_requests": r.total_requests or 0,
                 "total_cost_usd": round(float(r.total_cost or 0), 4),
-                "avg_cost_per_1k_tokens": (
-                    round(float(r.avg_per_1k), 6) if r.avg_per_1k else None
-                ),
+                "avg_cost_per_1k_tokens": (round(float(r.avg_per_1k), 6) if r.avg_per_1k else None),
             }
             for r in rows
         ],

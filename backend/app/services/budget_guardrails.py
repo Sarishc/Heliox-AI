@@ -1,4 +1,5 @@
 """Budget guardrails service."""
+
 from __future__ import annotations
 
 import calendar
@@ -16,7 +17,6 @@ from app.models.budget import BudgetEvent, BudgetPolicy
 from app.models.cost import CostSnapshot
 from app.models.job import Job
 from app.models.cost import UsageSnapshot
-from app.models.alert_settings import AlertSettings
 from app.services.forecasting import ForecastingService
 from app.services.slack_notifications import SlackNotificationService
 
@@ -134,13 +134,10 @@ class BudgetGuardrailsService:
         environment: Optional[str],
         project: Optional[str],
     ) -> float:
-        stmt = (
-            select(func.count(Job.id))
-            .where(
-                Job.team_id == team_id,
-                Job.start_time.isnot(None),
-                func.date(Job.start_time) == day,
-            )
+        stmt = select(func.count(Job.id)).where(
+            Job.team_id == team_id,
+            Job.start_time.isnot(None),
+            func.date(Job.start_time) == day,
         )
         scoped_stmt = stmt
         if environment:
@@ -279,10 +276,8 @@ class BudgetGuardrailsService:
             # Publish SSE event (fire-and-forget — never blocks the budget flow)
             try:
                 from app.core.events import EventType, HelioxEvent, publish_event_sync
-                evt_type = (
-                    EventType.BUDGET_BREACH if float(threshold) >= 1.0
-                    else EventType.BUDGET_WARNING
-                )
+
+                evt_type = EventType.BUDGET_BREACH if float(threshold) >= 1.0 else EventType.BUDGET_WARNING
                 publish_event_sync(
                     str(policy.team_id),
                     HelioxEvent(
@@ -291,12 +286,12 @@ class BudgetGuardrailsService:
                         payload={
                             "policy_id": str(policy.id),
                             "project": policy.project or "all",
-                            "environment": policy.environment.value if policy.environment else "all",
+                            "environment": (policy.environment.value if policy.environment else "all"),
                             "threshold_pct": round(float(threshold) * 100),
                             "percent_used": round(percent_used * 100, 1),
                             "mtd_spend_usd": round(mtd_spend, 2),
                             "budget_usd": float(policy.monthly_budget_usd),
-                            "predicted_breach_date": str(predicted_breach_date) if predicted_breach_date else None,
+                            "predicted_breach_date": (str(predicted_breach_date) if predicted_breach_date else None),
                         },
                     ),
                 )
@@ -309,7 +304,9 @@ class BudgetGuardrailsService:
         return get_webhook_url(self.db, team_id)
 
     def _get_team_email_config(self, team_id: UUID) -> tuple[list, bool]:
-        from app.services.slack_notifications import _get_team_email_config as get_email_config
+        from app.services.slack_notifications import (
+            _get_team_email_config as get_email_config,
+        )
 
         return get_email_config(self.db, team_id)
 
@@ -372,10 +369,10 @@ class BudgetGuardrailsService:
             return asyncio.run_coroutine_threadsafe(_send(), loop).result()
         return asyncio.run(_send())
 
-    def list_status(self, team_id: UUID, *, as_of: Optional[date] = None) -> list[tuple[BudgetPolicy, BudgetEvaluation]]:
+    def list_status(
+        self, team_id: UUID, *, as_of: Optional[date] = None
+    ) -> list[tuple[BudgetPolicy, BudgetEvaluation]]:
         policies = (
-            self.db.query(BudgetPolicy)
-            .filter(BudgetPolicy.team_id == team_id, BudgetPolicy.is_enabled.is_(True))
-            .all()
+            self.db.query(BudgetPolicy).filter(BudgetPolicy.team_id == team_id, BudgetPolicy.is_enabled.is_(True)).all()
         )
         return [(policy, self.evaluate_policy(policy, as_of=as_of)) for policy in policies]

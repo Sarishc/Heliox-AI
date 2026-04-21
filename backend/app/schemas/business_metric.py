@@ -1,4 +1,5 @@
 """Schemas for business KPI metrics."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -23,7 +24,7 @@ class BusinessMetricIngestRequest(BaseModel):
 class BusinessMetricResponse(BusinessMetricCreate):
     id: UUID
     team_id: UUID
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 

@@ -1,5 +1,6 @@
 """Tests for billing usage API."""
-from datetime import date, datetime, timedelta
+
+from datetime import date, timedelta
 
 import pytest
 
@@ -19,6 +20,7 @@ def override_get_db(db_session: Session):
             yield db_session
         finally:
             pass
+
     return _get_db
 
 

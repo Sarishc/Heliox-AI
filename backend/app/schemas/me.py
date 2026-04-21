@@ -1,4 +1,5 @@
 """Schemas for /me endpoint."""
+
 from pydantic import BaseModel, Field
 
 

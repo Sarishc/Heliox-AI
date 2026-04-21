@@ -9,10 +9,10 @@ OWASP: Brute force protection for login.
 Redis is required. These functions raise HTTP 503 if Redis is unavailable.
 Failing open (allowing unlimited login attempts) is not acceptable.
 """
+
 import hashlib
 import logging
 import time
-from typing import Optional
 
 from app.core.cache import require_redis
 

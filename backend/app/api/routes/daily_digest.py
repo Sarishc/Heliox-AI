@@ -1,4 +1,5 @@
 """API endpoints for daily digest generation."""
+
 import logging
 from datetime import date, timedelta
 from typing import Any
@@ -20,29 +21,29 @@ router = APIRouter()
     "/",
     response_model=DailyDigestPayload,
     summary="Generate daily digest",
-    description="Generate daily digest with cost data and recommendations for all teams"
+    description="Generate daily digest with cost data and recommendations for all teams",
 )
 def generate_daily_digest(
     target_date: str = Query(
         default=None,
         description="Date for digest (YYYY-MM-DD). Defaults to yesterday.",
-        examples=["2026-01-09"]
+        examples=["2026-01-09"],
     ),
     db: Session = Depends(get_db),
-    _: Any = Depends(require_admin)
+    _: Any = Depends(require_admin),
 ) -> Any:
     """
     Generate daily digest payload.
-    
+
     Returns comprehensive cost and recommendation data for all teams.
     Requires admin API key.
-    
+
     **Use Cases:**
     - Generate email/Slack digests
     - Executive reporting
     - Cost review meetings
     - Team performance tracking
-    
+
     **Contains:**
     - Global cost summary (daily, weekly, monthly)
     - Per-team cost breakdowns
@@ -56,18 +57,18 @@ def generate_daily_digest(
             date_obj = date.fromisoformat(target_date)
         except ValueError:
             from fastapi import HTTPException, status
+
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid date format: {target_date}. Use YYYY-MM-DD."
+                detail=f"Invalid date format: {target_date}. Use YYYY-MM-DD.",
             )
     else:
         date_obj = date.today() - timedelta(days=1)
-    
+
     # Generate digest
     generator = DailyDigestGenerator(db)
     digest = generator.generate_daily_digest(date_obj)
-    
-    logger.info(f"Generated daily digest for {digest.date}")
-    
-    return digest
 
+    logger.info(f"Generated daily digest for {digest.date}")
+
+    return digest

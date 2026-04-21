@@ -1,8 +1,8 @@
 """Tests for budget guardrails."""
+
 from datetime import date, timedelta
 from decimal import Decimal
 
-import pytest
 
 from app.api.routes.budgets import list_policies
 from app.integrations.encryption import get_encryption

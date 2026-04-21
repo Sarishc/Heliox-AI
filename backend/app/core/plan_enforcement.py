@@ -15,6 +15,7 @@ Three entry points:
     Returns the full PlanLimits for the team's current plan — use in route
     handlers that need to return per-feature flags to the frontend.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,13 +26,12 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.plans import (
-    PLAN_LIMITS,
     PlanLimits,
     PlanTier,
     billing_plan_to_tier,
     get_limits,
 )
-from app.models.billing import BillingPlan, TeamSubscription
+from app.models.billing import TeamSubscription
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,7 @@ def _get_team_tier(db: Session, team_id: UUID) -> PlanTier:
 
     Falls back to STARTER when no subscription row exists (new teams, free users).
     """
-    sub: Optional[TeamSubscription] = (
-        db.query(TeamSubscription)
-        .filter(TeamSubscription.team_id == team_id)
-        .first()
-    )
+    sub: Optional[TeamSubscription] = db.query(TeamSubscription).filter(TeamSubscription.team_id == team_id).first()
     if sub is None:
         return PlanTier.STARTER
     return billing_plan_to_tier(sub.plan)
@@ -80,9 +76,7 @@ def require_plan_for_team(db: Session, team_id: UUID, *tiers: PlanTier) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "error": "plan_required",
-                "message": (
-                    f"This feature requires the {required.value.capitalize()} plan or higher."
-                ),
+                "message": (f"This feature requires the {required.value.capitalize()} plan or higher."),
                 "required_plan": required.value,
                 "current_plan": current_tier.value,
                 "upgrade_url": _UPGRADE_URL,

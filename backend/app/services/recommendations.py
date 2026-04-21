@@ -1,5 +1,6 @@
 """Recommendation engine for Heliox-AI cost optimization."""
-from datetime import date, datetime, time, timedelta
+
+from datetime import date, time
 from typing import Dict, List, Optional
 from uuid import UUID
 
@@ -27,86 +28,75 @@ settings = get_settings()
 class RecommendationEngine:
     """
     Rules-based recommendation engine for cost optimization.
-    
+
     This engine analyzes job execution patterns, GPU usage, and costs
     to generate actionable recommendations for reducing waste and
     optimizing infrastructure spending.
     """
-    
+
     # Configuration constants
     LONG_RUNNING_JOB_THRESHOLD_HOURS = 24  # Jobs longer than 24 hours
     IDLE_GPU_THRESHOLD_PERCENTAGE = 70  # GPU usage below 70% is considered idle
     OFF_HOURS_START = time(18, 0)  # 6 PM
     OFF_HOURS_END = time(9, 0)  # 9 AM
     HOURLY_GPU_COST_ESTIMATE = 3.50  # Rough estimate for savings calculations
-    
+
     def __init__(self, db: Session):
         """
         Initialize the recommendation engine.
-        
+
         Args:
             db: Database session
         """
         self.db = db
-    
+
     def generate_recommendations(
-        self,
-        filters: RecommendationFilters,
-        allow_global: bool = False
+        self, filters: RecommendationFilters, allow_global: bool = False
     ) -> RecommendationResponse:
         """
         Generate all recommendations based on filters.
-        
+
         Args:
             filters: Filters for recommendation generation
-            
+
         Returns:
             RecommendationResponse with recommendations and summary
         """
-        logger.info(
-            f"Generating recommendations for date range: "
-            f"{filters.start_date} to {filters.end_date}"
-        )
-        
+        logger.info(f"Generating recommendations for date range: " f"{filters.start_date} to {filters.end_date}")
+
         recommendations: List[Recommendation] = []
-        
+
         try:
             if settings.MULTI_TENANT and not allow_global and not filters.team_id:
                 raise ValueError("team_id is required for recommendations in multi-tenant mode")
-            
+
             # Rule 1: Detect idle GPU spend
-            idle_gpu_recs = self._detect_idle_gpu_spend(
-                filters.start_date, filters.end_date, filters.team_id
-            )
+            idle_gpu_recs = self._detect_idle_gpu_spend(filters.start_date, filters.end_date, filters.team_id)
             recommendations.extend(idle_gpu_recs)
             logger.info(f"Generated {len(idle_gpu_recs)} idle GPU recommendations")
-            
+
             # Rule 2: Detect long-running jobs
-            long_running_recs = self._detect_long_running_jobs(
-                filters.start_date, filters.end_date, filters.team_id
-            )
+            long_running_recs = self._detect_long_running_jobs(filters.start_date, filters.end_date, filters.team_id)
             recommendations.extend(long_running_recs)
             logger.info(f"Generated {len(long_running_recs)} long-running job recommendations")
-            
+
             # Rule 3: Detect off-hours opportunities
-            off_hours_recs = self._detect_off_hours_jobs(
-                filters.start_date, filters.end_date, filters.team_id
-            )
+            off_hours_recs = self._detect_off_hours_jobs(filters.start_date, filters.end_date, filters.team_id)
             recommendations.extend(off_hours_recs)
             logger.info(f"Generated {len(off_hours_recs)} off-hours recommendations")
-            
+
             # Apply filters
             recommendations = self._apply_filters(recommendations, filters)
-            
+
             # Calculate summary
             summary = self._calculate_summary(recommendations)
             total_savings = sum(r.estimated_savings_usd for r in recommendations)
-            
+
             logger.info(
                 f"Generated {len(recommendations)} total recommendations "
                 f"with ${total_savings:,.2f} potential savings"
             )
-            
+
             return RecommendationResponse(
                 recommendations=recommendations,
                 summary=summary,
@@ -116,7 +106,7 @@ class RecommendationEngine:
                 },
                 total_estimated_savings_usd=total_savings,
             )
-            
+
         except Exception as e:
             logger.error(f"Error generating recommendations: {e}", exc_info=True)
             # Return empty response on error
@@ -129,26 +119,26 @@ class RecommendationEngine:
                 },
                 total_estimated_savings_usd=0.0,
             )
-    
+
     def _detect_idle_gpu_spend(
         self, start_date: date, end_date: date, team_id: Optional[UUID] = None
     ) -> List[Recommendation]:
         """
         Detect idle GPU spend by comparing usage hours to expected usage.
-        
+
         If UsageSnapshot shows GPU hours significantly lower than what
         we'd expect from the cost, flag it as potential waste.
-        
+
         Args:
             start_date: Start date for analysis
             end_date: End date for analysis
             team_id: Optional team filter
-            
+
         Returns:
             List of idle GPU recommendations
         """
         recommendations = []
-        
+
         try:
             # Get cost data aggregated by gpu_type and provider
             cost_stmt = (
@@ -166,43 +156,40 @@ class RecommendationEngine:
             )
             if team_id:
                 cost_stmt = cost_stmt.where(CostSnapshot.team_id == team_id)
-            
+
             cost_results = self.db.execute(cost_stmt).all()
-            
+
             for gpu_type, provider, total_cost, days_count in cost_results:
                 # Get usage data for the same GPU type and provider
-                usage_stmt = (
-                    select(func.sum(UsageSnapshot.gpu_hours))
-                    .where(
-                        UsageSnapshot.date >= start_date,
-                        UsageSnapshot.date <= end_date,
-                        UsageSnapshot.gpu_type == gpu_type,
-                        UsageSnapshot.provider == provider,
-                    )
+                usage_stmt = select(func.sum(UsageSnapshot.gpu_hours)).where(
+                    UsageSnapshot.date >= start_date,
+                    UsageSnapshot.date <= end_date,
+                    UsageSnapshot.gpu_type == gpu_type,
+                    UsageSnapshot.provider == provider,
                 )
                 if team_id:
                     usage_stmt = usage_stmt.where(UsageSnapshot.team_id == team_id)
-                
+
                 actual_usage = self.db.execute(usage_stmt).scalar_one_or_none() or 0.0
-                
+
                 # Estimate expected usage based on cost
                 # Assume 24/7 availability for the period
                 expected_hours_per_day = 24
                 expected_total_hours = days_count * expected_hours_per_day
-                
+
                 # Calculate waste percentage
                 if expected_total_hours > 0:
                     utilization_pct = (actual_usage / expected_total_hours) * 100
                     waste_pct = 100 - utilization_pct
-                    
+
                     # Flag if utilization is below threshold
                     if utilization_pct < self.IDLE_GPU_THRESHOLD_PERCENTAGE:
                         # Estimate savings (wasted hours * cost per hour)
                         wasted_hours = expected_total_hours - actual_usage
                         estimated_savings = wasted_hours * self.HOURLY_GPU_COST_ESTIMATE
-                        
+
                         severity = self._determine_severity_by_waste(waste_pct)
-                        
+
                         recommendations.append(
                             Recommendation(
                                 type=RecommendationType.IDLE_GPU,
@@ -229,31 +216,31 @@ class RecommendationEngine:
                                 ),
                             )
                         )
-                        
+
         except Exception as e:
             logger.error(f"Error detecting idle GPU spend: {e}", exc_info=True)
-        
+
         return recommendations
-    
+
     def _detect_long_running_jobs(
         self, start_date: date, end_date: date, team_id: Optional[UUID] = None
     ) -> List[Recommendation]:
         """
         Detect jobs that run for an unusually long time.
-        
+
         Long-running jobs may indicate inefficient code, lack of optimization,
         or opportunities for right-sizing or better scheduling.
-        
+
         Args:
             start_date: Start date for analysis
             end_date: End date for analysis
             team_id: Optional team filter
-            
+
         Returns:
             List of long-running job recommendations
         """
         recommendations = []
-        
+
         try:
             # Query for completed jobs with runtime calculation
             stmt = (
@@ -266,12 +253,12 @@ class RecommendationEngine:
                     Job.status == "completed",
                 )
             )
-            
+
             if team_id:
                 stmt = stmt.where(Job.team_id == team_id)
-            
+
             results = self.db.execute(stmt).all()
-            
+
             for row in results:
                 job = row[0]
                 team_name = row[1]
@@ -279,15 +266,15 @@ class RecommendationEngine:
                     continue
                 runtime_delta = job.end_time - job.start_time
                 runtime_hours = runtime_delta.total_seconds() / 3600
-                
+
                 # Flag if runtime exceeds threshold
                 if runtime_hours > self.LONG_RUNNING_JOB_THRESHOLD_HOURS:
                     # Estimate potential savings from optimization (e.g., 20% reduction)
                     potential_reduction_hours = runtime_hours * 0.20
                     estimated_savings = potential_reduction_hours * self.HOURLY_GPU_COST_ESTIMATE
-                    
+
                     severity = self._determine_severity_by_runtime(runtime_hours)
-                    
+
                     recommendations.append(
                         Recommendation(
                             type=RecommendationType.LONG_RUNNING_JOB,
@@ -317,31 +304,31 @@ class RecommendationEngine:
                             ),
                         )
                     )
-                    
+
         except Exception as e:
             logger.error(f"Error detecting long-running jobs: {e}", exc_info=True)
-        
+
         return recommendations
-    
+
     def _detect_off_hours_jobs(
         self, start_date: date, end_date: date, team_id: Optional[UUID] = None
     ) -> List[Recommendation]:
         """
         Detect jobs running during peak business hours (9am-6pm weekdays).
-        
+
         These jobs could potentially be scheduled for off-peak hours
         to take advantage of lower costs or reserved capacity.
-        
+
         Args:
             start_date: Start date for analysis
             end_date: End date for analysis
             team_id: Optional team filter
-            
+
         Returns:
             List of off-hours scheduling recommendations
         """
         recommendations = []
-        
+
         try:
             # Query for jobs that started during business hours
             stmt = (
@@ -353,15 +340,15 @@ class RecommendationEngine:
                     Job.start_time.isnot(None),
                 )
             )
-            
+
             if team_id:
                 stmt = stmt.where(Job.team_id == team_id)
-            
+
             results = self.db.execute(stmt).all()
-            
+
             # Group by team to avoid too many individual recommendations
             team_business_hours_jobs: Dict[str, List[Job]] = {}
-            
+
             for row in results:
                 job = row[0]
                 team_name = row[1]
@@ -369,18 +356,16 @@ class RecommendationEngine:
                     continue
                 job_start_time = job.start_time.time()
                 job_weekday = job.start_time.weekday()  # 0=Monday, 6=Sunday
-                
+
                 # Check if started during business hours (9am-6pm) on weekdays
                 is_weekday = job_weekday < 5  # Monday-Friday
-                is_business_hours = (
-                    self.OFF_HOURS_END <= job_start_time < self.OFF_HOURS_START
-                )
-                
+                is_business_hours = self.OFF_HOURS_END <= job_start_time < self.OFF_HOURS_START
+
                 if is_weekday and is_business_hours:
                     if team_name not in team_business_hours_jobs:
                         team_business_hours_jobs[team_name] = []
                     team_business_hours_jobs[team_name].append(job)
-            
+
             # Create recommendations per team
             for team_name, jobs in team_business_hours_jobs.items():
                 if len(jobs) >= 3:  # Only recommend if there are 3+ jobs
@@ -390,10 +375,10 @@ class RecommendationEngine:
                         if job.end_time:
                             runtime_delta = job.end_time - job.start_time
                             total_runtime_hours += runtime_delta.total_seconds() / 3600
-                    
+
                     # Estimate potential savings (conservative 10% from off-peak pricing)
                     estimated_savings = total_runtime_hours * self.HOURLY_GPU_COST_ESTIMATE * 0.10
-                    
+
                     recommendations.append(
                         Recommendation(
                             type=RecommendationType.OFF_HOURS_USAGE,
@@ -420,12 +405,12 @@ class RecommendationEngine:
                             ),
                         )
                     )
-                    
+
         except Exception as e:
             logger.error(f"Error detecting off-hours opportunities: {e}", exc_info=True)
-        
+
         return recommendations
-    
+
     def _determine_severity_by_waste(self, waste_percentage: float) -> RecommendationSeverity:
         """Determine severity based on waste percentage."""
         if waste_percentage >= 70:
@@ -434,7 +419,7 @@ class RecommendationEngine:
             return RecommendationSeverity.MEDIUM
         else:
             return RecommendationSeverity.LOW
-    
+
     def _determine_severity_by_runtime(self, runtime_hours: float) -> RecommendationSeverity:
         """Determine severity based on job runtime."""
         if runtime_hours >= 72:  # 3+ days
@@ -443,13 +428,13 @@ class RecommendationEngine:
             return RecommendationSeverity.MEDIUM
         else:
             return RecommendationSeverity.LOW
-    
+
     def _apply_filters(
         self, recommendations: List[Recommendation], filters: RecommendationFilters
     ) -> List[Recommendation]:
         """Apply post-generation filters to recommendations."""
         filtered = recommendations
-        
+
         # Filter by minimum severity
         if filters.min_severity:
             severity_order = {
@@ -458,21 +443,18 @@ class RecommendationEngine:
                 RecommendationSeverity.HIGH: 3,
             }
             min_severity_level = severity_order[filters.min_severity]
-            filtered = [
-                r for r in filtered
-                if severity_order[r.severity] >= min_severity_level
-            ]
-        
+            filtered = [r for r in filtered if severity_order[r.severity] >= min_severity_level]
+
         # Filter by types
         if filters.types:
             filtered = [r for r in filtered if r.type in filters.types]
-        
+
         # Filter by minimum savings
         if filters.min_savings:
             filtered = [r for r in filtered if r.estimated_savings_usd >= filters.min_savings]
-        
+
         return filtered
-    
+
     def _calculate_summary(self, recommendations: List[Recommendation]) -> Dict:
         """Calculate summary statistics for recommendations."""
         if not recommendations:
@@ -481,22 +463,21 @@ class RecommendationEngine:
                 "by_severity": {},
                 "by_type": {},
             }
-        
+
         by_severity = {}
         by_type = {}
-        
+
         for rec in recommendations:
             # Count by severity
             severity_key = rec.severity.value
             by_severity[severity_key] = by_severity.get(severity_key, 0) + 1
-            
+
             # Count by type
             type_key = rec.type.value
             by_type[type_key] = by_type.get(type_key, 0) + 1
-        
+
         return {
             "total": len(recommendations),
             "by_severity": by_severity,
             "by_type": by_type,
         }
-

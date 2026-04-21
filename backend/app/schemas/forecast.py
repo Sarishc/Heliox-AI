@@ -1,15 +1,15 @@
 """Schemas for forecasting endpoints."""
+
 from __future__ import annotations
 
-from datetime import date
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 
 class ForecastPoint(BaseModel):
     """A single forecast point with confidence interval."""
-    
+
     date: str = Field(..., description="Date of the forecast")
     value: float = Field(..., description="Forecasted value")
     lower_bound: float = Field(..., description="Lower confidence bound (95%)")
@@ -18,21 +18,21 @@ class ForecastPoint(BaseModel):
 
 class HistoricalPoint(BaseModel):
     """A single historical data point."""
-    
+
     date: str = Field(..., description="Date of the observation")
     value: float = Field(..., description="Observed value")
 
 
 class ForecastMetadata(BaseModel):
     """Metadata about the forecast."""
-    
+
     historical_data_points: int = Field(..., description="Number of historical data points used")
     forecast_generated_at: str = Field(..., description="Date when forecast was generated")
 
 
 class ForecastResponse(BaseModel):
     """Response schema for forecast endpoints."""
-    
+
     provider: Optional[str] = Field(None, description="Provider filter applied")
     gpu_type: Optional[str] = Field(None, description="GPU type filter applied")
     horizon_days: int = Field(..., description="Number of days forecasted")
@@ -42,7 +42,7 @@ class ForecastResponse(BaseModel):
     metadata: ForecastMetadata = Field(..., description="Forecast metadata")
     error: Optional[str] = Field(None, description="Error message if forecast failed")
     explain: "MetricValue | None" = None
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -52,20 +52,20 @@ class ForecastResponse(BaseModel):
                 "forecast_method": "moving_average",
                 "historical": [
                     {"date": "2026-01-01", "value": 120.5},
-                    {"date": "2026-01-02", "value": 125.3}
+                    {"date": "2026-01-02", "value": 125.3},
                 ],
                 "forecast": [
                     {
                         "date": "2026-01-15",
                         "value": 130.0,
                         "lower_bound": 110.0,
-                        "upper_bound": 150.0
+                        "upper_bound": 150.0,
                     }
                 ],
                 "metadata": {
                     "historical_data_points": 14,
-                    "forecast_generated_at": "2026-01-14"
-                }
+                    "forecast_generated_at": "2026-01-14",
+                },
             }
         }
 
@@ -74,4 +74,3 @@ from app.schemas.explainability import MetricValue
 
 # Update forward references
 ForecastResponse.model_rebuild()
-

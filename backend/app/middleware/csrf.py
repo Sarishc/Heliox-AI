@@ -6,10 +6,9 @@ Uses double-submit cookie pattern:
 - Client sends X-CSRF-Token header on POST/PUT/DELETE/PATCH
 - Server validates header matches cookie
 """
-import hashlib
+
 import logging
 import secrets
-from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -92,9 +91,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return self._maybe_set_csrf_cookie(request, response)
 
         # Require CSRF token when session exists
-        if not cookie_token or not header_token or not secrets.compare_digest(
-            cookie_token, header_token
-        ):
+        if not cookie_token or not header_token or not secrets.compare_digest(cookie_token, header_token):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF validation failed"},

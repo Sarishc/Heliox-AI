@@ -1,4 +1,5 @@
 """AWS Cost Explorer integration for automatic cost ingestion."""
+
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -108,9 +109,7 @@ class AWSCostExplorerIntegration(IntegrationBase):
         self.region = config.get("aws_region", "us-east-1")
         self.linked_account_ids = config.get("linked_account_ids", [])
         if isinstance(self.linked_account_ids, str):
-            self.linked_account_ids = [
-                x.strip() for x in self.linked_account_ids.split(",") if x.strip()
-            ]
+            self.linked_account_ids = [x.strip() for x in self.linked_account_ids.split(",") if x.strip()]
         self.cost_allocation_tag_key = config.get("cost_allocation_tag_key", "")
         self.cost_allocation_tag_values = config.get("cost_allocation_tag_values", [])
         if isinstance(self.cost_allocation_tag_values, str):
@@ -227,8 +226,16 @@ class AWSCostExplorerIntegration(IntegrationBase):
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_message = e.response.get("Error", {}).get("Message", str(e))
-            logger.error("AWS Cost Explorer health check failed: %s - %s", error_code, error_message)
-            if error_code in ("InvalidClientTokenId", "SignatureDoesNotMatch", "AccessDenied"):
+            logger.error(
+                "AWS Cost Explorer health check failed: %s - %s",
+                error_code,
+                error_message,
+            )
+            if error_code in (
+                "InvalidClientTokenId",
+                "SignatureDoesNotMatch",
+                "AccessDenied",
+            ):
                 message = "Invalid AWS credentials or insufficient permissions"
             elif error_code == "UnrecognizedClientException":
                 message = "AWS credentials are invalid or expired"
@@ -239,8 +246,7 @@ class AWSCostExplorerIntegration(IntegrationBase):
                 "message": message,
                 "details": {
                     "api_reachable": error_code != "EndpointConnectionError",
-                    "credentials_valid": error_code
-                    not in ("InvalidClientTokenId", "SignatureDoesNotMatch"),
+                    "credentials_valid": error_code not in ("InvalidClientTokenId", "SignatureDoesNotMatch"),
                     "error_code": error_code,
                     "error_message": error_message,
                 },
@@ -251,7 +257,11 @@ class AWSCostExplorerIntegration(IntegrationBase):
             return {
                 "status": IntegrationHealthStatus.UNHEALTHY.value,
                 "message": f"AWS SDK error: {str(e)}",
-                "details": {"api_reachable": False, "credentials_valid": False, "error": str(e)},
+                "details": {
+                    "api_reachable": False,
+                    "credentials_valid": False,
+                    "error": str(e),
+                },
             }
 
         except Exception as e:
@@ -355,30 +365,38 @@ class AWSCostExplorerIntegration(IntegrationBase):
                     elif "SageMaker" in service:
                         gpu_type = "sagemaker"
 
-                    existing = db.query(CostSnapshot).filter(
-                        CostSnapshot.team_id == target_team_id,
-                        CostSnapshot.date == date,
-                        CostSnapshot.provider == provider,
-                        CostSnapshot.gpu_type == gpu_type,
-                    ).first()
+                    existing = (
+                        db.query(CostSnapshot)
+                        .filter(
+                            CostSnapshot.team_id == target_team_id,
+                            CostSnapshot.date == date,
+                            CostSnapshot.provider == provider,
+                            CostSnapshot.gpu_type == gpu_type,
+                        )
+                        .first()
+                    )
 
                     if existing:
                         existing.cost_usd = existing.cost_usd + cost
                         existing.updated_at = datetime.utcnow()
                     else:
-                        db.add(CostSnapshot(
-                            team_id=target_team_id,
-                            date=date,
-                            provider=provider,
-                            gpu_type=gpu_type,
-                            cost_usd=cost,
-                        ))
+                        db.add(
+                            CostSnapshot(
+                                team_id=target_team_id,
+                                date=date,
+                                provider=provider,
+                                gpu_type=gpu_type,
+                                cost_usd=cost,
+                            )
+                        )
                     records_saved += 1
 
             db.commit()
             logger.info(
                 "AWS sync completed: %d fetched, %d saved, %d skipped",
-                records_fetched, records_saved, records_skipped,
+                records_fetched,
+                records_saved,
+                records_skipped,
             )
             return {
                 "records_fetched": records_fetched,

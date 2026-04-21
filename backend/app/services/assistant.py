@@ -1,4 +1,5 @@
 """LLM-style assistant query routing (deterministic, tool-limited)."""
+
 from __future__ import annotations
 
 import json
@@ -15,7 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.models.cost import CostSnapshot
 from app.models.job import Job
-from app.services.forecasting import ForecastingService, DEFAULT_HORIZON_DAYS, MAX_HORIZON_DAYS
+from app.services.forecasting import (
+    ForecastingService,
+    DEFAULT_HORIZON_DAYS,
+    MAX_HORIZON_DAYS,
+)
 from app.core.cache import get_redis
 from app.services.optimizer import SelfOptimizingAdvisor
 
@@ -31,12 +36,12 @@ class AssistantQueryService:
     Deterministic router that maps questions to a limited set of tools.
     Safe by design: no arbitrary execution, only whitelisted tools.
     """
-    
+
     CACHE_TTL_SECONDS = 600
-    
+
     def __init__(self, db: Session):
         self.db = db
-    
+
     def handle(self, *, team_id: UUID, question: str) -> Dict[str, Any]:
         routed = self._route(question, team_id)
         if routed.tool == "analytics_cost_by_model":
@@ -61,9 +66,7 @@ class AssistantQueryService:
                     "fallback": False,
                 }
             start = time.perf_counter()
-            data, query_count = self._cost_by_model(
-                team_id, routed.params["start_date"], routed.params["end_date"]
-            )
+            data, query_count = self._cost_by_model(team_id, routed.params["start_date"], routed.params["end_date"])
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
             self._set_cached(redis_client, cache_key, data)
             return {
@@ -103,9 +106,7 @@ class AssistantQueryService:
                     "fallback": False,
                 }
             start = time.perf_counter()
-            data, query_count = self._cost_by_team(
-                team_id, routed.params["start_date"], routed.params["end_date"]
-            )
+            data, query_count = self._cost_by_team(team_id, routed.params["start_date"], routed.params["end_date"])
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
             self._set_cached(redis_client, cache_key, data)
             return {
@@ -240,7 +241,7 @@ class AssistantQueryService:
                 },
                 "fallback": False,
             }
-        
+
         return {
             "tool_used": "fallback",
             "answer": (
@@ -259,18 +260,18 @@ class AssistantQueryService:
             },
             "fallback": True,
         }
-    
+
     def _route(self, question: str, team_id: UUID) -> RoutedAction:
         normalized = question.strip().lower()
         start_date, end_date = self._parse_date_range(normalized, team_id)
         horizon_days = self._parse_horizon_days(normalized)
-        
+
         if any(token in normalized for token in ["recommend", "optimize", "savings", "idle", "roi"]):
             return RoutedAction(
                 tool="optimizer_recommendations",
                 params={"start_date": start_date, "end_date": end_date},
             )
-        
+
         if any(token in normalized for token in ["forecast", "predict", "projection", "next"]):
             if any(token in normalized for token in ["usage", "utilization", "gpu hours"]):
                 return RoutedAction(
@@ -281,21 +282,21 @@ class AssistantQueryService:
                 tool="forecast_spend",
                 params={"horizon_days": horizon_days},
             )
-        
+
         if "by model" in normalized or ("model" in normalized and "cost" in normalized):
             return RoutedAction(
                 tool="analytics_cost_by_model",
                 params={"start_date": start_date, "end_date": end_date},
             )
-        
+
         if "by team" in normalized or ("team" in normalized and "cost" in normalized):
             return RoutedAction(
                 tool="analytics_cost_by_team",
                 params={"start_date": start_date, "end_date": end_date},
             )
-        
+
         return RoutedAction(tool="fallback", params={})
-    
+
     def _parse_date_range(self, question: str, team_id: UUID) -> tuple[date, date]:
         days = self._parse_recent_days(question) or 14
         end_date = self._latest_cost_date(team_id) or date.today()
@@ -307,7 +308,7 @@ class AssistantQueryService:
             select(func.max(CostSnapshot.date)).where(CostSnapshot.team_id == team_id)
         ).scalar_one_or_none()
         return row if row else None
-    
+
     @staticmethod
     def _parse_recent_days(question: str) -> Optional[int]:
         match = re.search(r"last\s+(\d+)\s+days", question)
@@ -318,21 +319,18 @@ class AssistantQueryService:
         if "last month" in question or "past month" in question:
             return 30
         return None
-    
+
     @staticmethod
     def _parse_horizon_days(question: str) -> int:
         match = re.search(r"next\s+(\d+)\s+days", question)
         if match:
             return max(1, min(MAX_HORIZON_DAYS, int(match.group(1))))
         return DEFAULT_HORIZON_DAYS
-    
+
     def _cost_by_model(self, team_id: UUID, start: date, end: date) -> tuple[list[dict], int]:
         query_count = 0
         stmt = (
-            select(
-                Job.model_name,
-                func.count(Job.id).label("job_count")
-            )
+            select(Job.model_name, func.count(Job.id).label("job_count"))
             .where(
                 func.date(Job.start_time) >= start,
                 func.date(Job.start_time) <= end,
@@ -358,15 +356,12 @@ class AssistantQueryService:
             query_count += 1
             total_cost = 0.0
             for gpu_type, provider in gpu_rows:
-                cost_stmt = (
-                    select(func.sum(CostSnapshot.cost_usd))
-                    .where(
-                        CostSnapshot.team_id == team_id,
-                        CostSnapshot.date >= start,
-                        CostSnapshot.date <= end,
-                        CostSnapshot.gpu_type == gpu_type.lower(),
-                        CostSnapshot.provider == provider.lower(),
-                    )
+                cost_stmt = select(func.sum(CostSnapshot.cost_usd)).where(
+                    CostSnapshot.team_id == team_id,
+                    CostSnapshot.date >= start,
+                    CostSnapshot.date <= end,
+                    CostSnapshot.gpu_type == gpu_type.lower(),
+                    CostSnapshot.provider == provider.lower(),
                 )
                 gpu_cost = self.db.execute(cost_stmt).scalar_one_or_none() or 0.0
                 query_count += 1
@@ -382,14 +377,11 @@ class AssistantQueryService:
             )
         items.sort(key=lambda x: x["total_cost_usd"], reverse=True)
         return items, query_count
-    
+
     def _cost_by_team(self, team_id: UUID, start: date, end: date) -> tuple[list[dict], int]:
         query_count = 0
         stmt = (
-            select(
-                Job.team_id,
-                func.count(Job.id).label("job_count")
-            )
+            select(Job.team_id, func.count(Job.id).label("job_count"))
             .where(
                 func.date(Job.start_time) >= start,
                 func.date(Job.start_time) <= end,
@@ -401,13 +393,10 @@ class AssistantQueryService:
         query_count += 1
         items = []
         for team_id_value, job_count in rows:
-            cost_stmt = (
-                select(func.sum(CostSnapshot.cost_usd))
-                .where(
-                    CostSnapshot.team_id == team_id_value,
-                    CostSnapshot.date >= start,
-                    CostSnapshot.date <= end,
-                )
+            cost_stmt = select(func.sum(CostSnapshot.cost_usd)).where(
+                CostSnapshot.team_id == team_id_value,
+                CostSnapshot.date >= start,
+                CostSnapshot.date <= end,
             )
             total_cost = self.db.execute(cost_stmt).scalar_one_or_none() or 0.0
             query_count += 1
@@ -421,7 +410,7 @@ class AssistantQueryService:
                 }
             )
         return items, query_count
-    
+
     @staticmethod
     def _supported_tools() -> list[str]:
         return [
@@ -436,7 +425,7 @@ class AssistantQueryService:
         normalized = json.dumps(
             {"team_id": str(team_id), "tool": tool, "params": params},
             default=str,
-            sort_keys=True
+            sort_keys=True,
         )
         return f"assistant:{hashlib.md5(normalized.encode()).hexdigest()}"
 

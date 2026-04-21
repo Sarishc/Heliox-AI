@@ -1,7 +1,8 @@
 """Team invitation model for invite-by-email flow."""
+
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, ForeignKey, String
@@ -50,9 +51,7 @@ class TeamInvite(Base):
         nullable=True,
     )
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     team = relationship("Team", back_populates="invites")
     invited_by = relationship("User", foreign_keys=[invited_by_user_id])

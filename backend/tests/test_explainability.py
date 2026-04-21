@@ -1,4 +1,5 @@
 """Tests for metric explainability helper."""
+
 from app.services.explainability import explain_metric
 from app.schemas.explainability import Component
 

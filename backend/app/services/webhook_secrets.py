@@ -4,6 +4,7 @@ Slack webhook encryption at rest.
 Centralizes encrypt/decrypt for webhook URLs stored in alert_settings.
 Uses INTEGRATIONS_ENCRYPTION_KEY (same as integration configs).
 """
+
 from typing import Optional
 from uuid import UUID
 

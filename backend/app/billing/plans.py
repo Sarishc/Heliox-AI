@@ -1,7 +1,7 @@
 """Billing plans and entitlements configuration."""
+
 from typing import Dict, Any
 from app.models.billing import BillingPlan
-
 
 # Plan definitions with limits and features
 PLAN_DEFINITIONS: Dict[BillingPlan, Dict[str, Any]] = {
@@ -108,34 +108,31 @@ PLAN_DEFINITIONS: Dict[BillingPlan, Dict[str, Any]] = {
             "custom_rbac": True,
             "dedicated_csm": True,
         },
-    }
+    },
 }
 
 
 def get_plan_entitlements(plan: BillingPlan) -> Dict[str, Any]:
     """
     Get entitlements for a specific plan.
-    
+
     Args:
         plan: Billing plan
-        
+
     Returns:
         Dictionary with limits and features
     """
     plan_def = PLAN_DEFINITIONS.get(plan, PLAN_DEFINITIONS[BillingPlan.FREE])
-    return {
-        "limits": plan_def["limits"],
-        "features": plan_def["features"]
-    }
+    return {"limits": plan_def["limits"], "features": plan_def["features"]}
 
 
 def get_plan_info(plan: BillingPlan) -> Dict[str, Any]:
     """
     Get full plan information.
-    
+
     Args:
         plan: Billing plan
-        
+
     Returns:
         Dictionary with all plan details
     """
@@ -145,33 +142,33 @@ def get_plan_info(plan: BillingPlan) -> Dict[str, Any]:
 def check_limit(entitlement: Dict[str, Any], limit_key: str, current_value: int) -> bool:
     """
     Check if current value is within plan limit.
-    
+
     Args:
         entitlement: Entitlement dictionary
         limit_key: Limit key to check (e.g., "max_users")
         current_value: Current value to check
-        
+
     Returns:
         True if within limit, False if exceeded
     """
     limits = entitlement.get("limits", {})
     max_value = limits.get(limit_key, 0)
-    
+
     # -1 means unlimited
     if max_value == -1:
         return True
-    
+
     return current_value <= max_value
 
 
 def check_feature(entitlement: Dict[str, Any], feature_key: str) -> bool:
     """
     Check if feature is enabled in plan.
-    
+
     Args:
         entitlement: Entitlement dictionary
         feature_key: Feature key to check (e.g., "integrations_enabled")
-        
+
     Returns:
         True if feature is enabled
     """

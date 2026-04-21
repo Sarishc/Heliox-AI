@@ -3,6 +3,7 @@
 The daily reset task runs at 3 AM UTC via Celery Beat so the demo never
 accumulates stale prospect data.  It only runs when DEMO_MODE=True.
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,7 +55,10 @@ def reset_demo_environment(self):
         seeded_at = datetime.now(timezone.utc).isoformat()
         logger.info(
             "reset_demo_environment: complete — %d costs, %d usage, %d budgets, %d recs",
-            cost_count, usage_count, budgets["policies"], recs,
+            cost_count,
+            usage_count,
+            budgets["policies"],
+            recs,
         )
         return {
             "status": "reset_complete",

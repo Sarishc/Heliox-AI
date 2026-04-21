@@ -1,5 +1,6 @@
 """Tests for Stripe metering export service."""
-from datetime import date, datetime, timedelta
+
+from datetime import date, timedelta
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -69,25 +70,19 @@ def team_with_subscription_no_customer(db_session: Session) -> Team:
     return team
 
 
-def test_teams_eligible_for_metering_includes_paid_active(
-    db_session: Session, paid_team_with_subscription: Team
-):
+def test_teams_eligible_for_metering_includes_paid_active(db_session: Session, paid_team_with_subscription: Team):
     """Eligible teams have active paid subscription and stripe_customer_id."""
     eligible = _teams_eligible_for_metering(db_session)
     assert paid_team_with_subscription.id in eligible
 
 
-def test_teams_eligible_excludes_free_team(
-    db_session: Session, free_team_no_subscription: Team
-):
+def test_teams_eligible_excludes_free_team(db_session: Session, free_team_no_subscription: Team):
     """Teams without subscription are not eligible."""
     eligible = _teams_eligible_for_metering(db_session)
     assert free_team_no_subscription.id not in eligible
 
 
-def test_teams_eligible_excludes_canceled_subscription(
-    db_session: Session, team_with_subscription_no_customer: Team
-):
+def test_teams_eligible_excludes_canceled_subscription(db_session: Session, team_with_subscription_no_customer: Team):
     """Teams with canceled subscription are not eligible."""
     eligible = _teams_eligible_for_metering(db_session)
     assert team_with_subscription_no_customer.id not in eligible
@@ -96,6 +91,7 @@ def test_teams_eligible_excludes_canceled_subscription(
 def test_make_identifier_format():
     """Identifier is deterministic and under 100 chars."""
     from uuid import UUID
+
     team_id = UUID("00000000-0000-0000-0000-000000000001")
     ident = _make_identifier(team_id, date(2024, 1, 15), "api_request")
     assert ident.startswith("heliox_")
@@ -110,13 +106,16 @@ def test_export_dry_run_does_not_call_stripe(
     monkeypatch,
 ):
     """Dry run does not invoke Stripe API."""
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="sk_test_123",
-        STRIPE_METER_API_REQUESTS="heliox_api_requests",
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="sk_test_123",
+            STRIPE_METER_API_REQUESTS="heliox_api_requests",
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     export_date = date.today() - timedelta(days=1)
     db_session.add(
@@ -146,13 +145,16 @@ def test_export_skips_teams_without_billing_linkage(
     monkeypatch,
 ):
     """Teams without subscription are skipped (no export)."""
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="sk_test_123",
-        STRIPE_METER_API_REQUESTS="heliox_api_requests",
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="sk_test_123",
+            STRIPE_METER_API_REQUESTS="heliox_api_requests",
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     export_date = date.today() - timedelta(days=1)
     db_session.add(
@@ -177,13 +179,16 @@ def test_export_idempotent_skips_already_succeeded(
     monkeypatch,
 ):
     """Second export for same (team, date, event_type) skips if already succeeded."""
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="sk_test_123",
-        STRIPE_METER_API_REQUESTS="heliox_api_requests",
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="sk_test_123",
+            STRIPE_METER_API_REQUESTS="heliox_api_requests",
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     export_date = date.today() - timedelta(days=1)
     db_session.add(
@@ -215,13 +220,16 @@ def test_export_retries_failed_records(
     """Failed exports can be retried; only succeeded are skipped."""
     import stripe
 
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="sk_test_123",
-        STRIPE_METER_API_REQUESTS="heliox_api_requests",
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="sk_test_123",
+            STRIPE_METER_API_REQUESTS="heliox_api_requests",
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     export_date = date.today() - timedelta(days=1)
     db_session.add(
@@ -254,13 +262,16 @@ def test_export_skips_when_meter_name_empty(
     monkeypatch,
 ):
     """Event types with empty STRIPE_METER_* config are skipped."""
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="sk_test_123",
-        STRIPE_METER_API_REQUESTS="",  # Empty = skip
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="sk_test_123",
+            STRIPE_METER_API_REQUESTS="",  # Empty = skip
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     export_date = date.today() - timedelta(days=1)
     db_session.add(
@@ -285,13 +296,16 @@ def test_export_no_stripe_key_returns_early(
     monkeypatch,
 ):
     """When STRIPE_SECRET_KEY is empty, export returns early."""
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="",
-        STRIPE_METER_API_REQUESTS="heliox_api",
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="",
+            STRIPE_METER_API_REQUESTS="heliox_api",
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     result = export_usage_to_stripe(db_session, date.today(), dry_run=False)
     assert result["exported"] == 0
@@ -304,13 +318,16 @@ def test_export_maps_rollup_to_meter_payload(
     monkeypatch,
 ):
     """Correct event_name, payload (stripe_customer_id, value), and identifier sent to Stripe."""
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="sk_test_123",
-        STRIPE_METER_API_REQUESTS="heliox_api_requests",
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="sk_test_123",
+            STRIPE_METER_API_REQUESTS="heliox_api_requests",
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     export_date = date(2024, 6, 15)
     db_session.add(
@@ -342,13 +359,16 @@ def test_export_tenant_isolation(
     monkeypatch,
 ):
     """Only eligible (paid) team's usage is exported; free team's usage is not sent."""
-    monkeypatch.setattr("app.services.stripe_metering.get_settings", lambda: MagicMock(
-        STRIPE_SECRET_KEY="sk_test_123",
-        STRIPE_METER_API_REQUESTS="heliox_api_requests",
-        STRIPE_METER_INGESTION="",
-        STRIPE_METER_GPU_NODES="",
-        STRIPE_METER_SEATS="",
-    ))
+    monkeypatch.setattr(
+        "app.services.stripe_metering.get_settings",
+        lambda: MagicMock(
+            STRIPE_SECRET_KEY="sk_test_123",
+            STRIPE_METER_API_REQUESTS="heliox_api_requests",
+            STRIPE_METER_INGESTION="",
+            STRIPE_METER_GPU_NODES="",
+            STRIPE_METER_SEATS="",
+        ),
+    )
 
     export_date = date.today() - timedelta(days=1)
     db_session.add(

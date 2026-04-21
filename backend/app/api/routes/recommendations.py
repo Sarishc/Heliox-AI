@@ -1,4 +1,5 @@
 """Recommendation API endpoints for Heliox-AI."""
+
 import logging
 from datetime import date
 from typing import Any, Union
@@ -12,7 +13,6 @@ from app.auth.rbac import get_team_id_from_context, require_team_admin_or_api_ke
 from app.auth.team_resolution import TeamContext, get_team_api_key_or_session_optional
 from app.core.db import get_db
 from app.core.usage_tracking import record_api_usage
-from app.core.security import get_team_api_key_optional
 from app.core.tenant import get_effective_team_id
 from app.models.team_api_key import TeamAPIKey
 from app.schemas.recommendation import (
@@ -45,6 +45,7 @@ def _enrich_recommendations_with_action_status(
         return recommendations
     try:
         from uuid import UUID
+
         tid = UUID(str(team_id))
     except (ValueError, TypeError):
         return recommendations
@@ -67,33 +68,29 @@ def _enrich_recommendations_with_action_status(
 def get_recommendations(
     start_date: date = Query(..., description="Start date for analysis (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date for analysis (YYYY-MM-DD)"),
-    min_severity: RecommendationSeverity = Query(
-        None, description="Filter by minimum severity (low, medium, high)"
-    ),
-    min_savings: float = Query(
-        None, ge=0, description="Filter by minimum estimated savings (USD)"
-    ),
+    min_severity: RecommendationSeverity = Query(None, description="Filter by minimum severity (low, medium, high)"),
+    min_savings: float = Query(None, ge=0, description="Filter by minimum estimated savings (USD)"),
     db: Session = Depends(get_db),
     team_api_key: TeamAPIKey | TeamContext | None = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
     """
     Get cost optimization recommendations based on historical data.
-    
+
     This endpoint analyzes job execution patterns, GPU usage, and costs
     to generate actionable recommendations for:
     - Reducing idle GPU spend
     - Optimizing long-running jobs
     - Better scheduling (off-peak hours)
-    
+
     Query Parameters:
     - start_date: Start date for analysis (required)
     - end_date: End date for analysis (required)
     - min_severity: Filter by minimum severity level (optional)
     - min_savings: Filter by minimum estimated savings in USD (optional)
-    
+
     Returns:
         RecommendationResponse with list of recommendations and summary statistics
-        
+
     Raises:
         400 Bad Request: If date range is invalid
         500 Internal Server Error: If recommendation generation fails
@@ -104,7 +101,7 @@ def get_recommendations(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="end_date must be >= start_date",
         )
-    
+
     # Check if date range is too large (limit to 90 days for performance)
     days_diff = (end_date - start_date).days
     if days_diff > 90:
@@ -112,12 +109,10 @@ def get_recommendations(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Date range cannot exceed 90 days",
         )
-    
+
     try:
-        logger.info(
-            f"Generating recommendations for date range: {start_date} to {end_date}"
-        )
-        
+        logger.info(f"Generating recommendations for date range: {start_date} to {end_date}")
+
         # Create filters (enforce tenant isolation)
         team_id = get_effective_team_id(team_api_key)
         filters = RecommendationFilters(
@@ -127,25 +122,23 @@ def get_recommendations(
             min_savings=min_savings,
             team_id=team_id,
         )
-        
+
         # Initialize recommendation engine
         engine = RecommendationEngine(db)
-        
+
         # Generate recommendations
         result = engine.generate_recommendations(filters)
         # Enrich with action status when team is known
-        result.recommendations = _enrich_recommendations_with_action_status(
-            db, team_id, result.recommendations
-        )
-        
+        result.recommendations = _enrich_recommendations_with_action_status(db, team_id, result.recommendations)
+
         logger.info(
             f"Generated {len(result.recommendations)} recommendations "
             f"with ${result.total_estimated_savings_usd:,.2f} potential savings"
         )
-        
+
         record_api_usage(db, team_id=team_id, endpoint="recommendations")
         return result
-        
+
     except Exception as e:
         logger.error(f"Error generating recommendations: {e}", exc_info=True)
         raise HTTPException(
@@ -167,14 +160,14 @@ def get_recommendations_summary(
 ) -> Any:
     """
     Get a summary of recommendations without full details.
-    
+
     This is a lighter-weight endpoint that returns only counts and
     total savings without the full recommendation details.
-    
+
     Query Parameters:
     - start_date: Start date for analysis (required)
     - end_date: End date for analysis (required)
-    
+
     Returns:
         Summary statistics including counts by severity and type,
         plus total estimated savings
@@ -185,7 +178,7 @@ def get_recommendations_summary(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="end_date must be >= start_date",
         )
-    
+
     try:
         # Create filters
         team_id = get_effective_team_id(team_api_key)
@@ -194,13 +187,13 @@ def get_recommendations_summary(
             end_date=end_date,
             team_id=team_id,
         )
-        
+
         # Initialize recommendation engine
         engine = RecommendationEngine(db)
-        
+
         # Generate recommendations
         result = engine.generate_recommendations(filters)
-        
+
         # Return only summary
         record_api_usage(db, team_id=team_id, endpoint="recommendations_summary")
         return {
@@ -209,7 +202,7 @@ def get_recommendations_summary(
             "total_estimated_savings_usd": result.total_estimated_savings_usd,
             "summary": result.summary,
         }
-        
+
     except Exception as e:
         logger.error(f"Error generating recommendations summary: {e}", exc_info=True)
         raise HTTPException(
@@ -220,6 +213,7 @@ def get_recommendations_summary(
 
 class ApplyRecommendationRequest(BaseModel):
     """Request body for apply/dismiss."""
+
     recommendation: dict = Field(
         ...,
         description="Full recommendation object (from GET /recommendations)",
@@ -312,7 +306,7 @@ def get_recommendation_actions(
 def get_recommendation_types() -> Any:
     """
     Get information about available recommendation types.
-    
+
     Returns:
         Dictionary of recommendation types with descriptions
     """
@@ -340,4 +334,3 @@ def get_recommendation_types() -> Any:
             },
         ]
     }
-

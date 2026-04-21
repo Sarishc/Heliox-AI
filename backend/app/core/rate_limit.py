@@ -1,4 +1,5 @@
 """Redis-backed rate limiting middleware."""
+
 import json
 import logging
 
@@ -30,6 +31,7 @@ def get_client_id(request: Request) -> str:
     api_key = request.headers.get("X-API-Key")
     if api_key:
         import hashlib
+
         return f"api_key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
 
     client_host = request.client.host if request.client else "unknown"
@@ -43,6 +45,7 @@ def is_rate_limited(client_id: str, path: str) -> tuple[bool, int]:
     Raises HTTP 503 if Redis is unavailable — failing open is not acceptable.
     """
     import time
+
     current_time = int(time.time())
     window_start = current_time - (current_time % RATE_LIMIT_WINDOW_SECONDS)
     key = f"rl:{client_id}:{window_start}"
@@ -66,8 +69,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Skip rate limiting for health checks and public endpoints
         if request.url.path in [
-            "/health", "/health/db", "/ready", "/readiness", "/liveness",
-            "/metrics", "/", "/docs", "/openapi.json", "/redoc",
+            "/health",
+            "/health/db",
+            "/ready",
+            "/readiness",
+            "/liveness",
+            "/metrics",
+            "/",
+            "/docs",
+            "/openapi.json",
+            "/redoc",
             "/api/v1/health",
         ]:
             return await call_next(request)
@@ -87,7 +98,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Redis error already logged by require_redis(); propagate as 503
             return Response(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content=json.dumps({"error": "service_unavailable", "message": "Rate limiting service temporarily unavailable."}),
+                content=json.dumps(
+                    {
+                        "error": "service_unavailable",
+                        "message": "Rate limiting service temporarily unavailable.",
+                    }
+                ),
                 media_type="application/json",
             )
 
@@ -95,12 +111,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             request_id = get_request_id()
             return Response(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content=json.dumps({
-                    "error": "rate_limit_exceeded",
-                    "message": "Rate limit exceeded. Please try again later.",
-                    "request_id": request_id,
-                    "retry_after": retry_after,
-                }),
+                content=json.dumps(
+                    {
+                        "error": "rate_limit_exceeded",
+                        "message": "Rate limit exceeded. Please try again later.",
+                        "request_id": request_id,
+                        "retry_after": retry_after,
+                    }
+                ),
                 media_type="application/json",
                 headers={
                     "Retry-After": str(retry_after),

@@ -1,4 +1,5 @@
 """Security utilities for authentication."""
+
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -22,11 +23,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain password against a hashed password.
-    
+
     Args:
         plain_password: Plain text password
         hashed_password: Bcrypt hashed password
-        
+
     Returns:
         True if password matches, False otherwise
     """
@@ -36,10 +37,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """
     Hash a password using bcrypt.
-    
+
     Args:
         password: Plain text password
-        
+
     Returns:
         Bcrypt hashed password
     """
@@ -49,11 +50,11 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Create a JWT access token.
-    
+
     Args:
         data: Dictionary of claims to encode
         expires_delta: Optional expiration time delta
-        
+
     Returns:
         Encoded JWT token
     """
@@ -62,8 +63,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-

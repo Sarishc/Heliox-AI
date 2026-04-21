@@ -12,6 +12,7 @@ Covers:
   8. Non-demo team is NOT blocked by demo mode (writes work normally)
   9. Celery beat task for daily reset is registered in the beat schedule
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -21,8 +22,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _mock_settings(demo_mode: bool = True, demo_tenant_id: str = "") -> MagicMock:
     s = MagicMock()
@@ -45,6 +46,7 @@ def _mock_db() -> MagicMock:
 
 # ── 1: Seed creates expected data ─────────────────────────────────────────────
 
+
 def test_seed_creates_cost_snapshots():
     """_seed_costs creates 90 * 6 = 540 CostSnapshot rows (+1 today = 91 days window)."""
     from app.api.routes.demo import _seed_costs
@@ -63,6 +65,7 @@ def test_seed_creates_cost_snapshots():
     assert count == 91 * 6
     # Every record should have a non-zero cost
     from app.models.cost import CostSnapshot
+
     cost_records = [r for r in added if isinstance(r, CostSnapshot)]
     assert len(cost_records) == count
     for r in cost_records:
@@ -102,6 +105,7 @@ def test_seed_creates_five_recommendations():
 
     assert count == 5
     from app.models.recommendation_action import RecommendationAction
+
     recs = [r for r in added if isinstance(r, RecommendationAction)]
     assert len(recs) == 5
     titles = [r.recommendation_snapshot["title"] for r in recs]
@@ -126,6 +130,7 @@ def test_seed_creates_budgets():
     assert result["events"] == 2
 
     from app.models.budget import BudgetPolicy, BudgetEvent
+
     policies = [r for r in added if isinstance(r, BudgetPolicy)]
     events = [r for r in added if isinstance(r, BudgetEvent)]
     assert len(policies) == 4
@@ -136,6 +141,7 @@ def test_seed_creates_budgets():
 
 
 # ── 2: Demo GET endpoints work ────────────────────────────────────────────────
+
 
 def test_demo_get_cost_kpis_accessible():
     """GET /costs/kpis returns 200 for the demo team (read-only, not blocked)."""
@@ -158,9 +164,10 @@ def test_demo_get_cost_kpis_accessible():
     app.dependency_overrides[get_db] = override_get_db
 
     try:
-        with patch("app.core.demo_guard.get_settings", return_value=_mock_settings(
-            demo_mode=True, demo_tenant_id=str(team_id)
-        )):
+        with patch(
+            "app.core.demo_guard.get_settings",
+            return_value=_mock_settings(demo_mode=True, demo_tenant_id=str(team_id)),
+        ):
             client = TestClient(app, raise_server_exceptions=False)
             response = client.get("/api/v1/costs/kpis")
         # GET is never blocked — 200, 404, or 503 (Redis unavailable in test env) all acceptable
@@ -171,6 +178,7 @@ def test_demo_get_cost_kpis_accessible():
 
 
 # ── 3–5: Write operations blocked for demo tenant ─────────────────────────────
+
 
 def test_require_not_demo_raises_403_for_demo_tenant():
     """require_not_demo raises HTTP 403 when team_id matches DEMO_TENANT_ID."""
@@ -226,6 +234,7 @@ def test_require_not_demo_noop_when_tenant_id_not_configured():
 
 # ── 6: GET /demo/status shape ─────────────────────────────────────────────────
 
+
 def test_demo_status_endpoint_returns_correct_shape():
     """GET /api/v1/demo/status returns expected JSON shape when DEMO_MODE=True."""
     from app.main import app
@@ -256,6 +265,7 @@ def test_demo_status_endpoint_returns_correct_shape():
 
 # ── 7: Reset re-seeds correctly ───────────────────────────────────────────────
 
+
 def test_reset_clears_and_reseeds_demo_data():
     """_clear_demo_data issues deletes for all demo tables scoped to team_id."""
     from app.api.routes.demo import _clear_demo_data
@@ -280,6 +290,7 @@ def test_reset_clears_and_reseeds_demo_data():
 
 
 # ── 8: Non-demo tenant NOT blocked ───────────────────────────────────────────
+
 
 def test_non_demo_tenant_not_blocked_by_require_not_demo():
     """A non-demo team can call require_not_demo without getting 403."""
@@ -315,6 +326,7 @@ def test_demo_403_body_has_all_required_fields():
 
 # ── 9: Celery beat schedule ───────────────────────────────────────────────────
 
+
 def test_demo_reset_task_in_beat_schedule():
     """The daily demo reset Celery task is registered in the beat schedule."""
     from app.celery_app import celery_app
@@ -342,10 +354,11 @@ def test_demo_reset_task_skips_when_demo_mode_off():
 
 # ── anomaly spike in seed data ────────────────────────────────────────────────
 
+
 def test_seed_contains_anomaly_spike():
     """The anomaly spike (3 weeks ago) on prod-training A100 is 2.5x normal."""
     from datetime import timedelta
-    from app.api.routes.demo import _seed_costs, COST_CONFIGS
+    from app.api.routes.demo import _seed_costs
 
     db = MagicMock()
     added = []
@@ -360,7 +373,8 @@ def test_seed_contains_anomaly_spike():
 
     anomaly_day = today - timedelta(days=21)
     anomaly_records = [
-        r for r in added
+        r
+        for r in added
         if isinstance(r, CostSnapshot)
         and r.date == anomaly_day
         and r.provider == "prod-training"
@@ -374,8 +388,6 @@ def test_seed_contains_anomaly_spike():
 def test_seed_is_scoped_to_demo_team_only():
     """_clear_demo_data only deletes rows for the specified team_id, not all data."""
     from app.api.routes.demo import _clear_demo_data
-    from sqlalchemy import delete
-    from app.models.cost import CostSnapshot
 
     team_id = uuid.uuid4()
     other_team_id = uuid.uuid4()

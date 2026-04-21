@@ -1,4 +1,5 @@
 """Current user/team info endpoint."""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -8,7 +9,6 @@ from app.auth.deps import get_current_user_optional
 from app.core.db import get_db
 from app.core.security import get_team_api_key_if_present
 from app.core.tenant import get_effective_team_id
-from app.models.team import Team
 from app.models.team_api_key import TeamAPIKey
 from app.models.user import User
 from app.models.team_member import TeamMember
@@ -32,20 +32,16 @@ def get_me(
             role="api_key",
             feature_flags={"multi_tenant": settings.MULTI_TENANT},
         )
-    
+
     if current_user:
-        membership = (
-            db.query(TeamMember)
-            .filter(TeamMember.user_id == current_user.id)
-            .first()
-        )
+        membership = db.query(TeamMember).filter(TeamMember.user_id == current_user.id).first()
         if membership:
             return MeResponse(
                 team_id=str(membership.team_id),
                 role=membership.role.value,
                 feature_flags={"multi_tenant": settings.MULTI_TENANT},
             )
-    
+
     return MeResponse(
         team_id="",
         role="unknown",

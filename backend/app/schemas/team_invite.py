@@ -1,4 +1,5 @@
 """Schemas for team invitations."""
+
 from datetime import datetime
 from uuid import UUID
 

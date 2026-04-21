@@ -1,4 +1,5 @@
 """Database connection and session management with SQLAlchemy 2.0."""
+
 import logging
 import time
 from typing import Generator
@@ -25,7 +26,7 @@ engine = create_engine(
     pool_size=20,
     max_overflow=30,
     pool_pre_ping=True,  # Verify connections before using them
-    pool_recycle=3600,   # Recycle connections after 1 hour
+    pool_recycle=3600,  # Recycle connections after 1 hour
     echo=settings.LOG_LEVEL == "DEBUG",  # Log SQL queries in debug mode
 )
 
@@ -61,10 +62,10 @@ SessionLocal = sessionmaker(
 def get_db() -> Generator[Session, None, None]:
     """
     FastAPI dependency that provides a database session.
-    
+
     Yields:
         Session: SQLAlchemy database session
-        
+
     Example:
         @app.get("/items/")
         def read_items(db: Session = Depends(get_db)):
@@ -80,10 +81,10 @@ def get_db() -> Generator[Session, None, None]:
 def check_db_connection() -> bool:
     """
     Check if database connection is healthy.
-    
+
     Returns:
         bool: True if connection is healthy, False otherwise
-        
+
     This performs a simple SELECT 1 query to verify the connection.
     Safe to use in health check endpoints.
     """
@@ -96,7 +97,6 @@ def check_db_connection() -> bool:
         logger.warning(
             f"Database connection check failed: {type(e).__name__}",
             exc_info=True,
-            extra={"error_type": type(e).__name__}
+            extra={"error_type": type(e).__name__},
         )
         return False
-

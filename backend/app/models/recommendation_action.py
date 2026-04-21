@@ -1,9 +1,10 @@
 """Recommendation action model - tracks apply/dismiss for optimization recommendations."""
+
 from uuid import UUID
 
-from sqlalchemy import Float, ForeignKey, Index, String, Text
+from sqlalchemy import Float, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 

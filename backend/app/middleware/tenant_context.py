@@ -4,6 +4,7 @@ Tenant context middleware.
 Injects tenant_id into request state for endpoints that have resolved
 team context (from API key or session). Used for audit and validation.
 """
+
 from typing import Optional
 from uuid import UUID
 

@@ -1,4 +1,5 @@
 """Saved report, share link, and run models."""
+
 from datetime import datetime
 from enum import Enum
 from typing import Optional

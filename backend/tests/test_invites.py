@@ -1,4 +1,5 @@
 """Tests for team invitation flow."""
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -90,9 +91,7 @@ def viewer_user(db_session: Session) -> tuple[User, Team]:
     return user, team
 
 
-def test_owner_can_create_invite(
-    client: TestClient, owner_user: tuple[User, Team]
-) -> None:
+def test_owner_can_create_invite(client: TestClient, owner_user: tuple[User, Team]) -> None:
     """Owner can create an invite."""
     user, team = owner_user
 
@@ -115,9 +114,7 @@ def test_owner_can_create_invite(
         app.dependency_overrides.pop(get_current_active_user, None)
 
 
-def test_admin_can_create_invite(
-    client: TestClient, admin_user: tuple[User, Team]
-) -> None:
+def test_admin_can_create_invite(client: TestClient, admin_user: tuple[User, Team]) -> None:
     """Admin can create an invite."""
     user, team = admin_user
 
@@ -137,9 +134,7 @@ def test_admin_can_create_invite(
         app.dependency_overrides.pop(get_current_active_user, None)
 
 
-def test_viewer_cannot_create_invite(
-    client: TestClient, viewer_user: tuple[User, Team]
-) -> None:
+def test_viewer_cannot_create_invite(client: TestClient, viewer_user: tuple[User, Team]) -> None:
     """Viewer cannot create invites."""
     user, team = viewer_user
 
@@ -200,9 +195,7 @@ def test_validate_expired_invite(client: TestClient, owner_user: tuple[User, Tea
     assert resp.status_code == 404
 
 
-def test_accept_invite_new_user(
-    client: TestClient, owner_user: tuple[User, Team], db_session: Session
-) -> None:
+def test_accept_invite_new_user(client: TestClient, owner_user: tuple[User, Team], db_session: Session) -> None:
     """New user can accept invite with password (creates account + membership)."""
     _, team = owner_user
     token = generate_invite_token()
@@ -235,9 +228,7 @@ def test_accept_invite_new_user(
 
     user = crud_user.get_by_email(db_session, email="brandnew@test.com")
     assert user is not None
-    membership = crud_team_member.get_by_team_and_user(
-        db_session, team_id=team.id, user_id=user.id
-    )
+    membership = crud_team_member.get_by_team_and_user(db_session, team_id=team.id, user_id=user.id)
     assert membership is not None
     assert membership.role == TeamRole.VIEWER
 

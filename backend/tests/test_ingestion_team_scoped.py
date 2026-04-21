@@ -1,4 +1,5 @@
 """Tests for team-scoped ingestion."""
+
 from datetime import datetime, date
 from decimal import Decimal
 
@@ -13,7 +14,7 @@ def test_cost_ingestion_sets_team_id(db_session):
     team = Team(name="Ingest Team")
     db_session.add(team)
     db_session.commit()
-    
+
     service = CostIngestionService(db_session)
     records = [
         CostDataRecord(
@@ -21,12 +22,12 @@ def test_cost_ingestion_sets_team_id(db_session):
             date=date(2026, 1, 1),
             provider="aws",
             gpu_type="a100",
-            cost_usd=Decimal("100.00")
+            cost_usd=Decimal("100.00"),
         )
     ]
     result = service.ingest_cost_records(records=records, team_id=str(team.id))
     assert result.inserted == 1
-    
+
     snapshot = db_session.query(CostSnapshot).first()
     assert snapshot.team_id == team.id
 
@@ -35,7 +36,7 @@ def test_usage_ingestion_sets_team_id(db_session):
     team = Team(name="Usage Team")
     db_session.add(team)
     db_session.commit()
-    
+
     service = UsageIngestionService(db_session)
     metrics = [
         UsageMetric(
@@ -43,7 +44,7 @@ def test_usage_ingestion_sets_team_id(db_session):
             provider="aws",
             gpu_type="a100",
             gpu_hours=Decimal("1.5"),
-            tags={"cluster": "test"}
+            tags={"cluster": "test"},
         )
     ]
     result = service.ingest_usage_metrics(team_id=team.id, metrics=metrics)

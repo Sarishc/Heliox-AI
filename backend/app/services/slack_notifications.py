@@ -1,10 +1,10 @@
 """Slack notification service for Heliox alerts."""
+
 import asyncio
 import logging
-from datetime import datetime, timedelta, date
+from datetime import timedelta, date
 from typing import Dict, List, Optional
 from uuid import UUID
-from decimal import Decimal
 
 import httpx
 from sqlalchemy import select, func
@@ -14,7 +14,11 @@ from app.core.config import get_settings
 from app.models.cost import CostSnapshot
 from app.models.alert_settings import AlertSettings
 from app.models.budget import BudgetPolicy
-from app.schemas.recommendation import RecommendationFilters, RecommendationSeverity, RecommendationType
+from app.schemas.recommendation import (
+    RecommendationFilters,
+    RecommendationSeverity,
+    RecommendationType,
+)
 from app.services.recommendations import RecommendationEngine
 
 settings = get_settings()
@@ -28,55 +32,49 @@ BURN_RATE_THRESHOLD_USD = 10000  # Daily spend threshold for alerts
 
 class SlackNotificationService:
     """Service for sending Slack notifications."""
-    
+
     def __init__(self, webhook_url: Optional[str] = None):
         """
         Initialize Slack notification service.
-        
+
         Args:
             webhook_url: Slack webhook URL. If not provided, uses settings.
         """
         self.webhook_url = webhook_url or settings.SLACK_WEBHOOK_URL
         self.enabled = bool(self.webhook_url)
-        
+
         if not self.enabled:
             logger.warning("Slack notifications disabled: SLACK_WEBHOOK_URL not configured")
-    
+
     def _mask_webhook_url(self, url: str) -> str:
         """Mask webhook URL for safe logging."""
         if not url:
             return "None"
         # Show only last 8 characters
         return f"***{url[-8:]}"
-    
+
     async def _send_slack_message(self, blocks: List[Dict], text: str) -> bool:
         """
         Send a message to Slack using webhook.
-        
+
         Args:
             blocks: Slack Block Kit blocks
             text: Fallback text for notifications
-            
+
         Returns:
             True if successful, False otherwise
         """
         if not self.enabled:
             logger.info("Slack notification skipped (not configured)")
             return False
-        
-        payload = {
-            "text": text,
-            "blocks": blocks
-        }
-        
+
+        payload = {"text": text, "blocks": blocks}
+
         async with httpx.AsyncClient(timeout=SLACK_TIMEOUT) as client:
             for attempt in range(1, SLACK_MAX_RETRIES + 1):
                 try:
-                    response = await client.post(
-                        self.webhook_url,
-                        json=payload
-                    )
-                    
+                    response = await client.post(self.webhook_url, json=payload)
+
                     if response.status_code == 200:
                         logger.info(
                             f"Slack notification sent successfully "
@@ -87,32 +85,44 @@ class SlackNotificationService:
                         logger.warning(
                             f"External service failure: Slack notification failed (attempt {attempt}/{SLACK_MAX_RETRIES}): "
                             f"status={response.status_code}",
-                            extra={"service": "slack", "status_code": response.status_code, "attempt": attempt}
+                            extra={
+                                "service": "slack",
+                                "status_code": response.status_code,
+                                "attempt": attempt,
+                            },
                         )
-                        
+
                 except httpx.TimeoutException:
                     logger.warning(
                         f"External service failure: Slack notification timeout (attempt {attempt}/{SLACK_MAX_RETRIES})",
-                        extra={"service": "slack", "error_type": "timeout", "attempt": attempt},
-                        exc_info=True
+                        extra={
+                            "service": "slack",
+                            "error_type": "timeout",
+                            "attempt": attempt,
+                        },
+                        exc_info=True,
                     )
                 except Exception as e:
                     logger.warning(
                         f"External service failure: Slack notification error (attempt {attempt}/{SLACK_MAX_RETRIES}): {type(e).__name__}",
                         exc_info=True,
-                        extra={"service": "slack", "error_type": type(e).__name__, "attempt": attempt}
+                        extra={
+                            "service": "slack",
+                            "error_type": type(e).__name__,
+                            "attempt": attempt,
+                        },
                     )
-                
+
                 # Wait before retry (exponential backoff)
                 if attempt < SLACK_MAX_RETRIES:
-                    await asyncio.sleep(2 ** attempt)
-        
+                    await asyncio.sleep(2**attempt)
+
         logger.warning(
             "External service failure: Slack notification failed after all retries",
-            extra={"service": "slack", "retries": SLACK_MAX_RETRIES}
+            extra={"service": "slack", "retries": SLACK_MAX_RETRIES},
         )
         return False
-    
+
     def _format_currency(self, amount: float) -> str:
         """Format currency for display."""
         return f"${amount:,.2f}"
@@ -129,20 +139,30 @@ class SlackNotificationService:
         """Send budget guardrail alert."""
         env_label = policy.environment.value
         project_label = policy.project or "all"
-        breach_text = (
-            predicted_breach_date.isoformat() if predicted_breach_date else "not projected"
-        )
+        breach_text = predicted_breach_date.isoformat() if predicted_breach_date else "not projected"
         blocks = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": "*Budget Guardrail Alert*"}},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Budget Guardrail Alert*"},
+            },
             {
                 "type": "section",
                 "fields": [
                     {"type": "mrkdwn", "text": f"*Environment:*\n{env_label}"},
                     {"type": "mrkdwn", "text": f"*Project:*\n{project_label}"},
-                    {"type": "mrkdwn", "text": f"*Budget:*\n{self._format_currency(float(policy.monthly_budget_usd))}"},
-                    {"type": "mrkdwn", "text": f"*MTD Spend:*\n{self._format_currency(mtd_spend)}"},
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Budget:*\n{self._format_currency(float(policy.monthly_budget_usd))}",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*MTD Spend:*\n{self._format_currency(mtd_spend)}",
+                    },
                     {"type": "mrkdwn", "text": f"*Used:*\n{percent_used * 100:.0f}%"},
-                    {"type": "mrkdwn", "text": f"*Forecast EOM:*\n{self._format_currency(forecasted_eom_spend)}"},
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Forecast EOM:*\n{self._format_currency(forecasted_eom_spend)}",
+                    },
                 ],
             },
             {
@@ -162,7 +182,11 @@ class SlackNotificationService:
         blocks = [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": "🚨 Anomaly Detected", "emoji": True},
+                "text": {
+                    "type": "plain_text",
+                    "text": "🚨 Anomaly Detected",
+                    "emoji": True,
+                },
             },
             {
                 "type": "section",
@@ -174,41 +198,45 @@ class SlackNotificationService:
             {"type": "divider"},
         ]
         for anomaly in anomalies[:3]:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"*{anomaly.get('type')}*\n"
-                        f"{anomaly.get('message')}\n"
-                        f"Severity: {anomaly.get('severity', 'unknown')}"
-                    ),
-                },
-            })
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"*{anomaly.get('type')}*\n"
+                            f"{anomaly.get('message')}\n"
+                            f"Severity: {anomaly.get('severity', 'unknown')}"
+                        ),
+                    },
+                }
+            )
         if len(anomalies) > 3:
-            blocks.append({
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"_+{len(anomalies) - 3} more anomalies_"}],
-            })
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"_+{len(anomalies) - 3} more anomalies_",
+                        }
+                    ],
+                }
+            )
         return blocks
-    
-    def _create_burn_rate_alert_blocks(
-        self,
-        daily_cost: float,
-        threshold: float,
-        date: str
-    ) -> List[Dict]:
+
+    def _create_burn_rate_alert_blocks(self, daily_cost: float, threshold: float, date: str) -> List[Dict]:
         """Create Slack blocks for burn rate alert."""
         percentage_over = ((daily_cost - threshold) / threshold) * 100
-        
+
         return [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
                     "text": "🔥 High Burn Rate Alert",
-                    "emoji": True
-                }
+                    "emoji": True,
+                },
             },
             {
                 "type": "section",
@@ -221,38 +249,32 @@ class SlackNotificationService:
                         f"• *Threshold:* {self._format_currency(threshold)}\n"
                         f"• *Over by:* {self._format_currency(daily_cost - threshold)} "
                         f"({percentage_over:.1f}%)"
-                    )
-                }
+                    ),
+                },
             },
             {
                 "type": "context",
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "💡 Review your GPU usage to identify cost drivers"
+                        "text": "💡 Review your GPU usage to identify cost drivers",
                     }
-                ]
-            }
+                ],
+            },
         ]
-    
-    def _create_idle_spend_alert_blocks(
-        self,
-        recommendations: List[Dict]
-    ) -> List[Dict]:
+
+    def _create_idle_spend_alert_blocks(self, recommendations: List[Dict]) -> List[Dict]:
         """Create Slack blocks for idle spend alert."""
-        total_idle_savings = sum(
-            rec.get("estimated_savings_usd", 0)
-            for rec in recommendations
-        )
-        
+        total_idle_savings = sum(rec.get("estimated_savings_usd", 0) for rec in recommendations)
+
         blocks = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
                     "text": "⚠️ Idle GPU Spend Detected",
-                    "emoji": True
-                }
+                    "emoji": True,
+                },
             },
             {
                 "type": "section",
@@ -262,41 +284,43 @@ class SlackNotificationService:
                         f"*High-severity idle spend recommendations found!*\n\n"
                         f"• *Total Potential Savings:* {self._format_currency(total_idle_savings)}/month\n"
                         f"• *Number of Issues:* {len(recommendations)}"
-                    )
-                }
+                    ),
+                },
             },
-            {
-                "type": "divider"
-            }
+            {"type": "divider"},
         ]
-        
+
         # Add individual recommendations
         for i, rec in enumerate(recommendations[:3], 1):  # Limit to 3 for brevity
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"*{i}. {rec['title']}*\n"
-                        f"{rec['description']}\n"
-                        f"💰 Savings: {self._format_currency(rec['estimated_savings_usd'])}/month"
-                    )
-                }
-            })
-        
-        if len(recommendations) > 3:
-            blocks.append({
-                "type": "context",
-                "elements": [
-                    {
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
                         "type": "mrkdwn",
-                        "text": f"_+{len(recommendations) - 3} more recommendations available in dashboard_"
-                    }
-                ]
-            })
-        
+                        "text": (
+                            f"*{i}. {rec['title']}*\n"
+                            f"{rec['description']}\n"
+                            f"💰 Savings: {self._format_currency(rec['estimated_savings_usd'])}/month"
+                        ),
+                    },
+                }
+            )
+
+        if len(recommendations) > 3:
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"_+{len(recommendations) - 3} more recommendations available in dashboard_",
+                        }
+                    ],
+                }
+            )
+
         return blocks
-    
+
     def _create_daily_summary_blocks(
         self,
         daily_cost: float,
@@ -304,7 +328,7 @@ class SlackNotificationService:
         monthly_cost: float,
         top_models: List[Dict],
         high_severity_count: int,
-        total_savings: float
+        total_savings: float,
     ) -> List[Dict]:
         """Create Slack blocks for daily summary."""
         blocks = [
@@ -313,66 +337,72 @@ class SlackNotificationService:
                 "text": {
                     "type": "plain_text",
                     "text": "📊 Heliox Daily Summary",
-                    "emoji": True
-                }
+                    "emoji": True,
+                },
             },
             {
                 "type": "section",
                 "fields": [
                     {
                         "type": "mrkdwn",
-                        "text": f"*Yesterday:*\n{self._format_currency(daily_cost)}"
+                        "text": f"*Yesterday:*\n{self._format_currency(daily_cost)}",
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*Last 7 Days:*\n{self._format_currency(weekly_cost)}"
+                        "text": f"*Last 7 Days:*\n{self._format_currency(weekly_cost)}",
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*Last 30 Days:*\n{self._format_currency(monthly_cost)}"
+                        "text": f"*Last 30 Days:*\n{self._format_currency(monthly_cost)}",
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*Potential Savings:*\n{self._format_currency(total_savings)}/mo"
-                    }
-                ]
-            }
+                        "text": f"*Potential Savings:*\n{self._format_currency(total_savings)}/mo",
+                    },
+                ],
+            },
         ]
-        
+
         # Top models
         if top_models:
             blocks.append({"type": "divider"})
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*Top GPU Consumers (Yesterday):*"
-                }
-            })
-            
-            for model in top_models[:3]:
-                blocks.append({
+            blocks.append(
+                {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"• {model['model_name']}: {self._format_currency(model['cost'])}"
+                        "text": "*Top GPU Consumers (Yesterday):*",
+                    },
+                }
+            )
+
+            for model in top_models[:3]:
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"• {model['model_name']}: {self._format_currency(model['cost'])}",
+                        },
                     }
-                })
-        
+                )
+
         # Recommendations summary
         if high_severity_count > 0:
             blocks.append({"type": "divider"})
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"⚠️ *{high_severity_count} high-severity recommendations* available\n"
-                        f"Review them in your Heliox dashboard"
-                    )
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"⚠️ *{high_severity_count} high-severity recommendations* available\n"
+                            f"Review them in your Heliox dashboard"
+                        ),
+                    },
                 }
-            })
-        
+            )
+
         return blocks
 
     def _create_weekly_report_blocks(
@@ -409,98 +439,112 @@ class SlackNotificationService:
             {
                 "type": "section",
                 "fields": [
-                    {"type": "mrkdwn", "text": f"*Spend (7 days):*\n{self._format_currency(total_spend)}"},
-                    {"type": "mrkdwn", "text": f"*Potential savings:*\n{self._format_currency(potential_savings)}"},
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Spend (7 days):*\n{self._format_currency(total_spend)}",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Potential savings:*\n{self._format_currency(potential_savings)}",
+                    },
                     {"type": "mrkdwn", "text": f"*Savings rate:*\n{savings_pct:.1f}%"},
-                    {"type": "mrkdwn", "text": f"*Idle GPU waste:*\n{self._format_currency(idle_savings)}"},
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Idle GPU waste:*\n{self._format_currency(idle_savings)}",
+                    },
                     {"type": "mrkdwn", "text": f"*Anomalies:*\n{anomaly_count}"},
                 ],
             },
         ]
         if top_recommendations:
             blocks.append({"type": "divider"})
-            blocks.append({
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "*Top opportunities:*"},
-            })
-            for r in top_recommendations[:3]:
-                blocks.append({
+            blocks.append(
+                {
                     "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"• {r.get('title', '—')} — {self._format_currency(r.get('estimated_savings_usd', 0))}",
-                    },
-                })
+                    "text": {"type": "mrkdwn", "text": "*Top opportunities:*"},
+                }
+            )
+            for r in top_recommendations[:3]:
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"• {r.get('title', '—')} — {self._format_currency(r.get('estimated_savings_usd', 0))}",
+                        },
+                    }
+                )
         if provider_breakdown:
             provider_lines = ", ".join(
                 f"{p.get('provider', '—')}: {self._format_currency(p.get('cost_usd', 0))}"
                 for p in provider_breakdown[:3]
             )
             blocks.append({"type": "divider"})
-            blocks.append({
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*By provider:* {provider_lines}"},
-            })
-        if dashboard_url:
-            blocks.append({
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "View ROI Dashboard"},
-                        "url": dashboard_url,
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*By provider:* {provider_lines}",
                     },
-                ],
-            })
+                }
+            )
+        if dashboard_url:
+            blocks.append(
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "View ROI Dashboard",
+                            },
+                            "url": dashboard_url,
+                        },
+                    ],
+                }
+            )
         return blocks
-    
-    async def send_burn_rate_alert(
-        self,
-        daily_cost: float,
-        threshold: float,
-        date: str
-    ) -> bool:
+
+    async def send_burn_rate_alert(self, daily_cost: float, threshold: float, date: str) -> bool:
         """
         Send burn rate alert to Slack.
-        
+
         Args:
             daily_cost: Daily GPU cost
             threshold: Cost threshold
             date: Date string (YYYY-MM-DD)
-            
+
         Returns:
             True if sent successfully
         """
         logger.info(
-            f"Sending burn rate alert: daily_cost=${daily_cost:.2f}, "
-            f"threshold=${threshold:.2f}, date={date}"
+            f"Sending burn rate alert: daily_cost=${daily_cost:.2f}, " f"threshold=${threshold:.2f}, date={date}"
         )
-        
+
         blocks = self._create_burn_rate_alert_blocks(daily_cost, threshold, date)
         text = f"High Burn Rate Alert: ${daily_cost:.2f} spent on {date}"
-        
+
         return await self._send_slack_message(blocks, text)
-    
-    async def send_idle_spend_alert(
-        self,
-        recommendations: List[Dict]
-    ) -> bool:
+
+    async def send_idle_spend_alert(self, recommendations: List[Dict]) -> bool:
         """
         Send idle spend alert to Slack.
-        
+
         Args:
             recommendations: List of high-severity recommendations
-            
+
         Returns:
             True if sent successfully
         """
         logger.info(f"Sending idle spend alert: {len(recommendations)} recommendations")
-        
+
         blocks = self._create_idle_spend_alert_blocks(recommendations)
         text = f"Idle GPU Spend Alert: {len(recommendations)} high-severity issues found"
-        
+
         return await self._send_slack_message(blocks, text)
-    
+
     async def send_daily_summary(
         self,
         daily_cost: float,
@@ -508,11 +552,11 @@ class SlackNotificationService:
         monthly_cost: float,
         top_models: List[Dict],
         high_severity_count: int,
-        total_savings: float
+        total_savings: float,
     ) -> bool:
         """
         Send daily summary to Slack.
-        
+
         Args:
             daily_cost: Yesterday's cost
             weekly_cost: Last 7 days cost
@@ -520,22 +564,22 @@ class SlackNotificationService:
             top_models: Top GPU consuming models
             high_severity_count: Number of high severity recommendations
             total_savings: Total potential savings
-            
+
         Returns:
             True if sent successfully
         """
         logger.info("Sending daily summary")
-        
+
         blocks = self._create_daily_summary_blocks(
             daily_cost,
             weekly_cost,
             monthly_cost,
             top_models,
             high_severity_count,
-            total_savings
+            total_savings,
         )
         text = f"Heliox Daily Summary: ${daily_cost:.2f} spent yesterday"
-        
+
         return await self._send_slack_message(blocks, text)
 
     async def send_anomaly_alert(self, anomalies: List[Dict]) -> bool:
@@ -611,7 +655,7 @@ def _get_team_email_config(db: Session, team_id: UUID) -> tuple[list[str], bool]
 
 async def check_and_send_burn_rate_alert(db: Session, team_id: UUID, date_str: Optional[str] = None) -> bool:
     """Check if burn rate exceeds threshold and send alert for a team (Slack + email)."""
-    from datetime import date, timedelta
+    from datetime import date
     from app.services.email_notifications import send_burn_rate_alert_email
 
     webhook_url, threshold, slack_enabled = _get_team_slack_config(db, team_id)
@@ -624,8 +668,7 @@ async def check_and_send_burn_rate_alert(db: Session, team_id: UUID, date_str: O
         date_str = check_date.strftime("%Y-%m-%d")
 
     query = select(func.sum(CostSnapshot.cost_usd)).where(
-        CostSnapshot.team_id == team_id,
-        CostSnapshot.date == date_str
+        CostSnapshot.team_id == team_id, CostSnapshot.date == date_str
     )
     result = db.execute(query).scalar_one_or_none()
     daily_cost = float(result) if result else 0.0
@@ -638,11 +681,7 @@ async def check_and_send_burn_rate_alert(db: Session, team_id: UUID, date_str: O
     sent = False
     if slack_enabled and webhook_url:
         slack_service = SlackNotificationService(webhook_url=webhook_url)
-        sent = await slack_service.send_burn_rate_alert(
-            daily_cost,
-            threshold,
-            date_str
-        )
+        sent = await slack_service.send_burn_rate_alert(daily_cost, threshold, date_str)
     if email_enabled and email_recipients:
         email_ok = await send_burn_rate_alert_email(
             to_emails=email_recipients,
@@ -656,7 +695,7 @@ async def check_and_send_burn_rate_alert(db: Session, team_id: UUID, date_str: O
 
 async def check_and_send_idle_spend_alert(db: Session, team_id: UUID) -> bool:
     """Check for high-severity idle spend recommendations for a team (Slack + email)."""
-    from datetime import date, timedelta
+    from datetime import date
     from app.services.email_notifications import send_idle_spend_alert_email
 
     webhook_url, _, slack_enabled = _get_team_slack_config(db, team_id)
@@ -699,7 +738,7 @@ async def check_and_send_idle_spend_alert(db: Session, team_id: UUID) -> bool:
 
 async def send_daily_summary_report(db: Session, team_id: UUID) -> bool:
     """Generate and send daily summary report for a team (Slack + email)."""
-    from datetime import date, timedelta
+    from datetime import date
     from sqlalchemy import desc
     from app.services.email_notifications import send_daily_summary_email
 
@@ -712,45 +751,43 @@ async def send_daily_summary_report(db: Session, team_id: UUID) -> bool:
     yesterday = today - timedelta(days=1)
     week_ago = today - timedelta(days=7)
     month_ago = today - timedelta(days=30)
-    
+
     yesterday_query = select(func.sum(CostSnapshot.cost_usd)).where(
-        CostSnapshot.team_id == team_id,
-        CostSnapshot.date == yesterday
+        CostSnapshot.team_id == team_id, CostSnapshot.date == yesterday
     )
     daily_cost = float(db.execute(yesterday_query).scalar_one_or_none() or 0)
-    
+
     weekly_query = select(func.sum(CostSnapshot.cost_usd)).where(
-        CostSnapshot.team_id == team_id,
-        CostSnapshot.date >= week_ago
+        CostSnapshot.team_id == team_id, CostSnapshot.date >= week_ago
     )
     weekly_cost = float(db.execute(weekly_query).scalar_one_or_none() or 0)
-    
+
     monthly_query = select(func.sum(CostSnapshot.cost_usd)).where(
-        CostSnapshot.team_id == team_id,
-        CostSnapshot.date >= month_ago
+        CostSnapshot.team_id == team_id, CostSnapshot.date >= month_ago
     )
     monthly_cost = float(db.execute(monthly_query).scalar_one_or_none() or 0)
-    
-    top_gpu_query = select(
-        CostSnapshot.provider,
-        CostSnapshot.gpu_type,
-        func.sum(CostSnapshot.cost_usd).label("cost")
-    ).where(
-        CostSnapshot.team_id == team_id,
-        CostSnapshot.date == yesterday
-    ).group_by(
-        CostSnapshot.provider,
-        CostSnapshot.gpu_type
-    ).order_by(
-        desc("cost")
-    ).limit(3)
-    
+
+    top_gpu_query = (
+        select(
+            CostSnapshot.provider,
+            CostSnapshot.gpu_type,
+            func.sum(CostSnapshot.cost_usd).label("cost"),
+        )
+        .where(CostSnapshot.team_id == team_id, CostSnapshot.date == yesterday)
+        .group_by(CostSnapshot.provider, CostSnapshot.gpu_type)
+        .order_by(desc("cost"))
+        .limit(3)
+    )
+
     top_gpu_result = db.execute(top_gpu_query).all()
     top_models = [
-        {"model_name": f"{row.gpu_type.upper()} ({row.provider.upper()})", "cost": float(row.cost)}
+        {
+            "model_name": f"{row.gpu_type.upper()} ({row.provider.upper()})",
+            "cost": float(row.cost),
+        }
         for row in top_gpu_result
     ]
-    
+
     filters = RecommendationFilters(
         start_date=yesterday - timedelta(days=14),
         end_date=yesterday,
@@ -759,7 +796,7 @@ async def send_daily_summary_report(db: Session, team_id: UUID) -> bool:
     )
     rec_engine = RecommendationEngine(db)
     response = rec_engine.generate_recommendations(filters)
-    
+
     high_severity_count = len(response.recommendations)
     total_savings = sum(rec.estimated_savings_usd for rec in response.recommendations)
 
@@ -772,7 +809,7 @@ async def send_daily_summary_report(db: Session, team_id: UUID) -> bool:
             monthly_cost,
             top_models,
             high_severity_count,
-            total_savings
+            total_savings,
         )
     if email_enabled and email_recipients:
         email_ok = await send_daily_summary_email(
@@ -869,6 +906,7 @@ async def check_and_send_anomaly_alert(db: Session, team_id: UUID) -> bool:
     # Publish SSE event for each anomaly (fire-and-forget — never blocks Slack/email)
     try:
         from app.core.events import EventType, HelioxEvent, publish_event_sync
+
         for anomaly in result.anomalies:
             publish_event_sync(
                 str(team_id),
@@ -889,4 +927,3 @@ async def check_and_send_anomaly_alert(db: Session, team_id: UUID) -> bool:
         pass  # SSE publish never disrupts existing Slack/email flow
 
     return sent
-

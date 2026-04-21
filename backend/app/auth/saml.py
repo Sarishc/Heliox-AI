@@ -1,4 +1,5 @@
 """SAML 2.0 authentication for Okta and other IdPs."""
+
 import logging
 import secrets
 from datetime import datetime, timedelta
@@ -19,11 +20,13 @@ def _ensure_saml_imported() -> None:
         from onelogin.saml2.auth import OneLogin_Saml2_Auth  # noqa: F401
         from onelogin.saml2.metadata import OneLogin_Saml2_Metadata  # noqa: F401
         from onelogin.saml2.settings import OneLogin_Saml2_Settings  # noqa: F401
+
         _SAML_AVAILABLE = True
         _SAML_IMPORT_ERROR = None
     except Exception as e:
         _SAML_AVAILABLE = False
         _SAML_IMPORT_ERROR = str(e)
+
 
 from app.core.config import get_settings
 from app.core.security import create_access_token
@@ -48,6 +51,7 @@ def _get_saml_classes():
     from onelogin.saml2.auth import OneLogin_Saml2_Auth
     from onelogin.saml2.metadata import OneLogin_Saml2_Metadata
     from onelogin.saml2.settings import OneLogin_Saml2_Settings
+
     return OneLogin_Saml2_Auth, OneLogin_Saml2_Metadata, OneLogin_Saml2_Settings
 
 
@@ -169,7 +173,7 @@ def _prepare_request_for_toolkit(
 ) -> Dict[str, Any]:
     """Build request dict for OneLogin_Saml2_Auth."""
     return {
-        "https": "on" if getattr(settings, "ENV", "dev") in ("production", "staging") else "off",
+        "https": ("on" if getattr(settings, "ENV", "dev") in ("production", "staging") else "off"),
         "http_host": "localhost",
         "server_port": 8000,
         "script_name": "",
@@ -234,8 +238,7 @@ def process_saml_response(
     email = (
         attrs.get("email")[0]
         if attrs.get("email")
-        else attrs.get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress", [None])[0]
-        or name_id
+        else attrs.get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress", [None])[0] or name_id
     )
     name = (
         attrs.get("name")[0]
@@ -262,7 +265,14 @@ def process_saml_response(
     )
 
     # Upsert OAuthIdentity for SAML (provider=OKTA)
-    _upsert_saml_identity(db, user.id, UUID(team_id), provider_user_id=name_id or email, email=email, name=name)
+    _upsert_saml_identity(
+        db,
+        user.id,
+        UUID(team_id),
+        provider_user_id=name_id or email,
+        email=email,
+        name=name,
+    )
 
     session_token = create_access_token(
         data={"sub": user.email},
@@ -288,15 +298,9 @@ def _get_or_create_user_saml(
         pass
 
     if user:
-        membership = (
-            db.query(TeamMember)
-            .filter(TeamMember.user_id == user.id, TeamMember.team_id == team_id)
-            .first()
-        )
+        membership = db.query(TeamMember).filter(TeamMember.user_id == user.id, TeamMember.team_id == team_id).first()
         if not membership:
-            db.add(
-                TeamMember(user_id=user.id, team_id=team_id, role=default_role)
-            )
+            db.add(TeamMember(user_id=user.id, team_id=team_id, role=default_role))
             db.commit()
         return user
 

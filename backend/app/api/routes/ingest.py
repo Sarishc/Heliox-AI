@@ -1,8 +1,9 @@
 """Ingestion endpoints for GPU usage and costs."""
+
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db

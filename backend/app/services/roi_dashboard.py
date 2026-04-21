@@ -4,11 +4,11 @@ ROI / savings dashboard service.
 Aggregates cost, recommendations, and anomaly data to produce
 a tenant-scoped ROI view. All savings are estimated/potential.
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
-from typing import Optional
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -72,9 +72,7 @@ def get_roi_dashboard(
     recommendations = rec_response.recommendations
     total_savings = float(rec_response.total_estimated_savings_usd)
 
-    savings_pct = (
-        (total_savings / total_spend * 100.0) if total_spend > 0 else 0.0
-    )
+    savings_pct = (total_savings / total_spend * 100.0) if total_spend > 0 else 0.0
 
     # Savings by category
     by_type: dict[str, list] = {}
@@ -141,6 +139,7 @@ def get_roi_dashboard(
     if include_anomaly_count:
         try:
             from app.services.anomaly import AnomalyDetectionService
+
             anomaly_result = AnomalyDetectionService(db).detect(team_id=team_id)
             anomaly_count = len(anomaly_result.anomalies)
         except Exception as e:

@@ -5,6 +5,7 @@ OWASP: Security headers and HTTPS enforcement.
 - HSTS
 - CSP, X-Frame-Options, X-Content-Type-Options
 """
+
 import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -37,7 +38,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # HTTPS redirect (production/staging only)
         if settings.ENV in ("production", "staging"):
             scheme = request.headers.get("X-Forwarded-Proto", request.url.scheme)
-            if scheme == "http" and request.url.path not in ["/health", "/health/db", "/ready", "/readiness", "/liveness", "/metrics"]:
+            if scheme == "http" and request.url.path not in [
+                "/health",
+                "/health/db",
+                "/ready",
+                "/readiness",
+                "/liveness",
+                "/metrics",
+            ]:
                 url = request.url.replace(scheme="https")
                 return RedirectResponse(url=url, status_code=301)
 
@@ -45,9 +53,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         # HSTS (production/staging)
         if settings.ENV in ("production", "staging"):
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains; preload"
-            )
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
 
         # Prevent clickjacking
         response.headers["X-Frame-Options"] = "DENY"
@@ -65,8 +71,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = DEFAULT_CSP
 
         # Permissions-Policy (disable unnecessary features)
-        response.headers["Permissions-Policy"] = (
-            "geolocation=(), microphone=(), camera=(), payment=()"
-        )
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=(), payment=()"
 
         return response

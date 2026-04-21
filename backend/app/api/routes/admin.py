@@ -1,4 +1,5 @@
 """Admin API endpoints for system management and data ingestion."""
+
 import logging
 from datetime import date
 from typing import Any, Optional
@@ -22,7 +23,7 @@ from sqlalchemy import func
 from app.schemas.team_api_key import (
     TeamAPIKeyCreate,
     TeamAPIKeyResponse,
-    TeamAPIKeyCreateResponse
+    TeamAPIKeyCreateResponse,
 )
 from app.core.tenant import resolve_ingest_team_id
 from app.core.audit import record_audit_event
@@ -36,7 +37,7 @@ router = APIRouter()
 
 class IngestionResponse(BaseModel):
     """Response schema for ingestion operations."""
-    
+
     status: str
     message: str
     result: IngestionResult
@@ -71,7 +72,7 @@ def admin_onboard_team(
     if team:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Team with this name already exists"
+            detail="Team with this name already exists",
         )
     team = Team(name=payload.team_name)
     db.add(team)
@@ -82,7 +83,7 @@ def admin_onboard_team(
         team_id=team.id,
         key_name=payload.api_key_name,
         key_hash=TeamAPIKey.hash_key(raw_key),
-        is_active=True
+        is_active=True,
     )
     db.add(new_key)
     db.commit()
@@ -92,12 +93,12 @@ def admin_onboard_team(
         actor_type="admin",
         actor_id=None,
         action="team_onboarded",
-        metadata={"team_name": team.name, "key_name": payload.api_key_name}
+        metadata={"team_name": team.name, "key_name": payload.api_key_name},
     )
     return OnboardingResponse(
         team_id=str(team.id),
         api_key=raw_key,
-        message="Save this API key now; it will not be shown again."
+        message="Save this API key now; it will not be shown again.",
     )
 
 
@@ -115,16 +116,13 @@ def list_team_api_keys(
 ) -> Any:
     """
     List API keys for a given team.
-    
+
     Requires admin API key.
     """
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Team {team_id} not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Team {team_id} not found")
+
     keys = db.query(TeamAPIKey).filter(TeamAPIKey.team_id == team_id).all()
     return keys
 
@@ -144,32 +142,24 @@ def create_team_api_key(
 ) -> Any:
     """
     Create a new API key for a team.
-    
+
     Returns the raw API key value only once.
     """
     if payload.team_id != team_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="team_id in path must match payload.team_id"
+            detail="team_id in path must match payload.team_id",
         )
-    
+
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Team {team_id} not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Team {team_id} not found")
+
     raw_key = TeamAPIKey.generate_key()
     key_hash = TeamAPIKey.hash_key(raw_key)
-    
-    new_key = TeamAPIKey(
-        team_id=team_id,
-        key_name=payload.key_name,
-        key_hash=key_hash,
-        is_active=True
-    )
-    
+
+    new_key = TeamAPIKey(team_id=team_id, key_name=payload.key_name, key_hash=key_hash, is_active=True)
+
     db.add(new_key)
     db.commit()
     db.refresh(new_key)
@@ -179,26 +169,24 @@ def create_team_api_key(
         actor_type="admin",
         actor_id=None,
         action="api_key_created",
-        metadata={"key_name": payload.key_name}
+        metadata={"key_name": payload.key_name},
     )
-    
-    logger.info(
-        "Created team API key",
-        extra={"team_id": team_id, "key_name": payload.key_name}
-    )
-    
+
+    logger.info("Created team API key", extra={"team_id": team_id, "key_name": payload.key_name})
+
     return TeamAPIKeyCreateResponse(
         id=new_key.id,
         team_id=team_id,
         key_name=new_key.key_name,
         api_key=raw_key,
         is_active=new_key.is_active,
-        created_at=new_key.created_at
+        created_at=new_key.created_at,
     )
 
 
 class APIKeyRotateRequest(BaseModel):
     """Request body for API key rotation."""
+
     new_key_name: str = Field(..., min_length=1, max_length=255)
 
 
@@ -220,22 +208,16 @@ def rotate_team_api_key(
     Rotate API key: create new key, deactivate old.
     Returns the new raw API key value only once.
     """
-    old_key = db.query(TeamAPIKey).filter(
-        TeamAPIKey.id == key_id,
-        TeamAPIKey.team_id == team_id
-    ).first()
+    old_key = db.query(TeamAPIKey).filter(TeamAPIKey.id == key_id, TeamAPIKey.team_id == team_id).first()
     if not old_key:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="API key not found for team"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found for team")
     old_key.is_active = False
     raw_key = TeamAPIKey.generate_key()
     new_key = TeamAPIKey(
         team_id=team_id,
         key_name=payload.new_key_name,
         key_hash=TeamAPIKey.hash_key(raw_key),
-        is_active=True
+        is_active=True,
     )
     db.add(new_key)
     db.commit()
@@ -246,16 +228,23 @@ def rotate_team_api_key(
         actor_type="admin",
         actor_id=None,
         action="api_key_rotated",
-        metadata={"old_key_id": str(key_id), "new_key_name": payload.new_key_name}
+        metadata={"old_key_id": str(key_id), "new_key_name": payload.new_key_name},
     )
-    logger.info("Rotated team API key", extra={"team_id": team_id, "key_id": key_id, "new_key_name": payload.new_key_name})
+    logger.info(
+        "Rotated team API key",
+        extra={
+            "team_id": team_id,
+            "key_id": key_id,
+            "new_key_name": payload.new_key_name,
+        },
+    )
     return TeamAPIKeyCreateResponse(
         id=new_key.id,
         team_id=team_id,
         key_name=new_key.key_name,
         api_key=raw_key,
         is_active=new_key.is_active,
-        created_at=new_key.created_at
+        created_at=new_key.created_at,
     )
 
 
@@ -274,17 +263,11 @@ def revoke_team_api_key(
     """
     Revoke (deactivate) an API key for a team.
     """
-    key = db.query(TeamAPIKey).filter(
-        TeamAPIKey.id == key_id,
-        TeamAPIKey.team_id == team_id
-    ).first()
-    
+    key = db.query(TeamAPIKey).filter(TeamAPIKey.id == key_id, TeamAPIKey.team_id == team_id).first()
+
     if not key:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="API key not found for team"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found for team")
+
     key.is_active = False
     db.commit()
     record_audit_event(
@@ -293,13 +276,10 @@ def revoke_team_api_key(
         actor_type="admin",
         actor_id=None,
         action="api_key_revoked",
-        metadata={"key_id": str(key_id)}
+        metadata={"key_id": str(key_id)},
     )
-    
-    logger.info(
-        "Revoked team API key",
-        extra={"team_id": team_id, "key_id": key_id}
-    )
+
+    logger.info("Revoked team API key", extra={"team_id": team_id, "key_id": key_id})
 
 
 @router.post(
@@ -308,41 +288,38 @@ def revoke_team_api_key(
     status_code=status.HTTP_200_OK,
     summary="Ingest mock cost data",
     description="Load and ingest mock AWS cost data from JSON file into the database. "
-                "Performs idempotent upserts based on (date, provider, gpu_type). "
-                "DEV ONLY - Requires ENV=dev.",
+    "Performs idempotent upserts based on (date, provider, gpu_type). "
+    "DEV ONLY - Requires ENV=dev.",
 )
 def ingest_mock_cost_data(
     *,
     db: Session = Depends(get_db),
-    team_id: UUID | None = Query(
-        None,
-        description="Team ID to associate with ingested cost data"
-    ),
+    team_id: UUID | None = Query(None, description="Team ID to associate with ingested cost data"),
     _: Any = Depends(require_admin),
 ) -> Any:
     """
     Ingest mock cost data into the database.
-    
+
     Security: Only available in dev environment.
-    
+
     This endpoint:
     1. Loads mock cost data from backend/app/data/mock_cost_export.json
     2. Validates the JSON structure and data types
     3. Normalizes provider and gpu_type strings (lowercase)
     4. Performs idempotent upserts to the cost_snapshots table
     5. Returns statistics on inserted/updated/failed records
-    
+
     Authentication:
     - Requires X-API-Key header matching ADMIN_API_KEY environment variable
-    
+
     Idempotency:
     - Records are upserted based on unique key (date, provider, gpu_type)
     - If record exists, only cost_usd is updated
     - Safe to run multiple times
-    
+
     Returns:
         IngestionResponse with operation statistics
-        
+
     Raises:
         400 Bad Request: If JSON is invalid or data validation fails
         401 Unauthorized: If API key is missing or invalid
@@ -351,58 +328,51 @@ def ingest_mock_cost_data(
     """
     # Security: Only allow in dev environment
     if settings.ENV != "dev":
-        logger.warning(
-            f"Mock cost ingestion attempted in non-dev environment: {settings.ENV}"
-        )
+        logger.warning(f"Mock cost ingestion attempted in non-dev environment: {settings.ENV}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Mock ingestion is only available in dev environment. Current: {settings.ENV}",
         )
-    
+
     try:
         logger.info("Starting mock cost data ingestion")
-        
+
         # Resolve team_id for ingestion (multi-tenant safe)
         resolved_team_id = resolve_ingest_team_id(team_id)
-        
+
         # Initialize ingestion service
         ingestion_service = CostIngestionService(db)
-        
+
         # Ingest data
         result = ingestion_service.ingest_cost_data(team_id=str(resolved_team_id))
-        
+
         # Build response
         if result.failed > 0:
             # Partial success - some records failed
-            logger.warning(
-                f"Ingestion completed with errors: {result.failed} failed records"
-            )
+            logger.warning(f"Ingestion completed with errors: {result.failed} failed records")
             return IngestionResponse(
                 status="partial_success",
                 message=f"Ingested {result.inserted + result.updated} records, "
-                        f"{result.failed} failed. Check logs for details.",
+                f"{result.failed} failed. Check logs for details.",
                 result=result,
             )
         else:
             # Full success
-            logger.info(
-                f"Ingestion successful: {result.inserted} inserted, "
-                f"{result.updated} updated"
-            )
+            logger.info(f"Ingestion successful: {result.inserted} inserted, " f"{result.updated} updated")
             return IngestionResponse(
                 status="success",
                 message=f"Successfully ingested {result.total_records} cost records. "
-                        f"{result.inserted} inserted, {result.updated} updated.",
+                f"{result.inserted} inserted, {result.updated} updated.",
                 result=result,
             )
-    
+
     except FileNotFoundError as e:
         logger.error(f"Cost data file not found: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cost data file not found: {str(e)}",
         )
-    
+
     except ValidationError as e:
         logger.error(f"Cost data validation failed: {e}")
         # Extract user-friendly error messages
@@ -410,7 +380,7 @@ def ingest_mock_cost_data(
         for error in e.errors():
             loc = " -> ".join(str(x) for x in error["loc"])
             errors.append(f"{loc}: {error['msg']}")
-        
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -418,7 +388,7 @@ def ingest_mock_cost_data(
                 "errors": errors,
             },
         )
-    
+
     except Exception as e:
         logger.error(f"Critical error during ingestion: {e}", exc_info=True)
         raise HTTPException(
@@ -433,7 +403,7 @@ def ingest_mock_cost_data(
     status_code=status.HTTP_200_OK,
     summary="Ingest mock job data",
     description="Load and ingest mock job metadata from JSON file. Creates teams and upserts jobs. "
-                "DEV ONLY - Requires ENV=dev."
+    "DEV ONLY - Requires ENV=dev.",
 )
 def ingest_mock_job_data(
     *,
@@ -442,27 +412,27 @@ def ingest_mock_job_data(
 ) -> Any:
     """
     Ingest mock job metadata into the database.
-    
+
     Security: Only available in dev environment.
-    
+
     This endpoint:
     1. Loads mock job data from backend/app/data/mock_jobs.json
     2. Creates teams if they don't exist (by unique name)
     3. Upserts jobs by job_id (idempotent)
     4. Validates timestamps (end_time >= start_time)
     5. Returns statistics on teams/jobs processed
-    
+
     Authentication:
     - Requires X-API-Key header matching ADMIN_API_KEY
-    
+
     Idempotency:
     - Teams are created only if they don't exist
     - Jobs are upserted based on unique job_id
     - Safe to run multiple times
-    
+
     Returns:
         Statistics on teams and jobs processed
-        
+
     Raises:
         400 Bad Request: If JSON is invalid or validation fails
         401 Unauthorized: If API key is missing or invalid
@@ -471,46 +441,43 @@ def ingest_mock_job_data(
     """
     # Security: Only allow in dev environment
     if settings.ENV != "dev":
-        logger.warning(
-            f"Mock job ingestion attempted in non-dev environment: {settings.ENV}"
-        )
+        logger.warning(f"Mock job ingestion attempted in non-dev environment: {settings.ENV}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Mock ingestion is only available in dev environment. Current: {settings.ENV}",
         )
-    
+
     try:
         logger.info("Starting mock job data ingestion")
-        
+
         # Run async ingestion service in sync context
         import asyncio
-        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession as AsyncSessionClass
+        from sqlalchemy.ext.asyncio import (
+            create_async_engine,
+            AsyncSession as AsyncSessionClass,
+        )
         from sqlalchemy.orm import sessionmaker
         from app.core.config import get_settings
-        
+
         local_settings = get_settings()
-        
+
         # Convert DATABASE_URL to async format
         async_db_url = local_settings.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
-        
+
         async def run_ingestion():
             # Create async engine and session
             engine = create_async_engine(async_db_url, echo=False)
-            async_session_maker = sessionmaker(
-                engine, class_=AsyncSessionClass, expire_on_commit=False
-            )
-            
+            async_session_maker = sessionmaker(engine, class_=AsyncSessionClass, expire_on_commit=False)
+
             async with async_session_maker() as session:
                 ingestion_service = JobIngestionService(session)
                 return await ingestion_service.ingest_jobs()
-        
+
         # Run the async function
         result = asyncio.run(run_ingestion())
-        
+
         if result["jobs"]["failed"] > 0:
-            logger.warning(
-                f"Job ingestion completed with errors: {result['jobs']['failed']} failed"
-            )
+            logger.warning(f"Job ingestion completed with errors: {result['jobs']['failed']} failed")
             return {
                 "status": "partial_success",
                 "message": (
@@ -518,7 +485,7 @@ def ingest_mock_job_data(
                     f"Jobs: {result['jobs']['inserted']} inserted, {result['jobs']['updated']} updated, "
                     f"{result['jobs']['failed']} failed."
                 ),
-                "result": result
+                "result": result,
             }
         else:
             logger.info(
@@ -532,23 +499,23 @@ def ingest_mock_job_data(
                     f"Successfully ingested {result['teams']['total']} teams and "
                     f"{result['jobs']['inserted'] + result['jobs']['updated']} jobs."
                 ),
-                "result": result
+                "result": result,
             }
-    
+
     except FileNotFoundError as e:
         logger.error(f"Job data file not found: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job data file not found: {str(e)}",
         )
-    
+
     except ValueError as e:
         logger.error(f"Job data validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid job data: {str(e)}",
         )
-    
+
     except Exception as e:
         logger.error(f"Critical error during job ingestion: {e}", exc_info=True)
         raise HTTPException(
@@ -563,26 +530,23 @@ def ingest_mock_job_data(
     status_code=status.HTTP_200_OK,
     summary="Import GPU cost data from CSV",
     description="Upload and import GPU cost data from CSV file. "
-                "Validates data and performs idempotent upserts. "
-                "ADMIN ONLY - Requires X-API-Key header.",
+    "Validates data and performs idempotent upserts. "
+    "ADMIN ONLY - Requires X-API-Key header.",
 )
 def import_cost_csv(
     *,
     file: UploadFile = File(..., description="CSV file with cost data"),
-    team_id: UUID | None = Query(
-        None,
-        description="Team ID to associate with ingested cost data"
-    ),
+    team_id: UUID | None = Query(None, description="Team ID to associate with ingested cost data"),
     db: Session = Depends(get_db),
     _: Any = Depends(require_admin),
 ) -> Any:
     """
     Import GPU cost data from CSV file.
-    
+
     **CSV Format:**
     - Header row (required): `date,provider,gpu_type,cost_usd` (optional `team_id`)
     - Data rows: `YYYY-MM-DD,<provider>,<gpu_type>,<decimal>` (optional `<team_id>`)
-    
+
     **Example CSV:**
     ```csv
     date,provider,gpu_type,cost_usd,team_id
@@ -590,24 +554,24 @@ def import_cost_csv(
     2024-01-01,AWS,H100,2189.45,00000000-0000-0000-0000-000000000000
     2024-01-02,GCP,A100,1150.00,00000000-0000-0000-0000-000000000000
     ```
-    
+
     **Validation:**
     - Date format: YYYY-MM-DD
     - Provider: Non-empty string (will be lowercased)
     - GPU type: Non-empty string (will be lowercased)
     - Cost: Positive decimal number (will be rounded to 2 decimal places)
-    
+
     **Idempotency:**
     - Records are upserted based on unique key (team_id, date, provider, gpu_type)
     - If record exists, only cost_usd is updated
     - Safe to upload the same file multiple times
-    
+
     **Authentication:**
     - Requires X-API-Key header matching ADMIN_API_KEY environment variable
-    
+
     **Returns:**
         IngestionResponse with operation statistics (total_records, inserted, updated, failed, errors)
-        
+
     **Raises:**
         400 Bad Request: If CSV format is invalid, file is empty, or validation fails
         401 Unauthorized: If API key is missing or invalid
@@ -620,13 +584,13 @@ def import_cost_csv(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No filename provided. Please upload a CSV file.",
         )
-    
+
     if not file.filename.endswith(".csv"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type: {file.filename}. Only CSV files are supported.",
         )
-    
+
     # Read file content (with size limit for safety)
     max_file_size = 10 * 1024 * 1024  # 10MB limit
     try:
@@ -635,12 +599,12 @@ def import_cost_csv(
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"File size exceeds limit of {max_file_size / 1024 / 1024:.0f}MB. "
-                       f"Please split large files into smaller chunks.",
+                f"Please split large files into smaller chunks.",
             )
-        
+
         # Decode CSV content
         csv_content = content.decode("utf-8")
-        
+
     except UnicodeDecodeError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -652,28 +616,25 @@ def import_cost_csv(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error reading uploaded file. Please try again.",
         )
-    
+
     if not csv_content.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="CSV file is empty. Please upload a file with data.",
         )
-    
+
     try:
         logger.info(f"Starting CSV import from file: {file.filename}")
-        
+
         # Resolve team_id for ingestion (multi-tenant safe)
         resolved_team_id = resolve_ingest_team_id(team_id)
-        
+
         # Initialize ingestion service
         ingestion_service = CostIngestionService(db)
-        
+
         # Import CSV data
-        result = ingestion_service.ingest_cost_data_from_csv(
-            csv_content,
-            team_id=str(resolved_team_id)
-        )
-        
+        result = ingestion_service.ingest_cost_data_from_csv(csv_content, team_id=str(resolved_team_id))
+
         # Build response message
         if result.failed == 0:
             message = (
@@ -687,17 +648,15 @@ def import_cost_csv(
                 f"{result.inserted} inserted, {result.updated} updated, {result.failed} failed"
             )
             status_code = "partial_success"
-        
-        logger.info(
-            f"CSV import complete: {message} (file: {file.filename})"
-        )
-        
+
+        logger.info(f"CSV import complete: {message} (file: {file.filename})")
+
         return IngestionResponse(
             status=status_code,
             message=message,
             result=result,
         )
-        
+
     except ValueError as e:
         # CSV validation errors - return clear error message
         logger.warning(f"CSV validation error: {e} (file: {file.filename})")
@@ -727,6 +686,7 @@ def get_usage_analytics(
 ) -> Any:
     """Usage analytics: API calls by team and date."""
     from datetime import datetime, timedelta
+
     to_d = to_date or datetime.utcnow().date()
     from_d = from_date or (to_d - timedelta(days=30))
     rows = (
@@ -780,11 +740,11 @@ def admin_health_check(
 ) -> dict:
     """
     Admin health check endpoint.
-    
+
     Verifies that:
     - Admin API is accessible
     - API key authentication is working
-    
+
     Returns:
         Health status
     """
@@ -816,14 +776,15 @@ def trigger_weekly_report(
 
 class StripeMeteringExportRequest(BaseModel):
     """Request body for Stripe metering export."""
+
     export_date: Optional[date] = Field(
         default=None,
         alias="date",
-        description="Date to export (YYYY-MM-DD). Defaults to yesterday."
+        description="Date to export (YYYY-MM-DD). Defaults to yesterday.",
     )
     dry_run: bool = Field(
         default=False,
-        description="If true, do not call Stripe or persist exports. For testing."
+        description="If true, do not call Stripe or persist exports. For testing.",
     )
 
 
@@ -880,7 +841,9 @@ def list_stripe_meter_exports(
             "event_type": r.event_type,
             "quantity": r.quantity,
             "status": r.status,
-            "error_message": r.error_message[:200] + "..." if r.error_message and len(r.error_message) > 200 else r.error_message,
+            "error_message": (
+                r.error_message[:200] + "..." if r.error_message and len(r.error_message) > 200 else r.error_message
+            ),
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in rows
@@ -912,6 +875,7 @@ def config_health(
     # AWS availability: boto3 must be importable (it's in requirements.txt)
     try:
         import boto3  # noqa: F401
+
         aws_sdk_available = True
     except ImportError:
         aws_sdk_available = False
@@ -922,10 +886,21 @@ def config_health(
         "aws_available": aws_sdk_available,
         "google_oauth": has_google_oauth,
         "notes": {
-            "stripe": "Stripe payments enabled" if has_stripe else "STRIPE_SECRET_KEY not set — billing endpoints return 503",
-            "email": "Transactional email enabled" if has_email else "RESEND_API_KEY not set — forgot-password/resend-verification return 503",
-            "aws_available": "boto3 SDK installed" if aws_sdk_available else "boto3 not installed — AWS integration unavailable",
-            "google_oauth": "Google OAuth enabled" if has_google_oauth else "GOOGLE_CLIENT_ID/SECRET not set — Google login unavailable",
+            "stripe": (
+                "Stripe payments enabled" if has_stripe else "STRIPE_SECRET_KEY not set — billing endpoints return 503"
+            ),
+            "email": (
+                "Transactional email enabled"
+                if has_email
+                else "RESEND_API_KEY not set — forgot-password/resend-verification return 503"
+            ),
+            "aws_available": (
+                "boto3 SDK installed" if aws_sdk_available else "boto3 not installed — AWS integration unavailable"
+            ),
+            "google_oauth": (
+                "Google OAuth enabled"
+                if has_google_oauth
+                else "GOOGLE_CLIENT_ID/SECRET not set — Google login unavailable"
+            ),
         },
     }
-

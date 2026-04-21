@@ -1,4 +1,5 @@
 """Email notification service for Heliox alerts via Resend."""
+
 import logging
 from datetime import date
 from typing import List, Optional
@@ -79,9 +80,7 @@ async def send_email_alert(
         }
         r = resend.Emails.send(params)
         if r and getattr(r, "id", None):
-            logger.info(
-                f"Email alert sent successfully to {len(to_emails)} recipient(s), id={r.id}"
-            )
+            logger.info(f"Email alert sent successfully to {len(to_emails)} recipient(s), id={r.id}")
             return True
         logger.warning("Resend returned no email id")
         return False
@@ -235,9 +234,7 @@ async def send_budget_alert_email(
     forecasted_eom: float,
     predicted_breach_date: Optional[date],
 ) -> bool:
-    breach_text = (
-        predicted_breach_date.isoformat() if predicted_breach_date else "not projected"
-    )
+    breach_text = predicted_breach_date.isoformat() if predicted_breach_date else "not projected"
     html = _html_header("Budget Guardrail Alert", "💰")
     html += f"""
   <table style="width: 100%; border-collapse: collapse;">

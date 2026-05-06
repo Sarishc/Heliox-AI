@@ -1,0 +1,32 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+      - echo "Building image tag $IMAGE_TAG"
+
+  build:
+    commands:
+      - echo Building Docker image...
+      - docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./backend
+      - docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  post_build:
+    commands:
+      - echo Pushing Docker image...
+      - docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+      - echo Build completed on $(date)
+      - printf '[{"name":"heliox","imageUri":"%s"}]' $ECR_REGISTRY/$ECR_REPOSITORY:latest > imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json
+
+# Environment variables — set these in the CodeBuild project:
+#   ECR_REGISTRY  = 038462779905.dkr.ecr.us-east-1.amazonaws.com
+#   ECR_REPOSITORY = heliox
+#   AWS_DEFAULT_REGION = us-east-1

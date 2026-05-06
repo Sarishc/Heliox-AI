@@ -1,0 +1,241 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: "Force deploy even if tests fail"
+        required: false
+        default: "false"
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false  # never cancel a running deploy
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 038462779905.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: heliox
+  APP_RUNNER_SERVICE_NAME: heliox
+
+jobs:
+  # ── Build and push Docker image to ECR ──────────────────────────────────────
+  build:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+      image_uri: ${{ steps.meta.outputs.uri }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          TAG="${{ github.sha }}"
+          SHORT_TAG="${TAG:0:7}"
+          URI="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
+          echo "tag=${SHORT_TAG}" >> $GITHUB_OUTPUT
+          echo "uri=${URI}:${SHORT_TAG}" >> $GITHUB_OUTPUT
+          echo "Image: ${URI}:${SHORT_TAG}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            git-commit=${{ github.sha }}
+            built-by=github-actions
+            build-date=${{ github.run_id }}
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.tag }}"
+          format: "table"
+          severity: "CRITICAL"
+          exit-code: "0"  # warn only, don't block deploy
+        continue-on-error: true
+
+  # ── Deploy to App Runner ─────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to App Runner
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get App Runner service ARN
+        id: service
+        run: |
+          ARN=$(aws apprunner list-services \
+            --region ${{ env.AWS_REGION }} \
+            --query "ServiceSummaryList[?ServiceName=='${{ env.APP_RUNNER_SERVICE_NAME }}'].ServiceArn" \
+            --output text)
+
+          if [[ -z "$ARN" || "$ARN" == "None" ]]; then
+            echo "ERROR: App Runner service '${{ env.APP_RUNNER_SERVICE_NAME }}' not found."
+            echo "Run aws/setup/run_all.sh first to create the infrastructure."
+            exit 1
+          fi
+
+          echo "arn=${ARN}" >> $GITHUB_OUTPUT
+          echo "Service ARN: $ARN"
+
+      - name: Update App Runner service with new image
+        run: |
+          aws apprunner update-service \
+            --service-arn "${{ steps.service.outputs.arn }}" \
+            --region ${{ env.AWS_REGION }} \
+            --source-configuration "{
+              \"ImageRepository\": {
+                \"ImageIdentifier\": \"${{ needs.build.outputs.image_uri }}\",
+                \"ImageRepositoryType\": \"ECR\"
+              }
+            }" > /dev/null
+
+          echo "Deployment triggered with image: ${{ needs.build.outputs.image_uri }}"
+
+      - name: Wait for deployment to complete
+        run: |
+          SERVICE_ARN="${{ steps.service.outputs.arn }}"
+          echo "Waiting for App Runner deployment..."
+
+          # Give it a moment to start transitioning
+          sleep 10
+
+          TIMEOUT=600   # 10 minutes max
+          ELAPSED=0
+
+          while [[ $ELAPSED -lt $TIMEOUT ]]; do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn "$SERVICE_ARN" \
+              --region ${{ env.AWS_REGION }} \
+              --query 'Service.Status' \
+              --output text)
+
+            echo "  [$((ELAPSED))s] Status: $STATUS"
+
+            if [[ "$STATUS" == "RUNNING" ]]; then
+              echo "  Deployment complete!"
+              break
+            elif [[ "$STATUS" == *"FAILED"* ]]; then
+              echo "ERROR: Deployment failed with status: $STATUS"
+              echo ""
+              echo "Check App Runner logs:"
+              echo "  https://console.aws.amazon.com/apprunner/home?region=${{ env.AWS_REGION }}#/services"
+              exit 1
+            fi
+
+            sleep 15
+            ELAPSED=$((ELAPSED + 15))
+          done
+
+          if [[ $ELAPSED -ge $TIMEOUT ]]; then
+            echo "ERROR: Deployment timed out after ${TIMEOUT}s"
+            exit 1
+          fi
+
+      - name: Get service URL
+        id: url
+        run: |
+          URL=$(aws apprunner describe-service \
+            --service-arn "${{ steps.service.outputs.arn }}" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Service.ServiceUrl' \
+            --output text)
+          echo "url=https://${URL}" >> $GITHUB_OUTPUT
+          echo "App URL: https://${URL}"
+
+      - name: Health check
+        run: |
+          APP_URL="${{ steps.url.outputs.url }}"
+          echo "Running health check against $APP_URL..."
+
+          for i in $(seq 1 12); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${APP_URL}/health" 2>/dev/null || echo "000")
+            echo "  Attempt $i: HTTP $HTTP_CODE"
+
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "  ✓ Health check passed"
+              break
+            fi
+
+            if [[ $i -eq 12 ]]; then
+              echo "ERROR: Health check failed after 12 attempts"
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          # Also check /ready
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${APP_URL}/ready" || echo "000")
+          echo "  /ready → HTTP $HTTP_CODE"
+
+      - name: Post deployment summary
+        if: always()
+        run: |
+          APP_URL="${{ steps.url.outputs.url }}"
+          IMAGE="${{ needs.build.outputs.image_uri }}"
+          STATUS="${{ job.status }}"
+          COMMIT="${{ github.sha }}"
+          SHORT_COMMIT="${COMMIT:0:7}"
+
+          echo ""
+          echo "═══════════════════════════════════"
+          echo " Deployment $STATUS"
+          echo "═══════════════════════════════════"
+          echo " Commit  : $SHORT_COMMIT"
+          echo " Image   : $IMAGE"
+          echo " URL     : $APP_URL"
+          echo " Health  : ${APP_URL}/health"
+          echo "═══════════════════════════════════"
+
+      - name: Comment on commit
+        if: success()
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const url = '${{ steps.url.outputs.url }}';
+            const sha = '${{ github.sha }}'.substring(0, 7);
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: `✅ Deployed \`${sha}\` to production\n🌐 ${url}/health`
+            });

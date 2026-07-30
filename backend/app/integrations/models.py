@@ -26,7 +26,11 @@ class IntegrationConnection(Base):
     team_id: Mapped[UUID] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Integration details
-    provider: Mapped[str] = mapped_column(SQLEnum(IntegrationProvider), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(
+        SQLEnum(IntegrationProvider, values_callable=lambda enum: [item.value for item in enum]),
+        nullable=False,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)  # User-friendly name
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -35,7 +39,7 @@ class IntegrationConnection(Base):
 
     # Status tracking
     status: Mapped[str] = mapped_column(
-        SQLEnum(IntegrationStatus),
+        SQLEnum(IntegrationStatus, values_callable=lambda enum: [item.value for item in enum]),
         nullable=False,
         default=IntegrationStatus.PENDING,
         index=True,
@@ -90,7 +94,12 @@ class IntegrationSyncRun(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    status: Mapped[str] = mapped_column(SQLEnum(SyncStatus), nullable=False, default=SyncStatus.RUNNING, index=True)
+    status: Mapped[str] = mapped_column(
+        SQLEnum(SyncStatus, values_callable=lambda enum: [item.value for item in enum]),
+        nullable=False,
+        default=SyncStatus.RUNNING,
+        index=True,
+    )
 
     # Error tracking
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

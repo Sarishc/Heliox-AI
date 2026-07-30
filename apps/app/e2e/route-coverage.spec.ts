@@ -55,11 +55,17 @@ async function authenticate(context: BrowserContext, demoMode = false) {
   }, demoMode);
 }
 
-async function expectHealthyRoute(page: Page, route: string) {
+async function expectHealthyRoute(page: Page, route: string, allowedResponseStatuses: number[] = []) {
   const runtimeErrors: string[] = [];
+  const observedAllowedStatuses = new Set<number>();
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") runtimeErrors.push(message.text());
+  });
+  page.on("response", (response) => {
+    if (allowedResponseStatuses.includes(response.status())) {
+      observedAllowedStatuses.add(response.status());
+    }
   });
 
   const response = await page.goto(route);
@@ -68,7 +74,13 @@ async function expectHealthyRoute(page: Page, route: string) {
   await page.waitForTimeout(750);
   await expect(page.locator("body")).not.toContainText("Application error");
   await expect(page.locator("body")).not.toContainText("Internal Server Error");
-  expect(runtimeErrors, `${route} emitted browser runtime errors`).toEqual([]);
+  const unexpectedRuntimeErrors = runtimeErrors.filter(
+    (message) =>
+      ![...observedAllowedStatuses].some((status) =>
+        message.includes(`status of ${status}`)
+      )
+  );
+  expect(unexpectedRuntimeErrors, `${route} emitted browser runtime errors`).toEqual([]);
 }
 
 test.beforeAll(async ({}, workerInfo) => {
@@ -104,7 +116,12 @@ test.beforeAll(async ({}, workerInfo) => {
 
 for (const route of publicRoutes) {
   test(`public route ${route} loads without runtime errors`, async ({ page }) => {
-    await expectHealthyRoute(page, route);
+    const allowedResponseStatuses = route.startsWith("/invite/")
+      ? [404]
+      : route.startsWith("/verify-email?")
+        ? [400]
+        : [];
+    await expectHealthyRoute(page, route, allowedResponseStatuses);
   });
 }
 

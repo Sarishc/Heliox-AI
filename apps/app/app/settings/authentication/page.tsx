@@ -54,8 +54,8 @@ export default function AuthenticationSettingsPage() {
       setSsoEnabled(data.sso_enabled);
       setEnforceDomain(data.sso_enforce_domain);
       setDomains(data.allowed_email_domains?.join(", ") || "");
-      // Load SAML config if team_id available
-      if (data.team_id) {
+      // Only request the SAML record when settings confirm one exists.
+      if (data.team_id && data.saml_configured) {
         try {
           const saml = await fetchJson<SamlConfig>("/api/v1/teams/sso/saml", {
             headers: { "X-Team-Id": data.team_id },
@@ -68,6 +68,8 @@ export default function AuthenticationSettingsPage() {
         } catch {
           setSamlConfig(null);
         }
+      } else {
+        setSamlConfig(null);
       }
     } catch (err: any) {
       setError(err.message || "Failed to load SSO settings");

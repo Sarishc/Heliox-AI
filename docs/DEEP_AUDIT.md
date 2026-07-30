@@ -537,3 +537,93 @@ pytest -q
 
 Sensitive Stripe/API/session values are intentionally absent from this report.
 Only test-mode object IDs and a session hash prefix are retained as evidence.
+
+## Follow-up: no-go closure
+
+Date: 2026-07-30
+
+### Closure matrix
+
+| Item | Status | Evidence |
+|---|---|---|
+| Overview browser noise | **PASS** | The forecast card now requests a typed empty response when a tenant has insufficient history. The normal API contract still returns 400 unless `allow_empty=true`. Isolated browser diagnostics returned document 200 with no console errors, page errors, failed responses, or request failures. |
+| Authentication Settings browser noise | **PASS** | The page now fetches the SAML record only when `/teams/sso/settings` reports `saml_configured=true`. This removes the expected-but-noisy 404 for unconfigured teams. No authentication enforcement or authorization logic changed. Isolated browser diagnostics were fully clean. |
+| Full route/browser regression | **PASS** | Focused Overview and Authentication Settings run: 3/3 passed. Required route-coverage suite: 46/46 passed. Invalid-token 400/404 responses are explicitly classified as expected negative-path responses rather than ignored globally. |
+| Real cloud sandbox | **UNTESTABLE** | No AWS, GCP, or Azure connector or sandbox credentials were available. No demo response is represented as real provider evidence. |
+| Persistent credential encryption | **PASS** | Production/staging already refuse startup without a valid `INTEGRATIONS_ENCRYPTION_KEY`. A stable audit key was injected through the environment, a non-live integration fixture was encrypted, PostgreSQL showed only Fernet ciphertext, the backend was restarted, correct-key decryption succeeded, and a different key was rejected. |
+| PostgreSQL integration insert | **PASS** | The persistence check exposed and fixed an enum contract defect: SQLAlchemy emitted enum names such as `AWS` while PostgreSQL stores values such as `aws`. Provider, connection status, and sync status now serialize enum values. |
+| Python security tooling | **PASS** | `pytest` upgraded 7.4.4 → 9.0.3 and the full backend suite passed 303/303. `black` then upgraded 24.1.1 → 26.3.1 and the full backend suite again passed 303/303. `pip-audit -r requirements.txt` reports no known vulnerabilities. |
+| Production frontend build | **PASS** | Next.js compiled and type-checked successfully; 25/25 routes were generated. |
+
+### Browser evidence
+
+- Before: `docs/evidence/overview-failing.png`
+- After: `docs/evidence/overview-fixed.png`
+- Before: `docs/evidence/authentication-settings-failing.png`
+- After: `docs/evidence/authentication-settings-fixed.png`
+
+Both post-fix diagnostics reported:
+
+```text
+documentStatus: 200
+console: []
+pageErrors: []
+failedResponses: []
+requestFailures: []
+```
+
+### Encryption-at-rest evidence
+
+The fixture contains deliberately non-live marker values and cannot access a
+cloud account. Raw PostgreSQL evidence:
+
+```text
+provider | status   | ciphertext_prefix                                  | length | fernet_shape | plaintext_absent
+aws      | disabled | gAAAAABqa6ZIAIb1C1FZiSaOLDVgNLxDwA3VvdiJYgXnce3s… | 204    | true         | true
+
+post_restart_decrypt=PASS
+expected_fields_present=True
+wrong_key_decrypt=REJECTED
+oauth_plaintext_candidates=0
+integration_plaintext_candidates=0
+```
+
+No earlier plaintext rows were found, so no retroactive credential
+re-encryption or rotation was required. The audit key itself is not stored in
+the repository or this report. Production deployments must inject a durable
+Fernet key from their secret manager and back it up before storing credentials.
+
+### Exact access needed to close the remaining cloud item
+
+Provide one AWS sandbox through an approved connector or short-lived
+credentials/role session with only:
+
+```text
+sts:GetCallerIdentity
+ce:GetCostAndUsage
+ec2:DescribeInstances
+ec2:DescribeInstanceTypes
+ec2:DescribeTags
+```
+
+AWS Cost Explorer must be enabled. No write or administrator permission is
+needed. Until that access is provided, real connection, sync, GPU inventory,
+disconnect, and credential-revocation behavior remain unverified.
+
+### Final verification commands
+
+```bash
+pnpm exec playwright test e2e/route-coverage.spec.ts --reporter=line
+# 46 passed
+
+pnpm build
+# Compiled successfully; TypeScript passed; 25/25 pages generated
+
+REDIS_URL=redis://127.0.0.1:56379/15 PYTHONPATH=. pytest -q
+# 303 passed (after pytest upgrade, then again after black upgrade)
+
+pip-audit -r requirements.txt
+# No known vulnerabilities found
+```
+
+No payment implementation was changed in this follow-up.

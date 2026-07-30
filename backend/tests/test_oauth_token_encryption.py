@@ -229,9 +229,9 @@ def test_decrypt_returns_plaintext_for_pre_migration_row(_set_test_encryption_ke
     identity.access_token_encrypted = plaintext_access
     identity.refresh_token_encrypted = plaintext_refresh
 
-    with pytest.warns(None):  # no exception; warnings come via logger, not warnings module
-        access_result = get_decrypted_access_token(identity)
-        refresh_result = get_decrypted_refresh_token(identity)
+    # These migration warnings are emitted through logging, not warnings.warn.
+    access_result = get_decrypted_access_token(identity)
+    refresh_result = get_decrypted_refresh_token(identity)
 
     assert (
         access_result == plaintext_access

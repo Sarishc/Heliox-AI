@@ -26,7 +26,10 @@ def test_redis_url_required_in_settings():
 
     class IsolatedSettings(BaseSettings):
         REDIS_URL: str = Field(description="required")
-        model_config = {"env_file": "/nonexistent", "env_prefix": ""}
+        model_config = {
+            "env_file": "/nonexistent",
+            "env_prefix": "HELIOX_ISOLATED_TEST_",
+        }
 
     with pytest.raises(ValidationError) as exc_info:
         IsolatedSettings()
@@ -83,6 +86,34 @@ def test_require_redis_returns_client_when_available():
         assert result is mock_client
     finally:
         cache_module._redis_client = original
+
+
+@pytest.mark.parametrize(
+    ("redis_url", "expects_ssl_option"),
+    [
+        ("redis://localhost:6379/0", False),
+        ("rediss://cache.example.com:6379/0", True),
+    ],
+)
+def test_get_redis_only_passes_tls_options_for_rediss(redis_url, expects_ssl_option):
+    """Plain Redis connections must not receive TLS-only connection options."""
+    from app.core import cache as cache_module
+
+    mock_client = MagicMock()
+    mock_client.ping.return_value = True
+    original_client = cache_module._redis_client
+    original_url = cache_module.settings.REDIS_URL
+    try:
+        cache_module._redis_client = None
+        cache_module.settings.REDIS_URL = redis_url
+        with patch("app.core.cache.redis.from_url", return_value=mock_client) as from_url:
+            assert cache_module.get_redis() is mock_client
+
+        options = from_url.call_args.kwargs
+        assert ("ssl_cert_reqs" in options) is expects_ssl_option
+    finally:
+        cache_module._redis_client = original_client
+        cache_module.settings.REDIS_URL = original_url
 
 
 # ── 4. Rate limiter: no silent fallback ──────────────────────────────────────

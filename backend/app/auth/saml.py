@@ -55,6 +55,12 @@ def _get_saml_classes():
     return OneLogin_Saml2_Auth, OneLogin_Saml2_Metadata, OneLogin_Saml2_Settings
 
 
+def _check_saml_available() -> None:
+    _ensure_saml_imported()
+    if not _SAML_AVAILABLE:
+        raise ValueError(f"SAML is not available: {_SAML_IMPORT_ERROR or 'missing dependency'}")
+
+
 def _build_saml_settings(
     team_id: str,
     saml_config: TeamSamlConfig,
@@ -136,14 +142,18 @@ def init_saml_login(
     Raises ValueError if team has no valid SAML config.
     """
     _check_saml_available()
-    team = db.query(Team).filter(Team.id == team_id).first()
+    try:
+        parsed_team_id = UUID(str(team_id))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid team ID") from exc
+    team = db.query(Team).filter(Team.id == parsed_team_id).first()
     if not team:
         raise ValueError("Team not found")
 
     saml_config = (
         db.query(TeamSamlConfig)
         .filter(
-            TeamSamlConfig.team_id == team_id,
+            TeamSamlConfig.team_id == parsed_team_id,
             TeamSamlConfig.enabled == True,
         )
         .first()

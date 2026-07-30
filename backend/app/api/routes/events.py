@@ -84,7 +84,8 @@ async def _resolve_team_id(
     )
     from app.auth.security import SECRET_KEY
     from app.crud import user as crud_user
-    from jose import jwt, JWTError
+    import jwt
+    from jwt import PyJWTError as JWTError
 
     token = get_token_from_cookie_or_header(request)
     if token and not is_token_blacklisted(token):

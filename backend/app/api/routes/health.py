@@ -18,7 +18,7 @@ VERSION = "1.0.0"
 
 
 @router.get(
-    "",
+    "/health",
     summary="Health check",
     description=(
         "Checks database, Redis, and Celery. "

@@ -13,6 +13,7 @@ class TeamRole(str, Enum):
     OWNER = "owner"
     ADMIN = "admin"
     VIEWER = "viewer"
+    MEMBER = "viewer"
 
 
 class TeamMember(UUIDMixin, TimestampMixin, Base):

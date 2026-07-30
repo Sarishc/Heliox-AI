@@ -280,7 +280,7 @@ def test_reset_clears_and_reseeds_demo_data():
     result = _clear_demo_data(db, team_id)
 
     # Should have attempted deletes for all 6 tables
-    assert db.execute.call_count == 6
+    assert db.execute.call_count == 7
     assert "cost_snapshots" in result
     assert "usage_snapshots" in result
     assert "recommendation_actions" in result
@@ -407,4 +407,4 @@ def test_seed_is_scoped_to_demo_team_only():
     _clear_demo_data(db, team_id)
 
     # Verify all delete statements were team-scoped (not a blanket DELETE * FROM ...)
-    assert db.execute.call_count == 6  # one delete per table
+    assert db.execute.call_count == 7  # one delete per seeded table

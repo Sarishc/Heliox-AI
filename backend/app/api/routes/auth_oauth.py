@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
@@ -123,7 +124,13 @@ async def google_oauth_callback(
             detail="Invalid or expired OAuth state",
         )
 
-    team_id = state_data["team_id"]
+    try:
+        team_id = UUID(str(state_data["team_id"]))
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OAuth team binding",
+        )
     redirect_uri = settings.GOOGLE_REDIRECT_URI
     frontend_redirect = (
         state_data.get("frontend_redirect")

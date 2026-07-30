@@ -109,7 +109,8 @@ def test_owner_can_create_invite(client: TestClient, owner_user: tuple[User, Tea
         assert data["email"] == "new@test.com"
         assert data["role"] == "viewer"
         assert "invite_link" in data
-        assert str(team.id) in data["invite_link"] or team.id.hex in data["invite_link"]
+        assert data["invite_link"].startswith("http://localhost:3000/invite/")
+        assert str(team.id) not in data["invite_link"]
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
 
@@ -252,7 +253,7 @@ def test_accept_invite_wrong_email_rejected(
 
     resp = client.post(
         f"/api/v1/invite/{token}/accept",
-        json={"email": "wrong@test.com", "password": "pass123"},
+        json={"email": "wrong@test.com", "password": "pass1234"},
     )
     assert resp.status_code == 400
 
@@ -283,9 +284,8 @@ def test_accept_invite_duplicate_membership_handled(
             f"/api/v1/invite/{token}/accept",
             json={"email": user.email},
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "already a member" in data.get("message", "")
+        assert resp.status_code == 400
+        assert "already exists" in resp.json().get("message", "")
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
 

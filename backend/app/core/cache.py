@@ -2,6 +2,7 @@
 
 import logging
 from typing import Optional
+from urllib.parse import urlparse
 
 import redis
 from fastapi import HTTPException, status
@@ -30,12 +31,17 @@ def get_redis() -> Optional[redis.Redis]:
         return _redis_client
 
     try:
+        connection_options = {
+            "decode_responses": True,
+            "socket_connect_timeout": 2,
+            "socket_timeout": 2,
+        }
+        if urlparse(settings.REDIS_URL).scheme == "rediss":
+            connection_options["ssl_cert_reqs"] = None
+
         _redis_client = redis.from_url(
             settings.REDIS_URL,
-            decode_responses=True,
-            socket_connect_timeout=2,
-            socket_timeout=2,
-            ssl_cert_reqs=None,  # ElastiCache TLS in VPC — cert pinning not required
+            **connection_options,
         )
         _redis_client.ping()
         logger.info("Redis connection established")

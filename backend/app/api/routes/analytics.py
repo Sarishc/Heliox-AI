@@ -104,6 +104,8 @@ def get_cost_by_model(
     The calculation sums costs for GPU types used by each model's jobs
     within the specified date range.
     """
+    include_explain = include_explain is True
+
     # Fetch cost by model for date range
 
     # Validate date range

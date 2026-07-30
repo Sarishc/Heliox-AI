@@ -43,9 +43,9 @@ def _normalize_thresholds(values: list[float]) -> list[float]:
 @router.get("", response_model=list[BudgetPolicyResponse])
 def list_policies(
     db: Session = Depends(get_db),
-    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
+    team_api_key: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
-    team_id = get_effective_team_id(auth_ctx)
+    team_id = get_effective_team_id(team_api_key)
     return db.query(BudgetPolicy).filter(BudgetPolicy.team_id == team_id).order_by(BudgetPolicy.created_at.desc()).all()
 
 

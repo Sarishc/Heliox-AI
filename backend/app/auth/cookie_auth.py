@@ -6,7 +6,7 @@ import time
 from typing import Optional
 
 from fastapi import Request
-from jose import jwt
+import jwt
 
 from app.core.config import get_settings
 from app.core.cache import require_redis

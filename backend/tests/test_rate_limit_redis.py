@@ -20,7 +20,7 @@ class FakeRedis:
 
 def test_rate_limit_trips(monkeypatch):
     fake = FakeRedis()
-    monkeypatch.setattr(rate_limit, "get_redis", lambda: fake)
+    monkeypatch.setattr(rate_limit, "require_redis", lambda: fake)
     client_id = "api_key:test"
 
     # Exhaust limit

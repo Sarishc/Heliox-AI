@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 
-const API_TARGET = process.env.API_PROXY_TARGET || "http://localhost:8001";
+const API_TARGET = process.env.API_PROXY_TARGET || "http://localhost:8000";
 
 async function proxyRequest(
   request: NextRequest,

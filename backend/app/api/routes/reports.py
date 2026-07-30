@@ -50,7 +50,7 @@ def create_report(
         team_id=team_id,
         name=payload.name,
         description=payload.description,
-        config_json=payload.config.model_dump(),
+        config_json=payload.config.model_dump(mode="json"),
         created_by_user_id=None,
     )
     db.add(report)
@@ -62,9 +62,9 @@ def create_report(
 @router.get("", response_model=list[SavedReportResponse])
 def list_reports(
     db: Session = Depends(get_db),
-    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
+    team_api_key: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
-    team_id = get_effective_team_id(auth_ctx)
+    team_id = get_effective_team_id(team_api_key)
     return db.query(SavedReport).filter(SavedReport.team_id == team_id).order_by(SavedReport.created_at.desc()).all()
 
 
@@ -72,9 +72,9 @@ def list_reports(
 def get_report(
     report_id: UUID,
     db: Session = Depends(get_db),
-    auth_ctx: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
+    team_api_key: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
 ) -> Any:
-    team_id = get_effective_team_id(auth_ctx)
+    team_id = get_effective_team_id(team_api_key)
     report = db.query(SavedReport).filter(SavedReport.id == report_id, SavedReport.team_id == team_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
@@ -97,7 +97,7 @@ def update_report(
     if payload.description is not None:
         report.description = payload.description
     if payload.config is not None:
-        report.config_json = payload.config.model_dump()
+        report.config_json = payload.config.model_dump(mode="json")
     db.add(report)
     db.commit()
     db.refresh(report)

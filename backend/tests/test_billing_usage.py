@@ -1,6 +1,6 @@
 """Tests for billing usage API."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -159,9 +159,10 @@ def test_current_month_usage(client: TestClient, team_with_api_key):
     assert resp.status_code == 200
     data = resp.json()
     assert data["team_id"] == str(team.id)
-    first_day = date.today().replace(day=1)
+    utc_today = datetime.now(timezone.utc).date()
+    first_day = utc_today.replace(day=1)
     assert data["start_date"] == first_day.isoformat()
-    assert data["end_date"] == date.today().isoformat()
+    assert data["end_date"] == utc_today.isoformat()
 
 
 def test_usage_tenant_scoping(client: TestClient, db_session: Session):

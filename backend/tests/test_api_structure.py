@@ -106,7 +106,10 @@ def test_expected_prefixes_present():
     settings = get_settings()
     prefix = settings.API_V1_PREFIX  # e.g. "/api/v1"
 
-    all_paths = {r.path for r in app.routes if hasattr(r, "path")}
+    # FastAPI 0.141+ preserves included routers as nested route objects instead
+    # of flattening every path into app.routes. OpenAPI remains the canonical
+    # representation of the externally exposed API across FastAPI versions.
+    all_paths = set(app.openapi().get("paths", {}))
 
     expected_prefixes = [
         f"{prefix}/health",

@@ -59,6 +59,7 @@ class UsageEvent(Base, UUIDMixin, TimestampMixin):
 
     # Optional metadata
     event_metadata: Mapped[dict] = mapped_column(
+        "metadata",
         JSONB,
         nullable=True,
         comment="Additional event metadata (endpoint, method, user_id, etc.)",

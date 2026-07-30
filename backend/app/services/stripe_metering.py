@@ -13,6 +13,7 @@ from typing import Optional
 from uuid import UUID
 
 import stripe
+from stripe import StripeError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -192,7 +193,7 @@ def export_usage_to_stripe(
             exported += 1
             logger.debug(f"Exported meter event: {meter_name} team={team_id} qty={quantity}")
 
-        except stripe.StripeError as e:
+        except StripeError as e:
             err_msg = str(e)
             errors.append(f"{team_id}:{event_type}: {err_msg}")
             failed += 1

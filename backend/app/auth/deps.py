@@ -4,7 +4,8 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
 from app.auth.security import SECRET_KEY

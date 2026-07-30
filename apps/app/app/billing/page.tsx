@@ -81,7 +81,9 @@ function BillingContent() {
     try {
       const [plansData, subData] = await Promise.all([
         fetchJson<PricingPlan[]>("/api/v1/billing/plans"),
-        fetchJson<Subscription>("/api/v1/billing/subscription"),
+        fetchJson<Subscription>("/api/v1/billing/subscription", {
+          cache: "no-store",
+        }),
       ]);
       setPlans(plansData);
       setSubscription(subData);

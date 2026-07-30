@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 import stripe
@@ -19,6 +19,33 @@ from app.billing.plans import get_plan_entitlements
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _stripe_metadata(resource: Any) -> dict[str, str]:
+    """Return Stripe metadata as a normal dict across SDK/API versions."""
+    raw = resource.get("metadata") if isinstance(resource, dict) else getattr(resource, "metadata", None)
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if hasattr(raw, "to_dict"):
+        return raw.to_dict()
+    return dict(raw)
+
+
+def _subscription_period(subscription: Any) -> tuple[int, int]:
+    """Read billing period from either legacy top-level or current item fields."""
+    start = getattr(subscription, "current_period_start", None)
+    end = getattr(subscription, "current_period_end", None)
+    if start is not None and end is not None:
+        return start, end
+
+    items = getattr(subscription, "items", None)
+    item_data = getattr(items, "data", None) if items is not None else None
+    if not item_data:
+        raise ValueError("Subscription missing current billing period")
+    return item_data[0].current_period_start, item_data[0].current_period_end
+
 
 # Initialize Stripe
 if hasattr(settings, "STRIPE_SECRET_KEY") and settings.STRIPE_SECRET_KEY:
@@ -89,6 +116,9 @@ def create_checkout_session(
         success_url=success_url,
         cancel_url=cancel_url,
         metadata={"team_id": str(team_id), "plan": plan.value},
+        subscription_data={
+            "metadata": {"team_id": str(team_id), "plan": plan.value},
+        },
         allow_promotion_codes=True,
         billing_address_collection="required",
     )
@@ -145,7 +175,8 @@ def sync_subscription_from_stripe(db: Session, stripe_subscription: stripe.Subsc
         Updated TeamSubscription
     """
     # Extract team_id from metadata
-    team_id_str = stripe_subscription.metadata.get("team_id")
+    metadata = _stripe_metadata(stripe_subscription)
+    team_id_str = metadata.get("team_id")
     if not team_id_str:
         raise ValueError("Subscription missing team_id in metadata")
 
@@ -169,9 +200,15 @@ def sync_subscription_from_stripe(db: Session, stripe_subscription: stripe.Subsc
     subscription.stripe_subscription_id = stripe_subscription.id
     subscription.status = SubscriptionStatus(stripe_subscription.status)
     subscription.plan = plan
-    subscription.current_period_start = datetime.fromtimestamp(stripe_subscription.current_period_start)
-    subscription.current_period_end = datetime.fromtimestamp(stripe_subscription.current_period_end)
-    subscription.cancel_at_period_end = stripe_subscription.cancel_at_period_end
+    period_start, period_end = _subscription_period(stripe_subscription)
+    subscription.current_period_start = datetime.fromtimestamp(period_start)
+    subscription.current_period_end = datetime.fromtimestamp(period_end)
+    # Current Stripe API versions may represent portal-scheduled cancellation
+    # with an explicit `cancel_at` timestamp while `cancel_at_period_end` is
+    # false. Preserve the product-level meaning for the local schema/UI.
+    subscription.cancel_at_period_end = bool(
+        stripe_subscription.cancel_at_period_end or getattr(stripe_subscription, "cancel_at", None)
+    )
 
     if stripe_subscription.canceled_at:
         subscription.canceled_at = datetime.fromtimestamp(stripe_subscription.canceled_at)
@@ -206,8 +243,9 @@ def determine_plan_from_subscription(
         BillingPlan enum
     """
     # Check metadata first
-    if "plan" in stripe_subscription.metadata:
-        plan_str = stripe_subscription.metadata["plan"]
+    metadata = _stripe_metadata(stripe_subscription)
+    if "plan" in metadata:
+        plan_str = metadata["plan"]
         try:
             return BillingPlan(plan_str)
         except ValueError:
@@ -271,7 +309,7 @@ def handle_subscription_deleted(db: Session, stripe_subscription: stripe.Subscri
         db: Database session
         stripe_subscription: Stripe subscription object
     """
-    team_id_str = stripe_subscription.metadata.get("team_id")
+    team_id_str = _stripe_metadata(stripe_subscription).get("team_id")
     if not team_id_str:
         logger.warning(f"Subscription {stripe_subscription.id} missing team_id in metadata")
         return

@@ -14,12 +14,13 @@ reset-token storage were also exercised. Bandit reported no medium/high auth
 findings. The application uses a 30-minute HS256 session whose secret is
 required from the environment; it does not issue application refresh tokens.
 
-**Phase 2 — Stripe: 3 PASS, 1 FAIL, 3 UNTESTABLE.** A real Stripe test-mode
-account, product, recurring price, frontend signup, and Stripe customer were
-used. The actual billing UI cannot reach hosted Checkout because
-`GET /billing/subscription` raises a 500 while serializing the default plan.
-Success-card, decline-card, webhook-state, and cancellation tests cannot proceed
-past that blocker. This phase is a release blocker.
+**Phase 2 — Stripe: 7 PASS, 0 FAIL, 0 UNTESTABLE.** A real Stripe test-mode
+account, product, recurring price, two frontend signups, hosted Checkout, a
+successful `4242` subscription, a `4000…0002` decline, signed webhook delivery,
+database entitlement transition, and customer-portal cancellation were
+executed. Three payment defects found during the run were fixed and covered:
+string-backed enum serialization, missing subscription metadata/webhook retry
+behavior, and current Stripe API cancellation-period compatibility.
 
 **Phase 3 — Cloud integrations: 1 PASS, 2 FAIL, 4 UNTESTABLE.** No AWS, GCP, or
 Azure connector/sandbox credentials are available, so no real connect/sync/
@@ -28,22 +29,20 @@ but this environment has no persistent `INTEGRATIONS_ENCRYPTION_KEY`, and the
 implemented providers ingest billing/cost data rather than independent compute
 inventory. Real-provider acceptance remains customer-credential dependent.
 
-**Phase 4 — Feature coverage: 39/46 scenarios PASS and 7/46 FAIL once
+**Phase 4 — Feature coverage: 42/46 scenarios PASS and 4/46 FAIL once
 asynchronous errors are observed.** The new suite exercises all 25 public,
 protected, dynamic, and API-proxy surfaces plus empty, populated/demo, and
-representative write paths. Five failures expose calls made by `/`, `/billing`,
-`/forecast`, and `/settings/authentication`; two more are expected 400/404
-responses from deliberately invalid verification/invite links that the strict
-console-error assertion records. Because four unique route surfaces are not
-clean, the honest route-level result is **21/25 clean**. The four routes omitted
-from the earlier smoke test are now explicitly covered.
+representative write paths. Three failures expose calls made by `/` and
+`/settings/authentication`; one more is the expected 404 from a deliberately
+invalid invite link that the strict console-error assertion records. The honest
+route-level result is **23/25 clean**. Billing and forecast now pass both state
+variants.
 
-**Market-readiness decision:** this changes the earlier market-ready call to
-**NO-GO for paid production onboarding** until the Stripe response defect is
-fixed and the complete success/decline/webhook/cancellation flow passes. The
-product remains suitable for non-billing pilots; no live cloud-integration claim
-is supportable without a sandbox provider connection and a persistent
-encryption key.
+**Market-readiness decision:** the payment flow is now suitable for test-mode
+acceptance, but the overall product remains **NO-GO for unrestricted production
+handoff** until the two noisy route surfaces, Python tool advisories, persistent
+integration encryption key, and at least one real cloud sandbox connection are
+resolved. Paid onboarding is no longer blocked by the audited Stripe path.
 
 ## 2. Phase 1 — Authentication hardening
 
@@ -226,68 +225,82 @@ The CLI default is test mode. An isolated test product and price were created:
 - Severity: Required evidence
 - Fix status: Verified
 - Evidence:
-  - The real `/signup` UI created
-    `stripe-audit-1785434431576@example.com`.
+  - The real `/signup` UI created isolated success and decline tenants.
   - The authenticated user opened the real `/billing` UI.
   - Backend/Stripe logs:
 
 ```text
 POST https://api.stripe.com/v1/customers -> 200
-Created Stripe customer cus_Uyw8wdDZaBmuNK
+Created Stripe customer cus_UywkemX4bDjz6J
 ```
 
 ### PAY-03 — Hosted Checkout and successful test card
 
-- Outcome: **FAIL**
+- Outcome: **PASS**
 - Severity: Critical
-- Fix status: Needs fix; payment code intentionally not modified without owner
-  sign-off
+- Fix status: Fixed after explicit owner approval
 - Evidence:
 
 ```text
-GET /api/v1/billing/subscription -> 500
-AttributeError: 'str' object has no attribute 'value'
-backend/app/api/routes/billing.py:278
-    plan=subscription.plan.value
+Hosted Checkout: Sandbox
+Card: Visa ending 4242
+Redirect: http://localhost:3000/billing?success=true
+Stripe invoice: in_1TyysfQ6lgK40QrokL64Qc8e
+Stripe subscription: sub_1TyyshQ6lgK40QrozhO7YAt9
 ```
 
-The frontend consequently logs:
-
-```text
-Failed to load billing data: Error: An unexpected error occurred.
-```
-
-Proposed narrow fix: normalize ORM/default values with `BillingPlan(...)` and
-`SubscriptionStatus(...)` at the response boundary (or make model defaults
-enum-typed), then add an HTTP-level regression test. This code has not been
-changed pending explicit authorization.
+The initial string-backed enum serialization 500 was fixed by normalizing the
+stored plan/status at the response boundary. The HTTP regression test proves a
+persisted subscription returns 200 with `free`/`active`.
 
 ### PAY-04 — `invoice.paid` webhook and database transition
 
-- Outcome: **UNTESTABLE**
+- Outcome: **PASS**
 - Severity: Critical
-- Fix status: Blocked by PAY-03
-- Required next evidence: complete Checkout, capture `checkout.session.completed`
-  and `invoice.paid` event IDs from the CLI listener, and verify the matching
-  `team_subscriptions` row becomes active on the paid plan.
+- Fix status: Fixed and verified
+- Evidence:
+
+```text
+invoice.paid: evt_1TyysiQ6lgK40Qro8DYE3KC9 -> HTTP 200
+checkout.session.completed: evt_1TyysjQ6lgK40QroVo3YW4zh -> HTTP 200
+team_subscriptions: growth | active | subscription_id present
+team_entitlements: growth
+fresh browser: paid_ui_growth=visible manage_button=true
+```
+
+Checkout metadata is now also sent through `subscription_data.metadata`.
+The completed-Checkout handler repairs older metadata-less subscriptions and
+syncs them. Unexpected processing failures now return 500 so Stripe retries
+instead of silently losing the state transition.
 
 ### PAY-05 — Declined card
 
-- Outcome: **UNTESTABLE**
+- Outcome: **PASS**
 - Severity: High
-- Fix status: Blocked by PAY-03
-- Required next evidence: hosted Checkout with test card
-  `4000 0000 0000 0002`, visible decline message, no unhandled browser/server
-  exception, and no active subscription row.
+- Fix status: Verified
+- Evidence: hosted Checkout with `4000 0000 0000 0002` displayed
+  `Your credit card was declined. Try paying with a debit card instead.`
+  The browser remained usable, and the isolated tenant stayed `free` with no
+  Stripe subscription ID.
 
 ### PAY-06 — Cancellation/refund
 
-- Outcome: **UNTESTABLE**
+- Outcome: **PASS**
 - Severity: High
-- Fix status: Blocked by PAY-03
-- Required next evidence: customer-portal cancellation (the product exposes a
-  portal, not an in-app refund action), the subscription-deleted webhook event
-  ID, and the database downgrade to Free.
+- Fix status: Fixed and verified
+- Evidence: the app-created Stripe Customer Portal showed the paid invoice and
+  Visa ending 4242. Cancellation was confirmed in the portal, which displayed
+  `Cancels Aug 30` and retained service through the paid period.
+
+```text
+customer.subscription.updated: evt_1Tyz7vQ6lgK40QrohPObACxf -> HTTP 200
+database: growth | active | cancel_at_period_end=true
+```
+
+Current Stripe API versions use an explicit `cancel_at` timestamp for this
+portal flow even when `cancel_at_period_end` is false. Sync now maps either
+representation to the local scheduled-cancellation flag. Immediate downgrade
+would be incorrect while the paid period remains active.
 
 ### PAY-07 — Secret exposure
 
@@ -407,10 +420,10 @@ also reject browser runtime errors after asynchronous data loading.
 | 1 | `/` | **FAIL** | Empty state makes two 400 requests; populated state passes |
 | 2 | `/alerts` | PASS | Empty/populated; email-alert save 201 |
 | 3 | `/analytics` | PASS | Empty and populated |
-| 4 | `/billing` | **FAIL** | Async billing load hits PAY-03 |
+| 4 | `/billing` | PASS | Empty/populated; real Checkout, decline, webhook, portal cancellation |
 | 5 | `/billing/usage` | PASS | Empty and populated |
 | 6 | `/budgets` | PASS | Empty/populated; create policy 201 |
-| 7 | `/forecast` | **FAIL** | Empty state makes 401 and 400 requests; populated state passes |
+| 7 | `/forecast` | PASS | Empty and populated |
 | 8 | `/onboarding` | PASS | Authenticated continuation; signup covered |
 | 9 | `/optimization` | PASS | Empty and populated |
 | 10 | `/proxy` | PASS | Empty and populated |
@@ -424,7 +437,7 @@ also reject browser runtime errors after asynchronous data loading.
 | 18 | `/signup` | PASS | Public; real workspace creation used for Stripe |
 | 19 | `/forgot-password` | PASS | Public empty state |
 | 20 | `/reset-password?token=invalid…` | PASS | Invalid-token state |
-| 21 | `/verify-email?token=invalid…` | PASS render / strict test FAIL | Expected invalid-token API response is 400 |
+| 21 | `/verify-email?token=invalid…` | PASS | Invalid-token state |
 | 22 | `/auth/callback?error=access_denied` | PASS | Graceful OAuth denial |
 | 23 | `/invite/[token]` | PASS render / strict test FAIL | Expected invalid-token API response is 404 |
 | 24 | `/share/[token]` | PASS | Invalid/expired-token state |
@@ -434,15 +447,15 @@ Final strict Playwright output:
 
 ```text
 46 tests
-39 passed
-7 failed
+42 passed
+4 failed
 ```
 
-At route level, **21/25 surfaces are clean**. `/`, `/billing`, `/forecast`, and
-`/settings/authentication` emit unexpected failed requests. The invalid
-verification and invite routes render their intended error states but also
-produce expected 400/404 console entries, which the deliberately strict test
-records as failures rather than suppressing.
+At route level, **23/25 surfaces are clean**. `/` and
+`/settings/authentication` emit unexpected failed requests. The invalid invite
+route renders its intended error state but also produces an expected 404
+console entry, which the deliberately strict test records as a failure rather
+than suppressing.
 
 ### Previously omitted four routes
 
@@ -470,11 +483,19 @@ The previous 21-route smoke check excluded these dynamic/non-page surfaces:
    stale Turbopack chunks. The frontend process had run since before the brand
    commit. After a clean restart, a fresh browser tab showed no overlay and
    zero console warnings/errors. No nondeterministic render code was found.
+5. **Stripe state transition (Critical): Fixed.** The subscription response
+   now normalizes string-backed enums; Checkout propagates tenant/plan metadata
+   to the subscription; completed Checkout repairs legacy metadata; failed
+   webhook processing returns non-2xx for retries; and StripeObject/current-API
+   period/cancellation representations are normalized.
+6. **Billing cache safety (High): Fixed.** Subscription reads use
+   `cache: "no-store"` so a post-Checkout browser cannot retain a stale Free
+   response.
 
 ### Build, regression, and dependency evidence
 
 ```text
-Backend: 300 passed in 10.68s
+Backend: 303 passed in 40.32s
 Next.js production build: compiled successfully; 25/25 routes generated
 pnpm audit --prod: No known vulnerabilities found
 pip-audit: 5 advisories in 2 packages
@@ -488,11 +509,6 @@ and should be upgraded with the suite rerun before production handoff.
 
 ## 6. Still cannot claim
 
-- A market-ready paid subscription flow. Hosted Checkout is blocked before
-  card entry by PAY-03.
-- A successful `4242` subscription, an `invoice.paid` database transition, a
-  graceful `4000 0000 0000 0002` decline, or a portal cancellation. None was
-  fabricated.
 - Any real AWS, GCP, or Azure connection, sync, disconnect, or credential
   revocation. No sandbox credential/connector was available.
 - Persistent cloud credential readability across restarts until
@@ -501,8 +517,8 @@ and should be upgraded with the suite rerun before production handoff.
 - Recommendation apply/dismiss behavior against a real actionable record in
   this empty tenant.
 - SSO configuration writes against a real Google/SAML/Okta identity provider.
-- A fully clean 25-route asynchronous browser run: four surfaces currently
-  emit unexpected failed API requests.
+- A fully clean 25-route asynchronous browser run: two surfaces currently emit
+  unexpected failed API requests.
 - A vulnerability-free pinned Python toolchain until `pytest` and `black` are
   upgraded and the audit is rerun.
 

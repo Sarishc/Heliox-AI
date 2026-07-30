@@ -15,7 +15,7 @@ from app.auth.team_resolution import TeamContext, verify_team_api_key_or_session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.models.team_api_key import TeamAPIKey
-from app.models.billing import TeamSubscription, TeamEntitlement, BillingPlan
+from app.models.billing import TeamSubscription, TeamEntitlement, BillingPlan, SubscriptionStatus
 from app.billing.stripe_client import (
     create_stripe_customer,
     create_checkout_session,
@@ -33,6 +33,15 @@ from app.models.team_member import TeamMember
 router = APIRouter()
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _stripe_object_dict(resource: Any) -> dict:
+    """Normalize StripeObject/dict payloads across Stripe SDK versions."""
+    if isinstance(resource, dict):
+        return resource
+    if hasattr(resource, "to_dict"):
+        return resource.to_dict()
+    return dict(resource)
 
 
 def _require_stripe() -> None:
@@ -269,14 +278,19 @@ async def get_subscription(
         # Create entitlements
         entitlement = update_team_entitlements(db, auth_ctx.team_id, BillingPlan.FREE)
 
+    # String-backed SQLAlchemy columns deserialize to plain strings after a
+    # database round-trip. Normalize them before plan logic and serialization.
+    plan = BillingPlan(subscription.plan)
+    subscription_status = SubscriptionStatus(subscription.status)
+
     # If no entitlement exists, create it
     if not entitlement:
-        entitlement = update_team_entitlements(db, auth_ctx.team_id, subscription.plan)
+        entitlement = update_team_entitlements(db, auth_ctx.team_id, plan)
 
     return SubscriptionResponse(
         team_id=str(subscription.team_id),
-        plan=subscription.plan.value,
-        status=subscription.status.value,
+        plan=plan.value,
+        status=subscription_status.value,
         stripe_customer_id=subscription.stripe_customer_id,
         stripe_subscription_id=subscription.stripe_subscription_id,
         current_period_end=(subscription.current_period_end.isoformat() if subscription.current_period_end else None),
@@ -492,9 +506,25 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             handle_subscription_deleted(db, subscription)
 
         elif event_type == "checkout.session.completed":
-            session = event["data"]["object"]
-            # subscription.created/updated events handle the plan sync;
-            # log here for audit trail only
+            session = _stripe_object_dict(event["data"]["object"])
+            subscription_id = session.get("subscription")
+            session_metadata = _stripe_object_dict(session.get("metadata") or {})
+
+            # Checkout metadata was historically not copied to subscription
+            # metadata. Recover those sessions here and persist the metadata so
+            # subsequent invoice/subscription events remain self-describing.
+            if subscription_id and session_metadata.get("team_id"):
+                stripe_sub = stripe.Subscription.retrieve(subscription_id)
+                if not _stripe_object_dict(stripe_sub.metadata or {}).get("team_id"):
+                    stripe_sub = stripe.Subscription.modify(
+                        subscription_id,
+                        metadata={
+                            "team_id": session_metadata["team_id"],
+                            "plan": session_metadata.get("plan", BillingPlan.FREE.value),
+                        },
+                    )
+                sync_subscription_from_stripe(db, stripe_sub)
+
             logger.info(
                 f"Checkout completed: session={session['id']} "
                 f"customer={session.get('customer')} "
@@ -503,7 +533,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
         elif event_type == "invoice.paid":
             # Payment succeeded — ensure subscription is active in DB
-            invoice = event["data"]["object"]
+            invoice = _stripe_object_dict(event["data"]["object"])
             subscription_id = invoice.get("subscription")
             if subscription_id:
                 try:
@@ -517,7 +547,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
         elif event_type == "invoice.payment_failed":
             # Payment failed — mark subscription past_due and log for support
-            invoice = event["data"]["object"]
+            invoice = _stripe_object_dict(event["data"]["object"])
             subscription_id = invoice.get("subscription")
             customer_id = invoice.get("customer")
             attempt_count = invoice.get("attempt_count", 0)
@@ -548,10 +578,13 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             logger.info(f"Unhandled webhook event type: {event_type}")
 
     except Exception as e:
-        # Log and return 200 so Stripe does NOT retry — retries for transient errors
-        # are handled by re-querying Stripe on the next subscription sync.
         logger.error(f"Error processing webhook {event_type}: {e}", exc_info=True)
-        # Return 200 to prevent Stripe infinite retry loop on our processing bugs
-        return {"status": "error", "detail": str(e)}
+        # A non-2xx response is required for Stripe to retry transient or
+        # processing failures. Acknowledging a failed state transition loses
+        # the event and leaves billing state silently stale.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Webhook processing failed",
+        )
 
     return {"status": "success"}

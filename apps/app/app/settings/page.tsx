@@ -166,24 +166,36 @@ export default function SettingsPage() {
 
   const createApiKey = async () => {
     if (!teamId) return;
-    const payload = { team_id: teamId, key_name: newKeyName };
-    const response = await fetchJson<{ api_key: string; id: string }>(
-      `/api/v1/teams/${teamId}/api-keys`,
-      { method: "POST", body: JSON.stringify(payload) }
-    );
-    setRotationKeyValue(response.api_key);
-    setInfoMessage("New API key created. Save it now.");
+    setErrorMessage(null);
+    setInfoMessage(null);
+    try {
+      const payload = { team_id: teamId, key_name: newKeyName };
+      const response = await fetchJson<{ api_key: string; id: string }>(
+        `/api/v1/teams/${teamId}/api-keys`,
+        { method: "POST", body: JSON.stringify(payload) }
+      );
+      setRotationKeyValue(response.api_key);
+      setInfoMessage("New API key created. Save it now.");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to create API key");
+    }
   };
 
   const rotateApiKey = async (keyId: string) => {
     if (!teamId) return;
-    const payload = { team_id: teamId, key_name: `${newKeyName} (rotated)` };
-    const response = await fetchJson<{ api_key: string; id: string }>(
-      `/api/v1/teams/${teamId}/api-keys/${keyId}/rotate`,
-      { method: "POST", body: JSON.stringify(payload) }
-    );
-    setRotationKey(keyId);
-    setRotationKeyValue(response.api_key);
+    setErrorMessage(null);
+    setInfoMessage(null);
+    try {
+      const payload = { team_id: teamId, key_name: `${newKeyName} (rotated)` };
+      const response = await fetchJson<{ api_key: string; id: string }>(
+        `/api/v1/teams/${teamId}/api-keys/${keyId}/rotate`,
+        { method: "POST", body: JSON.stringify(payload) }
+      );
+      setRotationKey(keyId);
+      setRotationKeyValue(response.api_key);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to rotate API key");
+    }
   };
 
   const createInvite = async () => {

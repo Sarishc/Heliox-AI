@@ -39,7 +39,12 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-@router.post("", response_model=SavedReportResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=SavedReportResponse,
+    response_model_by_alias=False,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_report(
     payload: SavedReportCreate,
     db: Session = Depends(get_db),
@@ -59,7 +64,7 @@ def create_report(
     return report
 
 
-@router.get("", response_model=list[SavedReportResponse])
+@router.get("", response_model=list[SavedReportResponse], response_model_by_alias=False)
 def list_reports(
     db: Session = Depends(get_db),
     team_api_key: Union[TeamAPIKey, TeamContext] = Depends(verify_team_api_key_or_session),
@@ -68,7 +73,7 @@ def list_reports(
     return db.query(SavedReport).filter(SavedReport.team_id == team_id).order_by(SavedReport.created_at.desc()).all()
 
 
-@router.get("/{report_id}", response_model=SavedReportResponse)
+@router.get("/{report_id}", response_model=SavedReportResponse, response_model_by_alias=False)
 def get_report(
     report_id: UUID,
     db: Session = Depends(get_db),
@@ -81,7 +86,7 @@ def get_report(
     return report
 
 
-@router.put("/{report_id}", response_model=SavedReportResponse)
+@router.put("/{report_id}", response_model=SavedReportResponse, response_model_by_alias=False)
 def update_report(
     report_id: UUID,
     payload: SavedReportUpdate,

@@ -2,127 +2,82 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { ArrowLeft, CheckCircle2, Loader2, Mail } from "lucide-react";
+import { AuthField, AuthShell } from "@/components/auth/AuthShell";
 import { fetchJson } from "@/lib/api";
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
+  const [touched, setTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const emailError = touched && !EMAIL_PATTERN.test(email) ? "Enter a valid account email." : null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setTouched(true);
+    if (!EMAIL_PATTERN.test(email)) return;
     setLoading(true);
+    setError(null);
     try {
       await fetchJson("/api/v1/auth/forgot-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
         skipAuthRedirect: true,
       });
       setSubmitted(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      // 503 = email delivery not configured — must surface this, not fake success
-      if (msg.toLowerCase().includes("not configured") || msg.toLowerCase().includes("contact support")) {
-        setError(msg);
-      } else {
-        // For any other error (404, network, etc.) show generic success to prevent email enumeration
-        setSubmitted(true);
-      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "";
+      if (message.toLowerCase().includes("not configured") || message.toLowerCase().includes("contact support")) setError(message);
+      else setSubmitted(true);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <div className="inline-flex items-center gap-2 mb-6">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">H</span>
-            </div>
-            <span className="font-semibold text-slate-900">Heliox AI</span>
-          </div>
-          <h1 className="text-2xl font-semibold text-slate-900">
-            {submitted ? "Check your inbox" : "Reset your password"}
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {submitted
-              ? `We sent a password reset link to ${email}. Check your spam folder if you don't see it.`
-              : "Enter your account email and we'll send you a reset link."}
-          </p>
-        </div>
-
-        {!submitted ? (
-          <form
-            onSubmit={handleSubmit}
-            className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 space-y-5"
-          >
-            {error && (
-              <div className="rounded-lg bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
-                {error}
+    <AuthShell title="Secure recovery without support tickets." description="Heliox recovery links are single-use, time-limited, and never reveal whether an address belongs to an account.">
+      {!submitted ? (
+        <>
+          <header className="auth-card-header">
+            <p className="auth-eyebrow">Account recovery</p>
+            <h2 className="auth-title mt-3">Reset your password</h2>
+            <p className="auth-subtitle">We’ll send a secure, time-limited link to your account email.</p>
+          </header>
+          <form className="auth-form" onSubmit={handleSubmit} noValidate>
+            <AuthField id="recovery-email" label="Account email" error={emailError}>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-600" />
+                <input id="recovery-email" className="auth-input auth-input-with-icon" type="email" autoComplete="email" autoFocus
+                  placeholder="you@company.com" value={email} onChange={(event) => setEmail(event.target.value)}
+                  onBlur={() => setTouched(true)} aria-invalid={Boolean(emailError)} />
               </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Email address
-              </label>
-              <input
-                type="email"
-                required
-                autoFocus
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !email}
-              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? "Sending…" : "Send reset link"}
+            </AuthField>
+            {error && <div className="auth-alert" role="alert">{error}</div>}
+            <button className="auth-primary" type="submit" disabled={loading || !EMAIL_PATTERN.test(email)}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {loading ? "Sending secure link…" : "Send reset link"}
             </button>
-
-            <p className="text-center text-sm text-slate-500">
-              Remember your password?{" "}
-              <Link href="/login" className="text-blue-600 hover:underline font-medium">
-                Sign in
-              </Link>
-            </p>
           </form>
-        ) : (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-5">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-100">
-              <svg className="w-7 h-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <p className="text-sm text-slate-600">
-              The link expires in 60 minutes. If you don't receive it, check your spam folder or{" "}
-              <button
-                onClick={() => { setSubmitted(false); setEmail(""); }}
-                className="text-blue-600 hover:underline font-medium"
-              >
-                try again
-              </button>
-              .
-            </p>
-            <Link
-              href="/login"
-              className="block w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors text-center"
-            >
-              Back to sign in
-            </Link>
+        </>
+      ) : (
+        <div className="text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10">
+            <CheckCircle2 className="h-6 w-6 text-emerald-400" />
           </div>
-        )}
-      </div>
-    </div>
+          <h2 className="auth-title mt-6">Check your inbox</h2>
+          <p className="auth-subtitle">If an account exists for <strong className="text-slate-300">{email}</strong>, its reset link is on the way.</p>
+          <button className="auth-secondary mt-7 w-full" type="button" onClick={() => { setSubmitted(false); setEmail(""); }}>
+            Try another email
+          </button>
+        </div>
+      )}
+      <Link href="/login" className="auth-link mt-8 flex items-center justify-center gap-2 text-xs">
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
+      </Link>
+    </AuthShell>
   );
 }

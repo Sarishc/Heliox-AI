@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import {
   BarChart,
@@ -32,16 +33,6 @@ interface CostByModelResponse {
   explain?: unknown;
   point_explain?: Record<string, unknown>;
 }
-
-const BAR_COLORS = [
-  "#6366f1",
-  "#8b5cf6",
-  "#3b82f6",
-  "#10b981",
-  "#ec4899",
-  "#f59e0b",
-  "#14b8a6",
-];
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -121,6 +112,7 @@ function ChartSkeleton() {
 }
 
 export default function CostByModelChart({ startDate, endDate }: CostByModelChartProps) {
+  const reduceMotion = useReducedMotion();
   const [data, setData] = useState<ModelCost[]>([]);
   const [loading, setLoading] = useState(true);
   const [showingSample, setShowingSample] = useState(false);
@@ -169,8 +161,6 @@ export default function CostByModelChart({ startDate, endDate }: CostByModelChar
     runtimeShare: item.runtime_share,
   }));
 
-  const maxCost = Math.max(...chartData.map((d) => d.cost), 1);
-
   return (
     <div className="relative">
       {showingSample && (
@@ -194,22 +184,6 @@ export default function CostByModelChart({ startDate, endDate }: CostByModelChar
       <div>
         <ResponsiveContainer width="100%" height={320}>
           <BarChart data={chartData} margin={{ top: 8, right: 4, bottom: 32, left: 0 }}>
-            <defs>
-              {chartData.map((_, i) => (
-                <linearGradient
-                  key={i}
-                  id={`barGrad${i}`}
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop offset="0%" stopColor={BAR_COLORS[i % BAR_COLORS.length]} stopOpacity={1} />
-                  <stop offset="100%" stopColor={BAR_COLORS[i % BAR_COLORS.length]} stopOpacity={0.7} />
-                </linearGradient>
-              ))}
-            </defs>
-
             <CartesianGrid
               strokeDasharray="3 4"
               stroke="var(--chart-grid)"
@@ -243,9 +217,17 @@ export default function CostByModelChart({ startDate, endDate }: CostByModelChar
 
             <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(99,102,241,0.04)" }} />
 
-            <Bar dataKey="cost" radius={[6, 6, 0, 0]} maxBarSize={56} name="Cost (USD)">
-              {chartData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={`url(#barGrad${index})`} />
+            <Bar
+              dataKey="cost"
+              radius={[2, 2, 0, 0]}
+              maxBarSize={44}
+              name="Cost (USD)"
+              isAnimationActive={!reduceMotion}
+              animationDuration={360}
+              animationEasing="ease-out"
+            >
+              {chartData.map((_, index) => (
+                <Cell key={`cell-${index}`} fill="#6366f1" stroke="#818cf8" strokeWidth={1} />
               ))}
             </Bar>
           </BarChart>

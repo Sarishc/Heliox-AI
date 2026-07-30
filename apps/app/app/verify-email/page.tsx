@@ -1,163 +1,103 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { fetchJson } from "@/lib/api";
+import { CheckCircle2, Loader2, MailWarning, XCircle } from "lucide-react";
+import { AuthField, AuthShell } from "@/components/auth/AuthShell";
+import { fetchApi, fetchJson } from "@/lib/api";
 
 function VerifyEmailContent() {
-  const searchParams = useSearchParams();
-  const token = searchParams.get("token") ?? "";
-
+  const token = useSearchParams().get("token") || "";
   const [status, setStatus] = useState<"pending" | "success" | "error">("pending");
   const [message, setMessage] = useState("");
-  const [resendEmail, setResendEmail] = useState("");
-  const [resendSent, setResendSent] = useState(false);
+  const [email, setEmail] = useState("");
   const [resendLoading, setResendLoading] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
 
   useEffect(() => {
     if (!token) {
       setStatus("error");
-      setMessage("No verification token found. Please use the link from your email.");
+      setMessage("No verification token was found. Use the link from your email or request another.");
       return;
     }
-
-    const verify = async () => {
-      try {
-        await fetchJson(`/api/v1/auth/verify-email?token=${encodeURIComponent(token)}`, {
-          skipAuthRedirect: true,
-        });
+    fetchJson(`/api/v1/auth/verify-email?token=${encodeURIComponent(token)}`, { skipAuthRedirect: true })
+      .then(() => {
         setStatus("success");
-        setMessage("Your email has been verified. You can now access all features.");
-      } catch (err) {
+        setMessage("Your identity is confirmed and your workspace is ready.");
+      })
+      .catch((caught) => {
         setStatus("error");
-        setMessage(
-          err instanceof Error && err.message
-            ? err.message
-            : "This verification link is invalid or has already been used."
-        );
-      }
-    };
-
-    verify();
+        setMessage(caught instanceof Error ? caught.message : "This link is invalid or has already been used.");
+      });
   }, [token]);
 
-  const handleResend = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function handleResend(event: React.FormEvent) {
+    event.preventDefault();
     setResendLoading(true);
     try {
       await fetchApi("/api/v1/auth/resend-verification", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resendEmail }),
+        body: JSON.stringify({ email }),
         skipAuthRedirect: true,
       });
-      setResendSent(true);
-    } catch {
-      setResendSent(true); // Always show success to prevent enumeration
     } finally {
       setResendLoading(false);
+      setResendSent(true);
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <div className="inline-flex items-center gap-2 mb-6">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">H</span>
+    <AuthShell title="Trust starts with verified access." description="Heliox keeps workspace identity, integration credentials, and tenant boundaries explicit from the first session.">
+      <div className="text-center">
+        {status === "pending" && (
+          <>
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-violet-500/30 bg-violet-500/10">
+              <Loader2 className="h-6 w-6 animate-spin text-violet-300" />
             </div>
-            <span className="font-semibold text-slate-900">Heliox AI</span>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-5">
-          {status === "pending" && (
-            <>
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-blue-100">
-                <svg className="w-7 h-7 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-              </div>
-              <h1 className="text-xl font-semibold text-slate-900">Verifying your email…</h1>
-            </>
-          )}
-
-          {status === "success" && (
-            <>
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-100">
-                <svg className="w-7 h-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h1 className="text-xl font-semibold text-slate-900">Email verified!</h1>
-              <p className="text-sm text-slate-500">{message}</p>
-              <Link
-                href="/login"
-                className="block w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
-              >
-                Sign in to your account
-              </Link>
-            </>
-          )}
-
-          {status === "error" && (
-            <>
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-rose-100">
-                <svg className="w-7 h-7 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </div>
-              <h1 className="text-xl font-semibold text-slate-900">Verification failed</h1>
-              <p className="text-sm text-slate-500">{message}</p>
-
-              {!resendSent ? (
-                <form onSubmit={handleResend} className="space-y-3 text-left">
-                  <p className="text-xs text-slate-500 text-center">
-                    Enter your email to get a new verification link:
-                  </p>
-                  <input
-                    type="email"
-                    required
-                    value={resendEmail}
-                    onChange={(e) => setResendEmail(e.target.value)}
-                    placeholder="you@company.com"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={resendLoading || !resendEmail}
-                    className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    {resendLoading ? "Sending…" : "Resend verification email"}
-                  </button>
-                </form>
-              ) : (
-                <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">
-                  If that address is registered and unverified, a new link has been sent.
-                </p>
-              )}
-
-              <Link
-                href="/login"
-                className="block text-sm text-slate-500 hover:text-slate-700"
-              >
-                Back to sign in
-              </Link>
-            </>
-          )}
-        </div>
+            <h2 className="auth-title mt-6">Verifying your email</h2>
+            <p className="auth-subtitle">This should only take a moment.</p>
+          </>
+        )}
+        {status === "success" && (
+          <>
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10">
+              <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+            </div>
+            <h2 className="auth-title mt-6">Email verified</h2>
+            <p className="auth-subtitle">{message}</p>
+            <Link href="/login" className="auth-primary mt-7 w-full">Continue to sign in</Link>
+          </>
+        )}
+        {status === "error" && (
+          <>
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10">
+              <XCircle className="h-6 w-6 text-rose-400" />
+            </div>
+            <h2 className="auth-title mt-6">Verification unavailable</h2>
+            <p className="auth-subtitle">{message}</p>
+            {!resendSent ? (
+              <form onSubmit={handleResend} className="auth-form mt-7 text-left">
+                <AuthField id="verification-email" label="Account email">
+                  <input id="verification-email" className="auth-input" type="email" required placeholder="you@company.com"
+                    value={email} onChange={(event) => setEmail(event.target.value)} />
+                </AuthField>
+                <button className="auth-primary" type="submit" disabled={resendLoading || !email}>
+                  {resendLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MailWarning className="h-4 w-4" />}
+                  {resendLoading ? "Sending…" : "Send a new verification link"}
+                </button>
+              </form>
+            ) : (
+              <div className="auth-success mt-7" role="status">If the address is eligible, a fresh verification link is on its way.</div>
+            )}
+            <Link href="/login" className="auth-link mt-7 inline-block text-xs">Back to sign in</Link>
+          </>
+        )}
       </div>
-    </div>
+    </AuthShell>
   );
 }
 
 export default function VerifyEmailPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
-      <VerifyEmailContent />
-    </Suspense>
-  );
+  return <Suspense fallback={<div className="min-h-screen bg-[#090a10]" />}><VerifyEmailContent /></Suspense>;
 }

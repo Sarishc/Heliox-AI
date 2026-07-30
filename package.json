@@ -5,5 +5,12 @@
   "scripts": {
     "dev:app": "pnpm --filter app dev",
     "build:app": "pnpm --filter app build"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": ">=8.5.18",
+      "sharp": ">=0.35.0",
+      "ws": ">=8.21.0"
+    }
   }
 }

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760">
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#07080D"/>
+      <stop offset="1" stop-color="#10111A"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="14" y1="8" x2="50" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C4B5FD"/>
+      <stop offset=".48" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+    <radialGradient id="halo">
+      <stop stop-color="#8B5CF6" stop-opacity=".14"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="760" fill="url(#canvas)"/>
+  <circle cx="1030" cy="80" r="380" fill="url(#halo)"/>
+
+  <text x="76" y="86" fill="#8B5CF6" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="700" letter-spacing="4.5">HELIOX / IDENTITY 02</text>
+  <text x="76" y="136" fill="#F8FAFC" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="580" letter-spacing="-.8">Infrastructure intelligence, precisely expressed.</text>
+
+  <line x1="76" y1="184" x2="1124" y2="184" stroke="#242733"/>
+
+  <g transform="translate(76 244)">
+    <g transform="scale(2.55)">
+      <path d="M17 10v44" fill="none" stroke="url(#violet)" stroke-width="8" stroke-linecap="round"/>
+      <path d="M47 10v44" fill="none" stroke="url(#violet)" stroke-width="8" stroke-linecap="round"/>
+      <path d="M17 21c9 0 21 22 30 22" fill="none" stroke="#EDE9FE" stroke-width="6" stroke-linecap="round"/>
+      <path d="M47 21c-9 0-21 22-30 22" fill="none" stroke="#8B5CF6" stroke-width="6" stroke-linecap="round"/>
+    </g>
+    <text x="202" y="123" fill="#F8FAFC" font-family="Inter, system-ui, sans-serif" font-size="104" font-weight="620" letter-spacing="-5">heliox</text>
+    <circle cx="526" cy="113" r="7" fill="#8B5CF6"/>
+  </g>
+
+  <text x="76" y="480" fill="#73798A" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600" letter-spacing="1.8">MONOGRAM CONSTRUCTION</text>
+  <text x="76" y="518" fill="#C6CAD4" font-family="Inter, system-ui, sans-serif" font-size="18">H  ·  helix  ·  opposing cost and performance signals</text>
+
+  <g transform="translate(76 572)">
+    <rect width="112" height="112" rx="20" fill="#0D0F16" stroke="#292D3A"/>
+    <g transform="translate(24 24)">
+      <path d="M17 10v44" fill="none" stroke="url(#violet)" stroke-width="8" stroke-linecap="round"/>
+      <path d="M47 10v44" fill="none" stroke="url(#violet)" stroke-width="8" stroke-linecap="round"/>
+      <path d="M17 21c9 0 21 22 30 22" fill="none" stroke="#EDE9FE" stroke-width="6" stroke-linecap="round"/>
+      <path d="M47 21c-9 0-21 22-30 22" fill="none" stroke="#8B5CF6" stroke-width="6" stroke-linecap="round"/>
+    </g>
+  </g>
+  <text x="76" y="714" fill="#73798A" font-family="Inter, system-ui, sans-serif" font-size="13">64 px product mark</text>
+
+  <g transform="translate(236 604) scale(.25)">
+    <path d="M17 10v44" fill="none" stroke="url(#violet)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M47 10v44" fill="none" stroke="url(#violet)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M17 21c9 0 21 22 30 22" fill="none" stroke="#EDE9FE" stroke-width="6" stroke-linecap="round"/>
+    <path d="M47 21c-9 0-21 22-30 22" fill="none" stroke="#8B5CF6" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <text x="226" y="714" fill="#73798A" font-family="Inter, system-ui, sans-serif" font-size="13">16 px favicon</text>
+
+  <g transform="translate(370 576)">
+    <rect width="126" height="72" rx="4" fill="#8B5CF6"/>
+    <rect x="144" width="126" height="72" rx="4" fill="#C4B5FD"/>
+    <rect x="288" width="126" height="72" rx="4" fill="#090A10" stroke="#292D3A"/>
+    <rect x="432" width="126" height="72" rx="4" fill="#F8FAFC"/>
+    <text y="101" fill="#73798A" font-family="ui-monospace, monospace" font-size="13">SIGNAL</text>
+    <text x="144" y="101" fill="#73798A" font-family="ui-monospace, monospace" font-size="13">TRACE</text>
+    <text x="288" y="101" fill="#73798A" font-family="ui-monospace, monospace" font-size="13">GRAPHITE</text>
+    <text x="432" y="101" fill="#73798A" font-family="ui-monospace, monospace" font-size="13">WHITE</text>
+  </g>
+</svg>

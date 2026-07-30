@@ -20,9 +20,9 @@ import {
   Blocks,
   CreditCard,
   ChevronDown,
-  Activity,
   PiggyBank,
 } from "lucide-react";
+import { BrandMark } from "@/components/brand/BrandLogo";
 
 interface NavItem {
   label: string;
@@ -90,26 +90,19 @@ export function Sidebar() {
     >
       {/* ── Logo ─────────────────────────── */}
       <div
-        className="flex items-center gap-3 px-5 py-[18px]"
+        className="flex items-center gap-2.5 px-4 py-3"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg shadow-sm"
-          style={{
-            background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
-          }}
-        >
-          <Activity className="h-4 w-4 text-white" />
-        </div>
+        <BrandMark className="h-7 w-7 shrink-0" />
         <div className="min-w-0">
-          <p className="text-[14px] font-bold tracking-tight text-foreground">Heliox</p>
-          <p className="text-[10px] font-medium text-muted-foreground">GPU Analytics</p>
+          <p className="text-[14px] font-semibold tracking-[-0.04em] text-foreground">heliox<span className="ml-0.5 text-violet-400">.</span></p>
+          <p className="text-[10px] font-medium text-muted-foreground">Infrastructure Intelligence</p>
         </div>
       </div>
 
       {/* ── Nav ──────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4" style={{ scrollbarWidth: "none" }}>
-        <div className="space-y-5">
+      <nav className="flex-1 overflow-y-auto px-2 py-3" style={{ scrollbarWidth: "none" }}>
+        <div className="space-y-3">
           {navigationSections.map((section) => (
             <div key={section.title}>
               {/* Section label */}
@@ -154,12 +147,12 @@ export function Sidebar() {
                           >
                             <Link
                               href={item.href}
-                              className="group relative flex items-center gap-2.5 rounded-lg px-3 py-[7px] text-[13px] font-medium transition-all duration-150"
+                              className="group relative flex items-center gap-2 rounded-sm px-2.5 py-[6px] text-[12px] font-medium transition-colors duration-150"
                               style={
                                 active
                                   ? {
                                       background: "rgba(99,102,241,0.08)",
-                                      color: "#4f46e5",
+                                      color: "#a5b4fc",
                                     }
                                   : {
                                       color: "var(--heliox-text-secondary)",
@@ -184,9 +177,11 @@ export function Sidebar() {
                             >
                               {/* Active left indicator */}
                               {active && (
-                                <span
-                                  className="absolute left-0 inset-y-[6px] w-[3px] rounded-full"
-                                  style={{ background: "#6366f1" }}
+                                <motion.span
+                                  layoutId="sidebar-active-indicator"
+                                  className="absolute left-0 inset-y-[5px] w-[2px]"
+                                  style={{ background: "#8b5cf6" }}
+                                  transition={{ type: "spring", stiffness: 460, damping: 38 }}
                                 />
                               )}
 
@@ -225,7 +220,7 @@ export function Sidebar() {
         style={{ borderTop: "1px solid var(--border)" }}
       >
         <div
-          className="rounded-xl px-3 py-2.5"
+          className="rounded-sm px-2.5 py-2"
           style={{
             background: "rgba(16,185,129,0.06)",
             border: "1px solid rgba(16,185,129,0.15)",
@@ -235,15 +230,13 @@ export function Sidebar() {
             <span
               className="inline-block h-1.5 w-1.5 rounded-full"
               style={{
-                background: "#10b981",
-                boxShadow: "0 0 6px rgba(16,185,129,0.6)",
-                animation: "pulse-glow 2s ease-in-out infinite",
+                background: "var(--ops-healthy)",
               }}
             />
             <p className="text-[11px] font-semibold text-foreground">All Systems Operational</p>
           </div>
           <p className="pl-[14px] text-[10px]" style={{ color: "var(--heliox-text-muted)" }}>
-            API · Data Sync · Monitoring
+            Checked 30s ago · API · Sync
           </p>
         </div>
       </div>

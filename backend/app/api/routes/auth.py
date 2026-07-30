@@ -257,7 +257,8 @@ def set_session(
     Validates token, sets secure cookie, returns redirect URL.
     Used by frontend after OAuth to establish session without storing token in JS.
     """
-    from jose import jwt, JWTError
+    import jwt
+    from jwt import PyJWTError as JWTError
     from uuid import UUID
     from app.auth.security import SECRET_KEY, ALGORITHM
 

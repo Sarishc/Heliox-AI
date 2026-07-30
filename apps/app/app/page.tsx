@@ -100,18 +100,7 @@ function SectionLabel({
 
 function SampleBadge() {
   return (
-    <div
-      className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
-      style={{
-        background: "rgba(245,158,11,0.08)",
-        border: "1px solid rgba(245,158,11,0.2)",
-      }}
-    >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#f59e0b" }} />
-      <span style={{ fontSize: "11px", fontWeight: 600, color: "#d97706" }}>
-        Sample data
-      </span>
-    </div>
+    <span className="ops-sample-badge">Sample data</span>
   );
 }
 
@@ -218,11 +207,11 @@ function DashboardContent() {
               style={{
                 width: `${item.utilizationPercent}%`,
                 background:
-                  item.utilizationPercent > 85
-                    ? "#ef4444"
-                    : item.utilizationPercent > 60
-                    ? "#f59e0b"
-                    : "#6366f1",
+                  item.utilizationPercent >= 80
+                    ? "var(--ops-critical)"
+                    : item.utilizationPercent >= 50
+                    ? "var(--ops-warning)"
+                    : "var(--ops-healthy)",
               }}
             />
           </div>
@@ -384,7 +373,7 @@ function DashboardContent() {
             </p>
             <h1
               className="font-bold leading-none text-foreground"
-              style={{ fontSize: "24px", letterSpacing: "-0.025em" }}
+              style={{ fontSize: "20px", letterSpacing: "-0.015em" }}
             >
               Executive Overview
             </h1>
@@ -434,7 +423,7 @@ function DashboardContent() {
           </p>
           <h1
             className="font-bold leading-none text-foreground"
-            style={{ fontSize: "24px", letterSpacing: "-0.025em" }}
+            style={{ fontSize: "20px", letterSpacing: "-0.015em" }}
           >
             Executive Overview
           </h1>

@@ -32,6 +32,7 @@ import json
 import logging
 import time
 from typing import Any, AsyncGenerator, Optional
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -84,7 +85,8 @@ async def _resolve_team_id(
     )
     from app.auth.security import SECRET_KEY
     from app.crud import user as crud_user
-    from jose import jwt, JWTError
+    import jwt
+    from jwt import PyJWTError as JWTError
 
     token = get_token_from_cookie_or_header(request)
     if token and not is_token_blacklisted(token):
@@ -144,13 +146,15 @@ async def _redis_subscriber(
     pubsub = None
 
     try:
-        r = aioredis.from_url(
-            settings.REDIS_URL,
-            decode_responses=True,
-            socket_connect_timeout=3,
-            socket_timeout=3,
-            ssl_cert_reqs=None,
-        )
+        connection_options = {
+            "decode_responses": True,
+            "socket_connect_timeout": 3,
+            "socket_timeout": 3,
+        }
+        if urlparse(settings.REDIS_URL).scheme == "rediss":
+            connection_options["ssl_cert_reqs"] = None
+
+        r = aioredis.from_url(settings.REDIS_URL, **connection_options)
         pubsub = r.pubsub()
         await pubsub.subscribe(channel)
         logger.debug("SSE: subscribed to %s", channel)

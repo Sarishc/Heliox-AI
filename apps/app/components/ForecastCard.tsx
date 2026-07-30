@@ -27,6 +27,7 @@ import {
 } from "recharts";
 
 interface ForecastData {
+  error?: string;
   provider: string | null;
   gpu_type: string | null;
   horizon_days: number;
@@ -158,9 +159,10 @@ export default function ForecastCard() {
 
     try {
       const data = await fetchJson<ForecastData>(
-        `/api/v1/forecast/spend?horizon_days=${horizonDays}`
+        `/api/v1/forecast/spend?horizon_days=${horizonDays}&allow_empty=true`
       );
       setForecastData(data);
+      setError(data.error || null);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to load forecast."

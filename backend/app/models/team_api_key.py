@@ -1,7 +1,7 @@
 """Team API key model for authentication."""
 
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -45,6 +45,12 @@ class TeamAPIKey(UUIDMixin, TimestampMixin, Base):
         nullable=True, comment="Timestamp when this key was last used"
     )
 
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        nullable=True,
+        index=True,
+        comment="Optional UTC expiry; null means the key does not expire",
+    )
+
     # Relationships
     team = relationship("Team", back_populates="api_keys")
 
@@ -67,6 +73,12 @@ class TeamAPIKey(UUIDMixin, TimestampMixin, Base):
         """Verify if a provided key matches this API key."""
         if not self.is_active:
             return False
+        if self.expires_at is not None:
+            expires_at = self.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                return False
         key_hash = self.hash_key(key)
         # Use constant-time comparison to prevent timing attacks
         return secrets.compare_digest(key_hash, self.key_hash)

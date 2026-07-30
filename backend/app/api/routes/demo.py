@@ -192,14 +192,14 @@ def _seed_demo_team_and_user(db: Session) -> tuple[Team, User, str]:
     db.flush()
 
     # User
-    from app.auth.security import hash_password
+    from app.auth.security import get_password_hash
 
     user = db.query(User).filter(User.email == DEMO_USER_EMAIL).first()
     if not user:
         user = User(
             id=uuid4(),
             email=DEMO_USER_EMAIL,
-            hashed_password=hash_password(DEMO_USER_PASSWORD),
+            hashed_password=get_password_hash(DEMO_USER_PASSWORD),
             full_name="Demo User",
             is_active=True,
             is_platform_admin=False,

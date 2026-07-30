@@ -408,7 +408,7 @@ export function isDemoMode(): boolean {
 /**
  * Enable/disable demo mode
  */
-export function setDemoMode(enabled: boolean) {
+export function setDemoMode(enabled: boolean, reload = true) {
   if (typeof window === "undefined") return;
   
   if (enabled) {
@@ -417,6 +417,7 @@ export function setDemoMode(enabled: boolean) {
     localStorage.removeItem("heliox_demo_mode");
   }
   
-  // Reload to apply changes
-  window.location.reload();
+  if (reload) {
+    window.location.reload();
+  }
 }

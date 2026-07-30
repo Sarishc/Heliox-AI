@@ -37,6 +37,7 @@ interface EnterpriseTableProps<T extends Record<string, any>> {
   dense?: boolean;
   stickyHeader?: boolean;
   className?: string;
+  tags?: string[];
 }
 
 export function EnterpriseTable<T extends Record<string, any>>({
@@ -49,6 +50,7 @@ export function EnterpriseTable<T extends Record<string, any>>({
   dense = false,
   stickyHeader = true,
   className = "",
+  tags = ["env:all", "status:all"],
 }: EnterpriseTableProps<T>) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -107,10 +109,21 @@ export function EnterpriseTable<T extends Record<string, any>>({
     setCurrentPage(1);
   }, [search]);
 
-  const paddingClass = dense ? "py-2 px-3" : "py-3 px-4";
+  const paddingClass = dense ? "py-1.5 px-2.5" : "py-2 px-3";
 
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div className={`space-y-3 ${className}`}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Filter className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono-tabular text-[10px] text-muted-foreground"
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
       {/* Search Bar */}
       {searchable && (
         <div className="flex items-center justify-between gap-4">

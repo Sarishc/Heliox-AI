@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 
 interface SharedReportResponse {
@@ -16,14 +16,15 @@ interface SharedReportResponse {
   data: Record<string, any>;
 }
 
-export default function SharedReportPage({ params }: { params: { token: string } }) {
+export default function SharedReportPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
   const [report, setReport] = useState<SharedReportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadReport = async () => {
       try {
-        const response = await fetch(getApiUrl(`/share/${params.token}`));
+        const response = await fetch(getApiUrl(`/share/${token}`));
         if (!response.ok) {
           setError("This share link is unavailable.");
           return;
@@ -35,7 +36,7 @@ export default function SharedReportPage({ params }: { params: { token: string }
       }
     };
     loadReport();
-  }, [params.token]);
+  }, [token]);
 
   if (error) {
     return (

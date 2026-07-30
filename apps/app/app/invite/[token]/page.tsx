@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchApi, getApiUrl } from "@/lib/api";
 
@@ -17,10 +17,10 @@ interface InviteInfo {
 export default function InviteAcceptPage({
   params,
 }: {
-  params: { token: string };
+  params: Promise<{ token: string }>;
 }) {
   const router = useRouter();
-  const token = typeof params.token === "string" ? params.token : params.token?.[0] ?? "";
+  const { token } = use(params);
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

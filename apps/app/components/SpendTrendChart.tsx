@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import Link from "next/link";
 import {
   AreaChart,
@@ -86,6 +87,7 @@ function ChartSkeleton() {
 }
 
 export default function SpendTrendChart({ startDate, endDate }: SpendTrendChartProps) {
+  const reduceMotion = useReducedMotion();
   const [data, setData] = useState<DailySpend[]>([]);
   const [loading, setLoading] = useState(true);
   const [showingSample, setShowingSample] = useState(false);
@@ -175,14 +177,6 @@ export default function SpendTrendChart({ startDate, endDate }: SpendTrendChartP
       <div>
         <ResponsiveContainer width="100%" height={320}>
           <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id="spendGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.14} />
-                <stop offset="70%" stopColor="#6366f1" stopOpacity={0.03} />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-
             <CartesianGrid
               strokeDasharray="3 4"
               stroke="var(--chart-grid)"
@@ -215,7 +209,7 @@ export default function SpendTrendChart({ startDate, endDate }: SpendTrendChartP
             <Tooltip
               content={<CustomTooltip />}
               cursor={{
-                stroke: "rgba(99,102,241,0.25)",
+                stroke: "rgba(63,185,80,0.35)",
                 strokeWidth: 1,
                 strokeDasharray: "4 4",
               }}
@@ -223,26 +217,29 @@ export default function SpendTrendChart({ startDate, endDate }: SpendTrendChartP
 
             <ReferenceLine
               y={avg}
-              stroke="#6366f1"
+              stroke="#d29922"
               strokeDasharray="5 5"
               strokeOpacity={0.2}
               strokeWidth={1}
             />
 
             <Area
-              type="monotone"
+              type="linear"
               dataKey="cost"
-              stroke="#6366f1"
-              strokeWidth={2.5}
-              fill="url(#spendGradient)"
+              stroke="#3fb950"
+              strokeWidth={1.5}
+              fill="transparent"
               dot={false}
               activeDot={{
                 r: 5,
-                fill: "#6366f1",
-                stroke: "#fff",
-                strokeWidth: 2,
+                fill: "#3fb950",
+                stroke: "#171d26",
+                strokeWidth: 1,
               }}
               name="Daily Cost"
+              isAnimationActive={!reduceMotion}
+              animationDuration={360}
+              animationEasing="ease-out"
             />
           </AreaChart>
         </ResponsiveContainer>

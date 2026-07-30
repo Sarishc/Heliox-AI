@@ -111,7 +111,7 @@ def test_team_b_cannot_access_team_a_cost_snapshot(
         headers={"X-API-Key": key_b},
     )
     assert resp.status_code == 404
-    assert "not found" in resp.json().get("detail", "").lower()
+    assert "not found" in resp.json().get("message", "").lower()
 
     # Team B tries to delete Team A's cost snapshot
     resp = client.delete(

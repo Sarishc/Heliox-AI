@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
-from jose import jwt
+import jwt
 from sqlalchemy.orm import Session
 
 from app.auth.cookie_auth import get_token_from_cookie_or_header, is_token_blacklisted

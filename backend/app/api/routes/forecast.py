@@ -1,6 +1,7 @@
 """Forecast API endpoints."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -175,6 +176,10 @@ def forecast_spend(
         examples=[7],
     ),
     include_explain: bool = Query(False, description="Include metric explainability payload"),
+    allow_empty: bool = Query(
+        False,
+        description="Return a typed empty state instead of HTTP 400 when history is insufficient",
+    ),
     db: Session = Depends(get_db),
     team_api_key: Union[TeamAPIKey, TeamContext, None] = Depends(get_team_api_key_or_session_optional),
 ) -> Any:
@@ -221,7 +226,20 @@ def forecast_spend(
         )
 
         if result.get("error"):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+            if not allow_empty:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+            result.update(
+                {
+                    "provider": provider,
+                    "gpu_type": gpu_type,
+                    "horizon_days": horizon_days,
+                    "forecast_method": "insufficient_data",
+                    "metadata": {
+                        "historical_data_points": len(result.get("historical", [])),
+                        "forecast_generated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                }
+            )
 
         if include_explain and not result.get("error"):
             inputs = {

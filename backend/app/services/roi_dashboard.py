@@ -150,7 +150,7 @@ def get_roi_dashboard(
         end_date=end_date,
         total_spend_usd=round(total_spend, 2),
         estimated_potential_savings_usd=round(total_savings, 2),
-        savings_percent_of_spend=round(savings_pct, 1),
+        savings_percent_of_spend=round(min(100.0, max(0.0, savings_pct)), 1),
         savings_by_category=savings_by_category,
         top_recommendations=top_recommendations,
         provider_breakdown=provider_breakdown,

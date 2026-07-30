@@ -5,6 +5,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
 from urllib.parse import urlencode
+from uuid import UUID
 
 import httpx
 from sqlalchemy.orm import Session
@@ -14,7 +15,7 @@ from app.integrations.encryption import get_encryption, is_fernet_token
 from app.models.oauth_identity import OAuthIdentity, OAuthProvider
 from app.models.user import User
 from app.models.team import Team
-from app.models.team_member import TeamMember
+from app.models.team_member import TeamMember, TeamRole
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -260,6 +261,11 @@ def upsert_oauth_identity(
     Returns:
         OAuthIdentity object
     """
+    try:
+        team_id = UUID(str(team_id))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid OAuth team binding") from exc
+
     # Check if identity already exists
     identity = (
         db.query(OAuthIdentity)
@@ -407,7 +413,7 @@ def get_or_create_user_from_oauth(
 
         if not membership:
             # Add user to team
-            membership = TeamMember(user_id=user.id, team_id=team_id, role="member")
+            membership = TeamMember(user_id=user.id, team_id=team_id, role=TeamRole.VIEWER)
             db.add(membership)
             db.commit()
             logger.info(f"Added user {user.id} to team {team_id}")
@@ -425,7 +431,7 @@ def get_or_create_user_from_oauth(
     db.flush()
 
     # Add user to team
-    membership = TeamMember(user_id=user.id, team_id=team_id, role="member")
+    membership = TeamMember(user_id=user.id, team_id=team_id, role=TeamRole.VIEWER)
     db.add(membership)
     db.commit()
     db.refresh(user)

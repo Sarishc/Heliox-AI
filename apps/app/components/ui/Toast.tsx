@@ -6,7 +6,7 @@
  */
 
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from "lucide-react";
 
 type ToastType = "success" | "error" | "info" | "warning";
@@ -122,6 +122,7 @@ function ToastItem({
   toast: Toast;
   onRemove: (id: string) => void;
 }) {
+  const reduceMotion = useReducedMotion();
   const config = {
     success: {
       icon: CheckCircle,
@@ -157,10 +158,10 @@ function ToastItem({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -20, scale: 0.95 }}
+      initial={reduceMotion ? false : { opacity: 0, y: -16, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, x: 100, scale: 0.95 }}
-      transition={{ duration: 0.2 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 40, scale: 0.98 }}
+      transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 430, damping: 34 }}
       className={`
         flex items-start gap-3 p-4 rounded-xl border shadow-lg
         ${bg} ${border}

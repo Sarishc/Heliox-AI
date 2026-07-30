@@ -6,7 +6,8 @@
  * With inline SVG sparklines (no container sizing issues)
  */
 
-import { ReactNode, useMemo } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import { TrendingUp, TrendingDown, Minus, DollarSign, Server, Cpu, Zap } from "lucide-react";
 
 interface ExecutiveKPI {
@@ -31,28 +32,28 @@ const ACCENTS = [
     border:     "#6366f1",
     iconBg:     "rgba(99, 102, 241, 0.10)",
     iconFg:     "#6366f1",
-    sparkColor: "#6366f1",
+    sparkColor: "#3fb950",
     icon:       <DollarSign className="h-4 w-4" />,
   },
   {
-    border:     "#3b82f6",
+    border:     "#3fb950",
     iconBg:     "rgba(59, 130, 246, 0.10)",
-    iconFg:     "#3b82f6",
-    sparkColor: "#3b82f6",
+    iconFg:     "#3fb950",
+    sparkColor: "#3fb950",
     icon:       <Server className="h-4 w-4" />,
   },
   {
-    border:     "#8b5cf6",
+    border:     "#d29922",
     iconBg:     "rgba(139, 92, 246, 0.10)",
-    iconFg:     "#8b5cf6",
-    sparkColor: "#8b5cf6",
+    iconFg:     "#d29922",
+    sparkColor: "#d29922",
     icon:       <Cpu className="h-4 w-4" />,
   },
   {
-    border:     "#10b981",
+    border:     "#f85149",
     iconBg:     "rgba(16, 185, 129, 0.10)",
-    iconFg:     "#10b981",
-    sparkColor: "#10b981",
+    iconFg:     "#f85149",
+    sparkColor: "#f85149",
     icon:       <Zap className="h-4 w-4" />,
   },
 ] as const;
@@ -85,10 +86,6 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   });
 
   const linePath = `M ${pts.join(" L ")}`;
-  const areaPath = `M 0,${H} L ${pts.join(" L ")} L ${W},${H} Z`;
-
-  const gradId = `sg-${color.replace("#", "")}`;
-
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
@@ -96,21 +93,14 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
       style={{ width: "100%", height: "48px", display: "block" }}
       aria-hidden="true"
     >
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.18" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill={`url(#${gradId})`} />
-      <path d={linePath} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="miter" strokeLinecap="butt" />
     </svg>
   );
 }
 
 export function ExecutiveKPIStrip({ kpis, className = "" }: ExecutiveKPIStripProps) {
   return (
-    <div className={`grid grid-cols-2 gap-4 lg:grid-cols-4 ${className}`}>
+    <div className={`grid grid-cols-2 gap-3 lg:grid-cols-4 ${className}`}>
       {kpis.map((kpi, index) => (
         <ExecutiveKPICard key={index} {...kpi} accentIndex={index % ACCENTS.length} seedIndex={index} />
       ))}
@@ -132,6 +122,31 @@ function ExecutiveKPICard({
   seedIndex = 0,
 }: ExecutiveKPI & { accentIndex?: number; seedIndex?: number }) {
   const accent = ACCENTS[accentIndex];
+  const reduceMotion = useReducedMotion();
+  const numericTarget = typeof value === "number" ? value : null;
+  const [animatedValue, setAnimatedValue] = useState(numericTarget ?? 0);
+
+  useEffect(() => {
+    if (numericTarget === null || reduceMotion) {
+      setAnimatedValue(numericTarget ?? 0);
+      return;
+    }
+    let frame = 0;
+    const delay = window.setTimeout(() => {
+      const startedAt = performance.now();
+      const tick = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / 360);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setAnimatedValue(numericTarget * eased);
+        if (progress < 1) frame = window.requestAnimationFrame(tick);
+      };
+      frame = window.requestAnimationFrame(tick);
+    }, seedIndex * 50);
+    return () => {
+      window.clearTimeout(delay);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [numericTarget, reduceMotion, seedIndex]);
 
   const trend =
     change !== undefined ? (change > 0 ? "up" : change < 0 ? "down" : "neutral") : "neutral";
@@ -145,8 +160,8 @@ function ExecutiveKPICard({
   if (loading) {
     return (
       <div
-        className="relative overflow-hidden rounded-2xl border bg-card"
-        style={{ borderColor: "var(--border)", boxShadow: "var(--shadow-card)" }}
+        className="relative overflow-hidden rounded-md border bg-card"
+        style={{ borderColor: "var(--border)" }}
       >
         <div className="absolute inset-x-0 top-0 h-[3px] opacity-30" style={{ background: accent.border }} />
         <div className="p-5 space-y-3">
@@ -159,19 +174,20 @@ function ExecutiveKPICard({
     );
   }
 
+  const displayValue = numericTarget === null ? value : animatedValue;
   const formattedValue = (() => {
-    if (typeof value === "string") return value;
+    if (typeof displayValue === "string") return displayValue;
     switch (format) {
       case "currency":
-        if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-        if (value >= 10_000)    return `$${(value / 1_000).toFixed(0)}k`;
-        return `$${value.toLocaleString()}`;
+        if (displayValue >= 1_000_000) return `$${(displayValue / 1_000_000).toFixed(1)}M`;
+        if (displayValue >= 10_000)    return `$${(displayValue / 1_000).toFixed(0)}k`;
+        return `$${Math.round(displayValue).toLocaleString()}`;
       case "number":
-        return value.toLocaleString();
+        return Math.round(displayValue).toLocaleString();
       case "percentage":
-        return `${value}%`;
+        return `${displayValue.toFixed(1)}%`;
       default:
-        return value;
+        return Number.isInteger(numericTarget) ? Math.round(displayValue) : displayValue.toFixed(1);
     }
   })();
 
@@ -187,33 +203,24 @@ function ExecutiveKPICard({
 
   return (
     <div
-      className="group relative overflow-hidden rounded-2xl bg-card transition-all duration-200 hover:-translate-y-[1px]"
-      style={{ border: "1px solid var(--border)", boxShadow: "var(--shadow-card)" }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--shadow-md)";
-        (e.currentTarget as HTMLDivElement).style.borderColor = accent.border + "55";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--shadow-card)";
-        (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border)";
-      }}
+      className="group relative overflow-hidden rounded-md bg-card transition-colors duration-150 hover:bg-muted"
+      style={{ border: "1px solid var(--border)" }}
     >
       {/* Top accent bar */}
       <div
-        className="absolute inset-x-0 top-0 h-[3px]"
-        style={{ background: `linear-gradient(90deg, ${accent.border}, ${accent.border}66)` }}
+        className="absolute inset-y-0 left-0 w-[2px]"
+        style={{ background: accent.border }}
       />
 
       {/* Subtle radial tint */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-40"
-        style={{ background: `radial-gradient(ellipse 80% 60% at 90% 10%, ${accent.iconBg}, transparent)` }}
+        className="hidden"
       />
 
       {/* Content */}
-      <div className="relative px-5 pb-2 pt-5">
+      <div className="relative px-3 pb-1 pt-3">
         {/* Label + icon */}
-        <div className="mb-3 flex items-start justify-between">
+        <div className="mb-2 flex items-start justify-between">
           <span
             className="text-[11px] font-semibold uppercase tracking-widest"
             style={{ color: "var(--heliox-text-muted)" }}
@@ -221,7 +228,7 @@ function ExecutiveKPICard({
             {label}
           </span>
           <div
-            className="flex h-8 w-8 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105"
+            className="flex h-6 w-6 items-center justify-center rounded-sm"
             style={{ background: accent.iconBg, color: accent.iconFg }}
           >
             {icon ?? accent.icon}
@@ -231,7 +238,7 @@ function ExecutiveKPICard({
         {/* Value */}
         <div className="mb-2 flex items-baseline gap-1">
           <span
-            className="font-mono-tabular text-[28px] font-bold leading-none text-foreground"
+            className="font-mono-tabular text-[24px] font-semibold leading-none text-foreground"
             style={{ letterSpacing: "-0.03em" }}
           >
             {formattedValue}

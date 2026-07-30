@@ -1,6 +1,8 @@
 """Tests for billing usage API."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
@@ -12,6 +14,9 @@ from app.core.db import get_db
 from app.models.team import Team
 from app.models.team_api_key import TeamAPIKey
 from app.models.usage import UsageDailyRollup, UsageEventType
+from app.models.billing import BillingPlan, SubscriptionStatus, TeamEntitlement, TeamSubscription
+from app.billing import stripe_client
+from app.api.routes import billing as billing_routes
 
 
 def override_get_db(db_session: Session):
@@ -148,6 +153,118 @@ def test_usage_summary_requires_auth(client: TestClient, team_with_api_key):
     assert resp.status_code == 401
 
 
+def test_subscription_serializes_string_backed_enums(client: TestClient, team_with_api_key, db_session: Session):
+    """A persisted subscription returns plan/status strings instead of raising 500."""
+    team, api_key = team_with_api_key
+    db_session.add(
+        TeamSubscription(
+            team_id=team.id,
+            stripe_customer_id="cus_deep_audit",
+            plan=BillingPlan.FREE,
+            status=SubscriptionStatus.ACTIVE,
+        )
+    )
+    db_session.add(
+        TeamEntitlement(
+            team_id=team.id,
+            plan=BillingPlan.FREE,
+            limits={},
+            features={},
+        )
+    )
+    db_session.commit()
+    db_session.expire_all()
+
+    response = client.get(
+        "/api/v1/billing/subscription",
+        headers={"X-API-Key": api_key},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["plan"] == "free"
+    assert response.json()["status"] == "active"
+
+
+def test_checkout_propagates_team_metadata_to_subscription(monkeypatch):
+    """Subscription webhooks must carry enough metadata to resolve the tenant."""
+    team_id = uuid4()
+    create = lambda **kwargs: SimpleNamespace(id="cs_test_metadata", url="https://checkout.stripe.test/session")
+    monkeypatch.setattr(stripe_client.stripe.checkout.Session, "create", create)
+    monkeypatch.setattr(stripe_client.settings, "STRIPE_PRICE_ID_GROWTH", "price_growth")
+
+    result = stripe_client.create_checkout_session(
+        team_id=team_id,
+        plan=BillingPlan.GROWTH,
+        stripe_customer_id="cus_metadata",
+        success_url="http://localhost/success",
+        cancel_url="http://localhost/cancel",
+    )
+
+    assert result == "https://checkout.stripe.test/session"
+    # Re-run with a recorder so the exact Stripe payload is asserted.
+    recorded = {}
+
+    def record_create(**kwargs):
+        recorded.update(kwargs)
+        return SimpleNamespace(id="cs_test_metadata", url=result)
+
+    monkeypatch.setattr(stripe_client.stripe.checkout.Session, "create", record_create)
+    stripe_client.create_checkout_session(
+        team_id=team_id,
+        plan=BillingPlan.GROWTH,
+        stripe_customer_id="cus_metadata",
+        success_url="http://localhost/success",
+        cancel_url="http://localhost/cancel",
+    )
+    assert recorded["subscription_data"]["metadata"] == {
+        "team_id": str(team_id),
+        "plan": "growth",
+    }
+
+
+def test_checkout_webhook_recovers_legacy_subscription_metadata(client: TestClient, monkeypatch):
+    """Completed Checkout repairs and synchronizes older metadata-less subscriptions."""
+    team_id = uuid4()
+    event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": "cs_test_legacy",
+                "customer": "cus_legacy",
+                "subscription": "sub_legacy",
+                "metadata": {"team_id": str(team_id), "plan": "growth"},
+            }
+        },
+    }
+    legacy = SimpleNamespace(id="sub_legacy", metadata={})
+    repaired = SimpleNamespace(
+        id="sub_legacy",
+        metadata={"team_id": str(team_id), "plan": "growth"},
+    )
+    synced = []
+    monkeypatch.setattr(billing_routes.stripe.Webhook, "construct_event", lambda *args, **kwargs: event)
+    monkeypatch.setattr(billing_routes.stripe.Subscription, "retrieve", lambda subscription_id: legacy)
+    monkeypatch.setattr(
+        billing_routes.stripe.Subscription,
+        "modify",
+        lambda subscription_id, metadata: repaired,
+    )
+    monkeypatch.setattr(
+        billing_routes,
+        "sync_subscription_from_stripe",
+        lambda db, subscription: synced.append(subscription),
+    )
+
+    response = client.post(
+        "/api/v1/billing/webhook",
+        content=b"{}",
+        headers={"stripe-signature": "test-signature"},
+    )
+
+    assert response.status_code == 200
+    assert synced == [repaired]
+
+
 def test_current_month_usage(client: TestClient, team_with_api_key):
     """Current month endpoint returns usage for this month."""
     team, api_key = team_with_api_key
@@ -159,9 +276,10 @@ def test_current_month_usage(client: TestClient, team_with_api_key):
     assert resp.status_code == 200
     data = resp.json()
     assert data["team_id"] == str(team.id)
-    first_day = date.today().replace(day=1)
+    utc_today = datetime.now(timezone.utc).date()
+    first_day = utc_today.replace(day=1)
     assert data["start_date"] == first_day.isoformat()
-    assert data["end_date"] == date.today().isoformat()
+    assert data["end_date"] == utc_today.isoformat()
 
 
 def test_usage_tenant_scoping(client: TestClient, db_session: Session):

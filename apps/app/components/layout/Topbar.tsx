@@ -6,11 +6,12 @@
  */
 
 import { useState } from "react";
-import { Search, ChevronDown, Moon, Sun, Menu, LogOut } from "lucide-react";
+import { Search, ChevronDown, Moon, Sun, Menu, LogOut, Clock3 } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { Button } from "../ui/Button";
 import { DemoModeToggle } from "../ui/DemoModeToggle";
 import { NotificationBell } from "@/components/NotificationBell";
+import { useDashboardFilters } from "@/components/DashboardFiltersContext";
 
 interface TopbarProps {
   teamName?: string;
@@ -18,8 +19,9 @@ interface TopbarProps {
 }
 
 export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
   const [userOpen, setUserOpen] = useState(false);
+  const { setStartDate, setEndDate } = useDashboardFilters();
 
   const handleLogout = async () => {
     setUserOpen(false);
@@ -32,21 +34,28 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
   };
 
   const toggleDarkMode = () => {
-    setDarkMode(!darkMode);
-    document.documentElement.classList.toggle("dark");
+    const nextDarkMode = !darkMode;
+    setDarkMode(nextDarkMode);
+    document.documentElement.classList.toggle("light", !nextDarkMode);
+  };
+
+  const setRange = (days: number) => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(end.getDate() - days);
+    setStartDate(start.toISOString().slice(0, 10));
+    setEndDate(end.toISOString().slice(0, 10));
   };
 
   return (
     <header
       className="sticky top-0 z-40 w-full"
       style={{
-        background: "rgba(246,248,252,0.85)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
+        background: "color-mix(in srgb, var(--background) 94%, transparent)",
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <div className="flex h-14 items-center justify-between gap-4 px-6">
+      <div className="flex h-12 items-center justify-between gap-3 px-4">
 
         {/* ── Left: mobile menu + search ────────────── */}
         <div className="flex flex-1 items-center gap-3">
@@ -66,21 +75,17 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
             <input
               type="text"
               placeholder="Search or jump to…"
-              className="w-full rounded-xl py-2 pl-9 pr-10 text-[13px] outline-none transition-all duration-150"
+              className="w-full rounded-sm py-1.5 pl-9 pr-10 text-[12px] outline-none transition-colors duration-150"
               style={{
                 background: "var(--card)",
                 border: "1px solid var(--border)",
                 color: "var(--foreground)",
-                boxShadow: "var(--shadow-xs)",
               }}
               onFocus={(e) => {
                 (e.target as HTMLInputElement).style.borderColor = "#6366f1";
-                (e.target as HTMLInputElement).style.boxShadow =
-                  "0 0 0 3px rgba(99,102,241,0.12)";
               }}
               onBlur={(e) => {
                 (e.target as HTMLInputElement).style.borderColor = "var(--border)";
-                (e.target as HTMLInputElement).style.boxShadow = "var(--shadow-xs)";
               }}
             />
             <kbd
@@ -101,12 +106,11 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
 
           {/* Team selector */}
           <button
-            className="hidden sm:flex items-center gap-2 rounded-xl px-3 py-1.5 text-[13px] font-medium transition-all duration-150"
+            className="hidden sm:flex items-center gap-2 rounded-sm px-2.5 py-1 text-[12px] font-medium transition-colors duration-150"
             style={{
               background: "var(--card)",
               border: "1px solid var(--border)",
               color: "var(--foreground)",
-              boxShadow: "var(--shadow-xs)",
             }}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLButtonElement).style.borderColor = "#6366f1";
@@ -128,10 +132,25 @@ export function Topbar({ teamName = "Demo Team", onMenuClick }: TopbarProps) {
           {/* Demo mode toggle */}
           <DemoModeToggle />
 
+          <div className="hidden items-center rounded-sm border border-border bg-card md:flex">
+            <Clock3 className="ml-2 h-3.5 w-3.5 text-muted-foreground" />
+            <select
+              aria-label="Global time range"
+              defaultValue="30"
+              onChange={(event) => setRange(Number(event.target.value))}
+              className="bg-transparent px-2 py-1.5 font-mono-tabular text-[11px] text-foreground outline-none"
+            >
+              <option value="1">Last 24h</option>
+              <option value="7">Last 7d</option>
+              <option value="30">Last 30d</option>
+              <option value="90">Last 90d</option>
+            </select>
+          </div>
+
           {/* Dark mode */}
           <button
             onClick={toggleDarkMode}
-            className="rounded-xl p-2 transition-colors"
+            className="rounded-sm p-1.5 transition-colors"
             style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "var(--muted)")}
             onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "transparent")}

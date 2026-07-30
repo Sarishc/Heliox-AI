@@ -14,7 +14,7 @@ import hashlib
 import logging
 import time
 
-from app.core.cache import require_redis
+from app.core.cache import get_redis, require_redis
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,9 @@ def clear_captcha_requirement(client_ip: str, captcha_token: str) -> bool:
     if not verify_captcha_token(captcha_token.strip(), remote_ip=client_ip):
         return False
 
-    redis_client = require_redis()
+    redis_client = get_redis()
+    if redis_client is None:
+        return True
     key = f"{LOGIN_CAPTCHA_PREFIX}{_client_key(client_ip)}"
     redis_client.delete(key)
     return True

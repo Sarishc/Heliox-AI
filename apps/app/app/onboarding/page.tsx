@@ -21,6 +21,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { AuthShell } from "@/components/auth/AuthShell";
 
 interface OnboardingStatus {
   has_team: boolean;
@@ -129,15 +130,21 @@ export default function OnboardingPage() {
 
   if (loadingStatus) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
-      </div>
+      <AuthShell title="Your Heliox workspace is taking shape.">
+        <div className="flex items-center gap-3 text-sm text-slate-400" role="status">
+          <Loader2 className="h-5 w-5 animate-spin text-violet-400" /> Loading workspace setup…
+        </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-8">
-      <div className="w-full max-w-lg">
+    <AuthShell
+      eyebrow="Guided workspace setup"
+      title="From account to operational insight in minutes."
+      description="Create the workspace boundary, secure an API key, and connect data when your team is ready."
+    >
+      <div className="w-full">
         {/* Progress */}
         <div className="mb-8 flex items-center justify-between gap-2">
           {STEPS.map((s, i) => {
@@ -152,7 +159,7 @@ export default function OnboardingPage() {
                 <div
                   className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                     active
-                      ? "bg-blue-600 text-white"
+                      ? "bg-violet-600 text-white"
                       : done
                         ? "bg-emerald-100 text-emerald-700"
                         : "bg-slate-200 text-slate-500"
@@ -176,7 +183,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* Card */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-6 sm:p-8">
+        <div className="rounded-md border border-slate-700 bg-[#11141d] p-6 sm:p-8">
           {currentStep.id === "welcome" && (
             <div className="space-y-6">
               <div>
@@ -203,7 +210,7 @@ export default function OnboardingPage() {
               <div className="flex justify-end">
                 <button
                   onClick={goNext}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+                  className="auth-primary"
                 >
                   Get started
                   <ArrowRight className="h-4 w-4" />
@@ -228,7 +235,7 @@ export default function OnboardingPage() {
                   <input
                     value={teamName}
                     onChange={(e) => setTeamName(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    className="auth-input"
                     placeholder="My Team"
                   />
                 </div>
@@ -239,7 +246,7 @@ export default function OnboardingPage() {
                   <input
                     value={apiKeyName}
                     onChange={(e) => setApiKeyName(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    className="auth-input"
                     placeholder="Default key"
                   />
                 </div>
@@ -251,7 +258,7 @@ export default function OnboardingPage() {
                     type="number"
                     value={monthlyBudget}
                     onChange={(e) => setMonthlyBudget(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    className="auth-input"
                     placeholder="25000"
                   />
                 </div>
@@ -272,7 +279,7 @@ export default function OnboardingPage() {
                 <button
                   onClick={handleCreateTeam}
                   disabled={submitting || !teamName.trim()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="auth-primary"
                 >
                   {submitting ? (
                     <>
@@ -327,7 +334,7 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   onClick={goNext}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+                  className="auth-primary"
                 >
                   {status?.has_integration ? "Next" : "Skip for now"}
                   <ArrowRight className="h-4 w-4" />
@@ -373,7 +380,7 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   onClick={goNext}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+                  className="auth-primary"
                 >
                   {status?.has_slack_webhook ? "Next" : "Skip for now"}
                   <ArrowRight className="h-4 w-4" />
@@ -412,7 +419,7 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   onClick={() => router.push("/")}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+                  className="auth-primary"
                 >
                   Go to dashboard
                   <ArrowRight className="h-4 w-4" />
@@ -432,7 +439,7 @@ export default function OnboardingPage() {
       {/* API key modal */}
       {showKeyModal && apiKeyDisplay && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+          <div className="max-w-md w-full rounded-md border border-slate-700 bg-[#11141d] p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-2">Save your API key</h2>
             <p className="text-sm text-slate-600 mb-4">
               This key is shown only once. Copy it now for CLI and programmatic access. Do not
@@ -447,7 +454,7 @@ export default function OnboardingPage() {
                   navigator.clipboard.writeText(apiKeyDisplay);
                   handleKeyModalContinue();
                 }}
-                className="w-full rounded-lg bg-blue-600 py-2.5 px-4 text-sm font-medium text-white hover:bg-blue-700"
+                className="auth-primary w-full"
               >
                 Copy and continue
               </button>
@@ -461,6 +468,6 @@ export default function OnboardingPage() {
           </div>
         </div>
       )}
-    </div>
+    </AuthShell>
   );
 }

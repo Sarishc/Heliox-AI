@@ -12,8 +12,6 @@ from app.models.team_member import TeamRole, TeamMember
 from app.models.user import User
 from sqlalchemy.orm import Session
 
-settings = get_settings()
-
 
 def get_effective_team_id(api_key: Optional[Union[TeamAPIKey, TeamContext]]) -> UUID:
     """
@@ -22,6 +20,7 @@ def get_effective_team_id(api_key: Optional[Union[TeamAPIKey, TeamContext]]) -> 
     - If MULTI_TENANT is enabled, requires a valid team API key or session.
     - If MULTI_TENANT is disabled, always returns SINGLE_TENANT_TEAM_ID.
     """
+    settings = get_settings()
     if settings.MULTI_TENANT:
         if not api_key:
             raise HTTPException(
@@ -60,6 +59,7 @@ def resolve_ingest_team_id(requested_team_id: Optional[UUID]) -> UUID:
     """
     Resolve team_id for ingestion paths (admin only).
     """
+    settings = get_settings()
     if settings.MULTI_TENANT:
         if not requested_team_id:
             raise HTTPException(

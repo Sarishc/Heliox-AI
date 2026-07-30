@@ -89,6 +89,6 @@ api_router.include_router(alert_settings.router, prefix="/alert-settings", tags=
 api_router.include_router(daily_digest.router, prefix="/daily-digest", tags=["Daily Digest"])
 api_router.include_router(public.router, prefix="/public", tags=["Public"])
 api_router.include_router(invites.router, prefix="/invite", tags=["Invites"])
-api_router.include_router(health.router, prefix="/health", tags=["Health"])
+api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(inference.router, prefix="/inference", tags=["Inference Tracking"])
 api_router.include_router(events.router, prefix="/events", tags=["Real-time Events"])

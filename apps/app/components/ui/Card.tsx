@@ -24,22 +24,21 @@ export function Card({
   loading = false,
 }: CardProps) {
   const variantStyles = {
-    default:
-      "rounded-2xl border border-border/60 bg-card shadow-sm",
-    bordered: "rounded-2xl border-2 border-border bg-card",
-    elevated: "rounded-2xl border border-border bg-card shadow-lg",
-    flat: "rounded-2xl border border-transparent bg-muted",
+    default: "rounded-md border border-border bg-card",
+    bordered: "rounded-md border border-border bg-card",
+    elevated: "rounded-md border border-border bg-card",
+    flat: "rounded-md border border-border bg-muted",
   };
 
   const paddingStyles = {
     none: "",
-    sm: "p-4",
-    md: "p-6",
-    lg: "p-8",
+    sm: "p-3",
+    md: "p-4",
+    lg: "p-5",
   };
 
   const hoverStyles = hoverable
-    ? "transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
+    ? "transition-colors duration-150 hover:bg-muted cursor-pointer"
     : "";
 
   if (loading) {
@@ -67,8 +66,7 @@ export function Card({
     <MotionDiv
       {...(hoverable
         ? {
-            whileHover: { scale: 1.02, y: -4 },
-            transition: { duration: 0.2 },
+            transition: { duration: 0.15 },
           }
         : {})}
       className={`
@@ -92,7 +90,7 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={`mb-4 ${className}`}>
+    <div className={`-mx-4 -mt-4 mb-3 border-b border-border px-3 py-2 ${className}`}>
       {children}
     </div>
   );
@@ -106,7 +104,7 @@ export function CardTitle({
   className?: string;
 }) {
   return (
-    <h3 className={`text-lg font-semibold text-foreground ${className}`}>
+    <h3 className={`text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground ${className}`}>
       {children}
     </h3>
   );
@@ -120,7 +118,7 @@ export function CardDescription({
   className?: string;
 }) {
   return (
-    <p className={`text-sm text-muted-foreground mt-1 ${className}`}>
+    <p className={`text-[11px] text-muted-foreground mt-0.5 ${className}`}>
       {children}
     </p>
   );

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
   FileText,
@@ -13,6 +12,7 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
+import { BrandMark } from "@/components/brand/BrandLogo";
 import DateRangePicker from "@/components/DateRangePicker";
 import { fetchJson } from "@/lib/api";
 import {
@@ -74,8 +74,8 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
         <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:border-r lg:border-slate-200 lg:bg-white">
           <div className="px-6 py-5 border-b border-slate-100">
             <div className="flex items-center gap-2 text-lg font-semibold">
-              <Activity className="h-5 w-5 text-blue-600" />
-              Heliox
+              <BrandMark className="h-6 w-6" />
+              heliox<span className="text-violet-500">.</span>
             </div>
             <p className="text-xs text-slate-500 mt-1">GPU Cost Intelligence</p>
           </div>

@@ -78,7 +78,7 @@ jobs:
 
     env:
       # conftest.py uses SQLite in-memory — no Postgres service needed for unit tests
-      DATABASE_URL: sqlite:///:memory:
+      DATABASE_URL: "sqlite:///:memory:"
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-at-least-32-characters-long
       ENV: dev

@@ -19,6 +19,8 @@ redis==6.4.0
 httpx==0.28.1
 boto3>=1.34.0
 google-cloud-bigquery>=3.14.0
+azure-identity>=1.15.0
+azure-mgmt-costmanagement>=4.0.0
 stripe>=7.0.0
 PyJWT[crypto]==2.13.0
 python3-saml>=1.16.0

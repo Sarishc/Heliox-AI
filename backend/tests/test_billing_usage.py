@@ -188,8 +188,11 @@ def test_subscription_serializes_string_backed_enums(client: TestClient, team_wi
 def test_checkout_propagates_team_metadata_to_subscription(monkeypatch):
     """Subscription webhooks must carry enough metadata to resolve the tenant."""
     team_id = uuid4()
-    create = lambda **kwargs: SimpleNamespace(id="cs_test_metadata", url="https://checkout.stripe.test/session")
-    monkeypatch.setattr(stripe_client.stripe.checkout.Session, "create", create)
+
+    def create_checkout_session(**kwargs):
+        return SimpleNamespace(id="cs_test_metadata", url="https://checkout.stripe.test/session")
+
+    monkeypatch.setattr(stripe_client.stripe.checkout.Session, "create", create_checkout_session)
     monkeypatch.setattr(stripe_client.settings, "STRIPE_PRICE_ID_GROWTH", "price_growth")
 
     result = stripe_client.create_checkout_session(

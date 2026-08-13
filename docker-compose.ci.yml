@@ -1,0 +1,5 @@
+services:
+  api:
+    # CI needs a stable process; the development file watcher can restart the
+    # server between readiness and smoke-test requests on hosted runners.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000

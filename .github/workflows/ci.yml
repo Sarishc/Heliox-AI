@@ -78,7 +78,7 @@ jobs:
 
     env:
       # conftest.py uses SQLite in-memory — no Postgres service needed for unit tests
-      DATABASE_URL: sqlite:///:memory:
+      DATABASE_URL: "sqlite:///:memory:"
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-at-least-32-characters-long
       ENV: dev
@@ -107,7 +107,7 @@ jobs:
       - name: Run tests
         run: |
           cd backend
-          pytest tests/ \
+          python -m pytest tests/ \
             --cov=app \
             --cov-report=xml \
             --cov-report=term-missing:skip-covered \
@@ -235,24 +235,34 @@ jobs:
           EOF
 
       - name: Start services
-        run: docker compose up -d postgres redis api
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d postgres redis api
 
       - name: Wait for API
         run: |
+          ready=false
           for i in $(seq 1 60); do
-            curl -sf http://localhost:8000/health && echo " API ready" && break
+            if curl --max-time 5 -sf http://localhost:8000/health; then
+              echo " API ready"
+              ready=true
+              break
+            fi
             echo "Attempt $i/60 — waiting..."
             sleep 2
           done
+          if [[ "$ready" != "true" ]]; then
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs api
+            exit 1
+          fi
 
       - name: Run migrations
-        run: docker compose exec -T api alembic upgrade head
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T api alembic upgrade head
 
       - name: Smoke tests
         run: |
-          curl -sf http://localhost:8000/health
-          curl -sf http://localhost:8000/ready
-          curl -sf http://localhost:8000/metrics | head -5
+          curl --retry 5 --retry-all-errors -sf http://localhost:8000/health
+          curl --retry 5 --retry-all-errors -sf http://localhost:8000/ready
+          curl --retry 5 --retry-all-errors -sf http://localhost:8000/metrics > /tmp/heliox-metrics.txt
+          head -5 /tmp/heliox-metrics.txt
 
       - name: Seed demo data
         run: |

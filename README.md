@@ -132,4 +132,4 @@ terraform apply
 
 ## License
 
-MIT
+Heliox is available under the [MIT License](LICENSE).

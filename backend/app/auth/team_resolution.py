@@ -39,6 +39,9 @@ async def verify_team_api_key_or_session(
             api_key = _get_team_api_key_by_value(api_key_value, db, get_request_id())
             request.state.tenant_id = api_key.team_id
             return api_key
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_403_FORBIDDEN:
+                raise  # valid key used outside its scope; say so instead of a vague 401
         except Exception:
             pass  # Fall through to session
 
@@ -89,6 +92,9 @@ async def get_team_api_key_or_session_optional(
     if api_key_value:
         try:
             return _get_team_api_key_by_value(api_key_value, db, get_request_id())
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_403_FORBIDDEN:
+                raise  # valid key used outside its scope; say so instead of a vague 401
         except Exception:
             pass
 

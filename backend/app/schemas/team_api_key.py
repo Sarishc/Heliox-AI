@@ -1,7 +1,7 @@
 """Schemas for team API keys."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -17,6 +17,10 @@ class TeamAPIKeyCreate(BaseModel):
         description="Human-readable name for this API key",
     )
     team_id: UUID = Field(..., description="Team ID that will own this API key")
+    scope: Literal["full", "ingest"] = Field(
+        "full",
+        description="full = all endpoints; ingest = POST /ingest/* only (available on the free plan)",
+    )
 
 
 class TeamAPIKeyResponse(BaseModel):
@@ -26,6 +30,7 @@ class TeamAPIKeyResponse(BaseModel):
     team_id: UUID
     key_name: str
     is_active: bool
+    scope: str = "full"
     last_used_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -42,6 +47,7 @@ class TeamAPIKeyCreateResponse(BaseModel):
     key_name: str
     api_key: str = Field(..., description="The API key value (only shown once on creation)")
     is_active: bool
+    scope: str = "full"
     created_at: datetime
 
     class Config:

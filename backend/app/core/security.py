@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.logging import get_request_id
+from app.core.logging import get_request_id, get_request_route
 from app.models.team import Team
-from app.models.team_api_key import TeamAPIKey
+from app.models.team_api_key import SCOPE_INGEST, TeamAPIKey
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -139,6 +139,15 @@ def verify_admin_api_key(x_api_key: Optional[str] = Header(None)) -> str:
 get_api_key = verify_admin_api_key
 
 
+def _is_ingest_request() -> bool:
+    """True when the current HTTP request is a POST to an ingestion endpoint."""
+    route = get_request_route()
+    if route is None:
+        return False
+    method, path = route
+    return method == "POST" and path.startswith(f"{settings.API_V1_PREFIX}/ingest/")
+
+
 def _get_team_api_key_by_value(x_api_key: str, db: Session, request_id: str) -> TeamAPIKey:
     """
     Resolve and validate a team API key value.
@@ -180,6 +189,18 @@ def _get_team_api_key_by_value(x_api_key: str, db: Session, request_id: str) -> 
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Ingest-only keys are deny-by-default: anything but POST /ingest/* is refused,
+    # including calls made outside an HTTP request where the route is unknown
+    if api_key.scope == SCOPE_INGEST and not _is_ingest_request():
+        logger.warning(
+            "Ingest-only API key used outside ingestion endpoints",
+            extra={"request_id": request_id, "team_id": str(api_key.team_id), "route": get_request_route()},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"This API key is ingest-only and can only call POST {settings.API_V1_PREFIX}/ingest/* endpoints",
         )
 
     # Update last_used_at

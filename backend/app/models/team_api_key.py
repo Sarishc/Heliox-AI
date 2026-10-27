@@ -10,6 +10,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
+# Key scopes: "full" works on every endpoint the team can reach; "ingest" only
+# on POST {API_V1_PREFIX}/ingest/* (enforced in core.security).
+SCOPE_FULL = "full"
+SCOPE_INGEST = "ingest"
+
 
 class TeamAPIKey(UUIDMixin, TimestampMixin, Base):
     """
@@ -40,6 +45,14 @@ class TeamAPIKey(UUIDMixin, TimestampMixin, Base):
     )
 
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False, comment="Whether this API key is active")
+
+    scope: Mapped[str] = mapped_column(
+        String(16),
+        default=SCOPE_FULL,
+        server_default=SCOPE_FULL,
+        nullable=False,
+        comment="full = all endpoints; ingest = POST /ingest/* only",
+    )
 
     last_used_at: Mapped[Optional[datetime]] = mapped_column(
         nullable=True, comment="Timestamp when this key was last used"

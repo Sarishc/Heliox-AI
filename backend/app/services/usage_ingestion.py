@@ -36,6 +36,7 @@ class UsageIngestionService:
                 "environment": str(env_value).lower().strip(),
                 "project": str(project_value).lower().strip(),
                 "gpu_hours": Decimal(metric.gpu_hours),
+                "allocated_gpu_hours": Decimal(metric.allocated_gpu_hours),
             }
             stmt = insert(UsageSnapshot).values(**normalized)
             stmt = stmt.on_conflict_do_update(
@@ -49,6 +50,7 @@ class UsageIngestionService:
                 ],
                 set_={
                     "gpu_hours": UsageSnapshot.gpu_hours + stmt.excluded.gpu_hours,
+                    "allocated_gpu_hours": UsageSnapshot.allocated_gpu_hours + stmt.excluded.allocated_gpu_hours,
                     "updated_at": stmt.excluded.updated_at,
                 },
             )
@@ -69,6 +71,9 @@ class UsageIngestionService:
                 if existing:
                     snapshot = existing[0]
                     snapshot.gpu_hours = snapshot.gpu_hours + normalized["gpu_hours"]
+                    snapshot.allocated_gpu_hours = (snapshot.allocated_gpu_hours or 0) + normalized[
+                        "allocated_gpu_hours"
+                    ]
                 else:
                     self.db.add(UsageSnapshot(**normalized))
             if existing:

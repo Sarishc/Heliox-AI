@@ -52,7 +52,8 @@ def test_accumulator_averages_samples_over_real_elapsed_time():
     # 50% average over 2 hours = 1 busy GPU-hour
     result = acc.flush(elapsed_seconds=7200)
 
-    assert result == [{"gpu_type": "a100", "gpu_hours": 1.0}]
+    # Busy hours for idle waste, plus the hours the GPU was powered (what you pay for)
+    assert result == [{"gpu_type": "a100", "gpu_hours": 1.0, "allocated_gpu_hours": 2.0}]
 
 
 def test_accumulator_reports_each_gpu_separately():
@@ -67,6 +68,7 @@ def test_accumulator_reports_each_gpu_separately():
     result = acc.flush(elapsed_seconds=3600)
 
     assert sorted(r["gpu_hours"] for r in result) == [0.5, 1.0]
+    assert [r["allocated_gpu_hours"] for r in result] == [1.0, 1.0]
 
 
 def test_accumulator_is_empty_after_flush():
@@ -80,7 +82,10 @@ def test_accumulator_is_empty_after_flush():
 def test_usage_payload_shape():
     now = datetime(2026, 10, 27, tzinfo=timezone.utc)
     payload = agent.build_usage_payload(
-        [{"gpu_type": "a100", "gpu_hours": 0.25}], provider="aws", tags={"node": "n1"}, now=now
+        [{"gpu_type": "a100", "gpu_hours": 0.25, "allocated_gpu_hours": 1.0}],
+        provider="aws",
+        tags={"node": "n1"},
+        now=now,
     )
 
     assert payload == {
@@ -90,10 +95,21 @@ def test_usage_payload_shape():
                 "provider": "aws",
                 "gpu_type": "a100",
                 "gpu_hours": 0.25,
+                "allocated_gpu_hours": 1.0,
                 "tags": {"node": "n1"},
             }
         ]
     }
+
+
+def test_cost_estimate_prices_powered_hours_not_busy_hours():
+    # A powered GPU costs the same whether it's busy or idle
+    now = datetime(2026, 10, 27, tzinfo=timezone.utc)
+    payload = agent.build_cost_payload(
+        [{"gpu_type": "a100", "gpu_hours": 0.25, "allocated_gpu_hours": 1.0}], provider="aws", now=now
+    )
+
+    assert payload["records"][0]["cost_usd"] == agent.PRICING_TABLE["a100"]["aws"]
 
 
 # ── Cost estimates are opt-in ──────────────────────────────────────────────────

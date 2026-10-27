@@ -1,7 +1,12 @@
 ## Heliox Agent
 
-Samples each GPU's utilization with NVML and reports **busy GPU-hours**
-(average utilization × elapsed time) to `POST /api/v1/ingest/usage`.
+Samples each GPU's utilization with NVML and reports, per GPU, to
+`POST /api/v1/ingest/usage`:
+
+- **busy GPU-hours** (average utilization × elapsed time), and
+- **allocated GPU-hours** (elapsed time: the GPU was present and powered).
+
+Heliox measures idle waste as cost × (1 − busy ÷ allocated).
 
 - The API key comes from `HELIOX_API_KEY` or `--api-key-file`. It is never a
   command-line flag, so it doesn't show up in `ps` or pod specs. An

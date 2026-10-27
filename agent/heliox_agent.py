@@ -2,10 +2,12 @@
 """Heliox agent: sample GPU utilization with NVML and report busy GPU-hours to Heliox.
 
 Every ``--sample-seconds`` the agent reads each GPU's utilization. Every
-``--interval`` seconds it averages those samples per GPU and sends
-``busy GPU-hours = average utilization x elapsed time`` to
-``POST /api/v1/ingest/usage``. That is the quantity Heliox's idle-waste
-calculation expects.
+``--interval`` seconds it sends, per GPU, to ``POST /api/v1/ingest/usage``:
+
+- ``gpu_hours``: busy GPU-hours = average utilization x elapsed time
+- ``allocated_gpu_hours``: elapsed time, since the GPU was present and powered
+
+Heliox measures idle waste as cost x (1 - busy / allocated).
 
 The API key is read from ``HELIOX_API_KEY`` or ``--api-key-file``, never from
 the command line, so it doesn't show up in ``ps`` output or pod specs.
@@ -118,7 +120,14 @@ class IntervalAccumulator:
         for index, values in sorted(self._samples.items()):
             avg_utilization = sum(values) / len(values)
             busy_hours = (avg_utilization / 100.0) * (elapsed_seconds / 3600.0)
-            result.append({"gpu_type": self._types[index], "gpu_hours": round(busy_hours, 6)})
+            # The GPU was present and powered for the whole interval: that's the paid capacity
+            result.append(
+                {
+                    "gpu_type": self._types[index],
+                    "gpu_hours": round(busy_hours, 6),
+                    "allocated_gpu_hours": round(elapsed_seconds / 3600.0, 6),
+                }
+            )
         self._samples.clear()
         return result
 
@@ -131,6 +140,7 @@ def build_usage_payload(gpu_hours: List[Dict], provider: str, tags: Dict, now: d
                 "provider": provider,
                 "gpu_type": g["gpu_type"],
                 "gpu_hours": g["gpu_hours"],
+                "allocated_gpu_hours": g["allocated_gpu_hours"],
                 "tags": tags,
             }
             for g in gpu_hours
@@ -142,7 +152,8 @@ def build_cost_payload(gpu_hours: List[Dict], provider: str, now: datetime) -> O
     records = []
     for g in gpu_hours:
         hourly_rate = PRICING_TABLE.get(g["gpu_type"], {}).get(provider)
-        cost_usd = round((hourly_rate or 0) * g["gpu_hours"], 4)
+        # A powered GPU is billed whether busy or idle
+        cost_usd = round((hourly_rate or 0) * g["allocated_gpu_hours"], 4)
         if cost_usd > 0:
             records.append(
                 {"date": now.date().isoformat(), "provider": provider, "gpu_type": g["gpu_type"], "cost_usd": cost_usd}

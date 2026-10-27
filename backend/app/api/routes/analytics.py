@@ -30,12 +30,55 @@ from app.schemas.business_metric import (
 from app.schemas.recommendation import RecommendationFilters
 from app.services.recommendations import RecommendationEngine
 from app.services.roi_dashboard import get_roi_dashboard
-from app.models.cost import CostSnapshot, UsageSnapshot
+from app.services.gpu_cost_attribution import IdleWaste, attribute_cost_by_model, measure_idle_waste
+from app.models.cost import CostSnapshot
 from app.models.business_metric import BusinessMetric
 from app.models.job import Job
 from app.models.team import Team
 
 router = APIRouter()
+
+
+ATTRIBUTION_FORMULA = (
+    "per (day, provider, gpu_type): cost * model_gpu_seconds / all_job_gpu_seconds; "
+    "spend with no matching jobs is unattributed"
+)
+ATTRIBUTION_ASSUMPTIONS = [
+    "Each job uses one GPU (jobs have no GPU count).",
+    "Jobs are matched to spend on the same day, provider and GPU type; running jobs count up to now.",
+]
+
+
+def _idle_waste_explain(waste: IdleWaste, start: date, end: date) -> MetricValue:
+    """Explanation shared by /idle-waste and /savings/summary so they can't drift."""
+    days = (end - start).days + 1
+    return explain_metric(
+        value=round(waste.idle_waste_usd, 2),
+        unit="USD",
+        window=f"{start.isoformat()} to {end.isoformat()}",
+        formula="per (day, provider, gpu_type) with agent data: cost * (1 - busy_gpu_hours / allocated_gpu_hours)",
+        components=[
+            Component(name="idle_waste", value=round(waste.idle_waste_usd, 2), unit="USD", source="cost_snapshots"),
+            Component(
+                name="allocated_gpu_hours",
+                value=round(waste.allocated_hours, 4),
+                unit="hours",
+                source="usage_snapshots",
+            ),
+            Component(name="busy_gpu_hours", value=round(waste.busy_hours, 4), unit="hours", source="usage_snapshots"),
+            Component(
+                name="measured_cost", value=round(waste.measured_cost_usd, 2), unit="USD", source="cost_snapshots"
+            ),
+            Component(
+                name="unmeasured_cost", value=round(waste.unmeasured_cost_usd, 2), unit="USD", source="cost_snapshots"
+            ),
+        ],
+        assumptions=[
+            "Allocated GPU-hours come from the Heliox agent (GPUs present and powered).",
+            "Spend without agent data is reported as unmeasured, not idle.",
+        ],
+        inputs={"data_points": days, "window_days": days, "telemetry_coverage": waste.coverage},
+    )
 
 
 class CostByModelResponse(BaseModel):
@@ -117,168 +160,68 @@ def get_cost_by_model(
 
     team_id = get_effective_team_id(team_api_key)
 
-    # Aggregate job runtime per model per day
-    dialect_name = db.bind.dialect.name if db.bind else ""
-    daily_runtime = {}
-    daily_job_count = {}
-    model_runtime = {}
-    model_job_count = {}
-    model_job_count_by_day = {}
+    attribution = attribute_cost_by_model(db, team_id, start, end)
+    if not attribution.models:
+        return []
 
-    if dialect_name == "sqlite":
-        jobs = (
-            db.query(Job)
-            .filter(
-                Job.team_id == team_id,
-                Job.start_time.isnot(None),
-                Job.end_time.isnot(None),
-                func.date(Job.start_time) >= start,
-                func.date(Job.start_time) <= end,
-            )
-            .all()
-        )
-        if not jobs:
-            return []
-        for job in jobs:
-            day = job.start_time.date()
-            runtime = (job.end_time - job.start_time).total_seconds()
-            daily_runtime[day] = daily_runtime.get(day, 0.0) + runtime
-            daily_job_count[day] = daily_job_count.get(day, 0) + 1
-            model_runtime[(day, job.model_name)] = model_runtime.get((day, job.model_name), 0.0) + runtime
-            model_job_count[job.model_name] = model_job_count.get(job.model_name, 0) + 1
-            model_job_count_by_day[(day, job.model_name)] = model_job_count_by_day.get((day, job.model_name), 0) + 1
-    else:
-        runtime_expr = func.sum(func.extract("epoch", Job.end_time - Job.start_time))
-        runtime_stmt = (
-            select(
-                func.date(Job.start_time).label("day"),
-                Job.model_name,
-                func.count(Job.id).label("job_count"),
-                runtime_expr.label("runtime_seconds"),
-            )
-            .where(
-                Job.team_id == team_id,
-                Job.start_time.isnot(None),
-                Job.end_time.isnot(None),
-                func.date(Job.start_time) >= start,
-                func.date(Job.start_time) <= end,
-            )
-            .group_by(func.date(Job.start_time), Job.model_name)
-        )
-        runtime_rows = db.execute(runtime_stmt).all()
-        if not runtime_rows:
-            return []
-        for day, model_name, job_count, runtime_seconds in runtime_rows:
-            runtime = float(runtime_seconds or 0.0)
-            daily_runtime[day] = daily_runtime.get(day, 0.0) + runtime
-            daily_job_count[day] = daily_job_count.get(day, 0) + int(job_count)
-            model_runtime[(day, model_name)] = model_runtime.get((day, model_name), 0.0) + runtime
-            model_job_count[model_name] = model_job_count.get(model_name, 0) + int(job_count)
-            model_job_count_by_day[(day, model_name)] = model_job_count_by_day.get((day, model_name), 0) + int(
-                job_count
-            )
-
-    daily_cost_rows = db.execute(
-        select(CostSnapshot.date, func.sum(CostSnapshot.cost_usd))
-        .where(
-            CostSnapshot.team_id == team_id,
-            CostSnapshot.date >= start,
-            CostSnapshot.date <= end,
-        )
-        .group_by(CostSnapshot.date)
-    ).all()
-    daily_costs = {row[0]: float(row[1] or 0.0) for row in daily_cost_rows}
-
-    model_costs = {}
-    model_total_runtime = {}
-    for (day, model_name), runtime in model_runtime.items():
-        daily_cost = daily_costs.get(day, 0.0)
-        if daily_cost <= 0:
-            continue
-        total_runtime = daily_runtime.get(day, 0.0)
-        if total_runtime > 0 and runtime > 0:
-            share = runtime / total_runtime
-        else:
-            total_jobs = daily_job_count.get(day, 0)
-            model_jobs = model_job_count_by_day.get((day, model_name), 0)
-            share = (model_jobs / total_jobs) if total_jobs > 0 else 0.0
-        model_costs[model_name] = model_costs.get(model_name, 0.0) + (daily_cost * share)
-        model_total_runtime[model_name] = model_total_runtime.get(model_name, 0.0) + runtime
-
-    total_runtime = sum(model_total_runtime.values()) if model_total_runtime else 0.0
+    days = (end - start).days + 1
+    window = f"{start.isoformat()} to {end.isoformat()}"
+    total_gpu_hours = attribution.total_gpu_hours
     cost_by_model = [
         CostByModelResponse(
-            model_name=model_name,
-            total_cost_usd=round(model_costs.get(model_name, 0.0), 2),
-            job_count=model_job_count.get(model_name, 0),
+            model_name=m.model_name,
+            total_cost_usd=round(m.cost_usd, 2),
+            job_count=m.job_count,
             start_date=start,
             end_date=end,
-            runtime_share=(
-                round(model_total_runtime.get(model_name, 0.0) / total_runtime, 4) if total_runtime > 0 else None
-            ),
+            runtime_share=round(m.gpu_hours / total_gpu_hours, 4) if total_gpu_hours > 0 else None,
             explain=(
                 explain_metric(
-                    value=round(model_costs.get(model_name, 0.0), 2),
+                    value=round(m.cost_usd, 2),
                     unit="USD",
-                    window=f"{start.isoformat()} to {end.isoformat()}",
-                    formula="sum(daily_cost * runtime_share)",
+                    window=window,
+                    formula=ATTRIBUTION_FORMULA,
                     components=[
-                        Component(
-                            name="model_runtime_seconds",
-                            value=round(model_total_runtime.get(model_name, 0.0), 2),
-                            unit="seconds",
-                            source="jobs",
-                        ),
-                        Component(
-                            name="job_count",
-                            value=model_job_count.get(model_name, 0),
-                            unit="jobs",
-                            source="jobs",
-                        ),
+                        Component(name="model_gpu_hours", value=round(m.gpu_hours, 4), unit="hours", source="jobs"),
+                        Component(name="job_count", value=m.job_count, unit="jobs", source="jobs"),
                     ],
-                    assumptions=["Runtime share falls back to job-count share when runtime missing."],
-                    inputs={
-                        "data_points": (end - start).days + 1,
-                        "window_days": (end - start).days + 1,
-                        "telemetry_coverage": (1.0 if model_total_runtime.get(model_name, 0.0) > 0 else 0.6),
-                    },
+                    assumptions=ATTRIBUTION_ASSUMPTIONS,
+                    inputs={"data_points": days, "window_days": days},
                 )
                 if include_explain
                 else None
             ),
         )
-        for model_name in model_job_count.keys()
+        for m in attribution.models
     ]
-    cost_by_model.sort(key=lambda x: x.total_cost_usd, reverse=True)
     record_api_usage(db, team_id=team_id, endpoint="analytics_cost_by_model")
     if include_explain:
+        attributed = attribution.total_usd - attribution.unattributed_usd
         point_explain = {item.model_name: item.explain for item in cost_by_model if item.explain is not None}
         return CostByModelEnvelope(
             items=cost_by_model,
             explain=explain_metric(
-                value=round(sum(model_costs.values()), 2),
+                value=round(attributed, 2),
                 unit="USD",
-                window=f"{start.isoformat()} to {end.isoformat()}",
-                formula="sum(daily_cost * runtime_share) across models",
+                window=window,
+                formula=ATTRIBUTION_FORMULA,
                 components=[
                     Component(
-                        name="total_cost",
-                        value=round(sum(model_costs.values()), 2),
+                        name="total_cost", value=round(attribution.total_usd, 2), unit="USD", source="cost_snapshots"
+                    ),
+                    Component(
+                        name="unattributed_cost",
+                        value=round(attribution.unattributed_usd, 2),
                         unit="USD",
                         source="cost_snapshots",
                     ),
-                    Component(
-                        name="total_runtime_seconds",
-                        value=round(total_runtime, 2),
-                        unit="seconds",
-                        source="jobs",
-                    ),
+                    Component(name="total_gpu_hours", value=round(total_gpu_hours, 4), unit="hours", source="jobs"),
                 ],
-                assumptions=["Runtime share falls back to job-count share when runtime missing."],
+                assumptions=ATTRIBUTION_ASSUMPTIONS,
                 inputs={
-                    "data_points": (end - start).days + 1,
-                    "window_days": (end - start).days + 1,
-                    "telemetry_coverage": 1.0 if total_runtime > 0 else 0.6,
+                    "data_points": days,
+                    "window_days": days,
+                    "telemetry_coverage": (attributed / attribution.total_usd) if attribution.total_usd else 0.0,
                 },
             ),
             point_explain=point_explain,
@@ -464,43 +407,8 @@ def get_savings_summary(
     total_cost = float(total_cost)
 
     days = (end - start).days + 1
-    # Estimate idle waste: compare expected hours (24h/day) to actual usage
-    cost_stmt = (
-        select(
-            CostSnapshot.gpu_type,
-            CostSnapshot.provider,
-            func.sum(CostSnapshot.cost_usd).label("total_cost"),
-            func.count(CostSnapshot.id).label("days_count"),
-        )
-        .where(
-            CostSnapshot.team_id == team_id,
-            CostSnapshot.date >= start,
-            CostSnapshot.date <= end,
-        )
-        .group_by(CostSnapshot.gpu_type, CostSnapshot.provider)
-    )
-    idle_waste = 0.0
-    total_expected_hours = 0.0
-    total_usage_hours = 0.0
-    for gpu_type, provider, cost_sum, days_count in db.execute(cost_stmt).all():
-        expected_hours = float(days_count) * 24.0
-        usage_hours = (
-            db.execute(
-                select(func.sum(UsageSnapshot.gpu_hours)).where(
-                    UsageSnapshot.team_id == team_id,
-                    UsageSnapshot.date >= start,
-                    UsageSnapshot.date <= end,
-                    UsageSnapshot.gpu_type == gpu_type,
-                    UsageSnapshot.provider == provider,
-                )
-            ).scalar_one_or_none()
-            or 0.0
-        )
-        total_expected_hours += expected_hours
-        total_usage_hours += float(usage_hours)
-        if expected_hours > 0:
-            waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
-            idle_waste += float(cost_sum or 0.0) * waste_ratio
+    waste = measure_idle_waste(db, team_id, start, end)
+    idle_waste = waste.idle_waste_usd
 
     # Recommended savings based on recommendations
     filters = RecommendationFilters(start_date=start, end_date=end, team_id=team_id)
@@ -535,32 +443,7 @@ def get_savings_summary(
                 "window_days": int(days),
             },
         )
-        response.idle_waste_explain = explain_metric(
-            value=round(idle_waste, 2),
-            unit="USD",
-            window=window_label,
-            formula="sum(cost_usd * idle_ratio), idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)",
-            components=[
-                Component(
-                    name="expected_hours",
-                    value=round(total_expected_hours, 2),
-                    unit="hours",
-                    source="assumption",
-                ),
-                Component(
-                    name="usage_hours",
-                    value=round(total_usage_hours, 2),
-                    unit="hours",
-                    source="usage_snapshots",
-                ),
-            ],
-            assumptions=["Expected hours = 24h/day per GPU type/provider."],
-            inputs={
-                "data_points": int(days),
-                "window_days": int(days),
-                "telemetry_coverage": ((total_usage_hours / total_expected_hours) if total_expected_hours else 0.0),
-            },
-        )
+        response.idle_waste_explain = _idle_waste_explain(waste, start, end)
         response.recommended_savings_explain = explain_metric(
             value=round(recommended_savings, 2),
             unit="USD",
@@ -668,60 +551,7 @@ def get_idle_waste(
     if end < start:
         raise HTTPException(status_code=400, detail="end_date must be >= start_date")
     team_id = get_effective_team_id(team_api_key)
-    cost_stmt = (
-        select(
-            CostSnapshot.gpu_type,
-            CostSnapshot.provider,
-            func.sum(CostSnapshot.cost_usd).label("cost_sum"),
-            func.count(CostSnapshot.id).label("days_count"),
-        )
-        .where(
-            CostSnapshot.team_id == team_id,
-            CostSnapshot.date >= start,
-            CostSnapshot.date <= end,
-        )
-        .group_by(CostSnapshot.gpu_type, CostSnapshot.provider)
-    )
-    idle_waste = 0.0
-    for gpu_type, provider, cost_sum, days_count in db.execute(cost_stmt).all():
-        expected_hours = float(days_count) * 24.0
-        usage_hours = (
-            db.execute(
-                select(func.sum(UsageSnapshot.gpu_hours)).where(
-                    UsageSnapshot.team_id == team_id,
-                    UsageSnapshot.date >= start,
-                    UsageSnapshot.date <= end,
-                    UsageSnapshot.provider == provider,
-                    UsageSnapshot.gpu_type == gpu_type,
-                )
-            ).scalar_one_or_none()
-            or 0.0
-        )
-        if expected_hours > 0:
-            waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
-            idle_waste += float(cost_sum or 0.0) * waste_ratio
-
-    days = (end - start).days + 1
-    return explain_metric(
-        value=round(idle_waste, 2),
-        unit="USD",
-        window=f"{start.isoformat()} to {end.isoformat()}",
-        formula="sum(cost_usd * idle_ratio), idle_ratio = max(0, (expected_hours - usage_hours)/expected_hours)",
-        components=[
-            Component(
-                name="idle_waste",
-                value=round(idle_waste, 2),
-                unit="USD",
-                source="cost_snapshots",
-            ),
-        ],
-        assumptions=["Expected hours = 24h/day per GPU type/provider."],
-        inputs={
-            "data_points": int(days),
-            "window_days": int(days),
-            "telemetry_coverage": 1.0 if idle_waste > 0 else 0.6,
-        },
-    )
+    return _idle_waste_explain(measure_idle_waste(db, team_id, start, end), start, end)
 
 
 @router.post(

@@ -22,6 +22,7 @@ from app.services.forecasting import (
     MAX_HORIZON_DAYS,
 )
 from app.core.cache import get_redis
+from app.services.gpu_cost_attribution import attribute_cost_by_model
 from app.services.optimizer import SelfOptimizingAdvisor
 
 
@@ -328,55 +329,19 @@ class AssistantQueryService:
         return DEFAULT_HORIZON_DAYS
 
     def _cost_by_model(self, team_id: UUID, start: date, end: date) -> tuple[list[dict], int]:
-        query_count = 0
-        stmt = (
-            select(Job.model_name, func.count(Job.id).label("job_count"))
-            .where(
-                func.date(Job.start_time) >= start,
-                func.date(Job.start_time) <= end,
-                Job.team_id == team_id,
-            )
-            .group_by(Job.model_name)
-        )
-        rows = self.db.execute(stmt).all()
-        query_count += 1
-        items = []
-        for model_name, job_count in rows:
-            gpu_stmt = (
-                select(Job.gpu_type, Job.provider)
-                .where(
-                    Job.model_name == model_name,
-                    Job.team_id == team_id,
-                    func.date(Job.start_time) >= start,
-                    func.date(Job.start_time) <= end,
-                )
-                .distinct()
-            )
-            gpu_rows = self.db.execute(gpu_stmt).all()
-            query_count += 1
-            total_cost = 0.0
-            for gpu_type, provider in gpu_rows:
-                cost_stmt = select(func.sum(CostSnapshot.cost_usd)).where(
-                    CostSnapshot.team_id == team_id,
-                    CostSnapshot.date >= start,
-                    CostSnapshot.date <= end,
-                    CostSnapshot.gpu_type == gpu_type.lower(),
-                    CostSnapshot.provider == provider.lower(),
-                )
-                gpu_cost = self.db.execute(cost_stmt).scalar_one_or_none() or 0.0
-                query_count += 1
-                total_cost += float(gpu_cost)
-            items.append(
-                {
-                    "model_name": model_name,
-                    "total_cost_usd": round(total_cost, 2),
-                    "job_count": job_count,
-                    "start_date": str(start),
-                    "end_date": str(end),
-                }
-            )
-        items.sort(key=lambda x: x["total_cost_usd"], reverse=True)
-        return items, query_count
+        # Same attribution as the dashboard (GET /analytics/cost/by-model)
+        attribution = attribute_cost_by_model(self.db, team_id, start, end)
+        items = [
+            {
+                "model_name": m.model_name,
+                "total_cost_usd": round(m.cost_usd, 2),
+                "job_count": m.job_count,
+                "start_date": str(start),
+                "end_date": str(end),
+            }
+            for m in attribution.models
+        ]
+        return items, 2  # one cost query, one jobs query
 
     def _cost_by_team(self, team_id: UUID, start: date, end: date) -> tuple[list[dict], int]:
         query_count = 0

@@ -1,6 +1,6 @@
 # Heliox — Plan of Action to Market-Ready (RPI · Plan)
 
-Date: 2026-10-27 · Input: [`01-research.md`](01-research.md) · Status: **awaiting approval**
+Date: 2026-10-27 · Input: [`01-research.md`](01-research.md) · Status: **approved 2026-10-27 · Phase 1 in progress (1.1, 1.2, 1.4 done; branches local, not yet merged)**
 
 ## Goal
 
@@ -44,10 +44,13 @@ doesn't exist.
 
 | # | Task | Fixes | Acceptance criteria |
 |---|---|---|---|
-| 1.1 | **Remove the `/proxy` page** (or hide it behind a feature flag) and remove every link to `proxy.heliox.ai` | P0-3 | No route or link to `/proxy` in production builds; the e2e route list is updated |
-| 1.2 | **Fix the GPU agent** (see the sub-list below) | P0-2 a–h | Unit tests cover the payload math; an image builds in CI; the agent refuses to start without NVML unless `--mock` is passed |
-| 1.3 | **Unify cost attribution** in one `services/attribution.py`. Split each day's spend by GPU-seconds, matched on (date, provider, gpu_type). Leftover spend goes to an "unattributed" bucket. The analytics route and the assistant both call it. Fix the README to match. | P0-5 | Property test: per-model costs + unattributed = total spend; the assistant and the dashboard return the same numbers for the same window |
-| 1.4 | **Free tier gets 1 ingest-only API key** (agent/SDK only, no read API). Keep `api_access=False` for the read API. | P0-4 | A free team can create exactly one ingest key; `/ingest/*` accepts it; read endpoints still reject it |
+| 1.1 ✅ | **Remove the `/proxy` page** (or hide it behind a feature flag) and remove every link to `proxy.heliox.ai` | P0-3 | No route or link to `/proxy` in production builds; the e2e route list is updated. **Done:** `feat/remove-proxy-page` |
+| 1.2 ✅ | **Fix the GPU agent** (see the sub-list below) | P0-2 a–h | Unit tests cover the payload math; an image builds in CI; the agent refuses to start without NVML unless `--mock` is passed. **Done:** `feat/gpu-agent-fixes` (23 agent tests, live mock run, migration 034) |
+| 1.3 | **Unify cost attribution** in one `services/attribution.py`. Split each day's spend by GPU-seconds, matched on (date, provider, gpu_type). Leftover spend goes to an "unattributed" bucket. The analytics route and the assistant both call it. Fix the README to match. **Also:** base idle waste's expected hours on GPU count, not `cost-days × 24`; normalize the GCP provider to `gcp` (with a data migration). | P0-5 | Property test: per-model costs + unattributed = total spend; the assistant and the dashboard return the same numbers for the same window; an 8-GPU fleet at 50% shows 50% idle |
+| 1.4 ✅ | **Free tier gets 1 ingest-only API key** (agent/SDK only, no read API). Keep `api_access=False` for the read API. | P0-4 | A free team can create exactly one ingest key; `/ingest/*` accepts it; read endpoints still reject it. **Done:** `feat/free-tier-ingest-key` (migration 033) |
+
+**Merge note:** migrations 033 (1.4) and 034 (1.2) both follow 032. Whichever
+branch merges second must set its `down_revision` to the other's revision.
 | 1.5 | **Add legal pages:** `/terms`, `/privacy`, `/dpa`, linked from signup (with a checkbox), the footer and Stripe checkout. The text comes from 0.5; until then, placeholder pages show a draft banner. | P0-6 | Signup records the terms version and acceptance time |
 | 1.6 | **Repo hygiene:** remove the committed `backend/.venv311/`; move the root `*_SUMMARY.md`, `*_AUDIT*.md` and similar files into `docs/archive/`; keep README, LICENSE and ARCHITECTURE at the root | P1-9 | Root has under 15 files; no build or test regressions |
 

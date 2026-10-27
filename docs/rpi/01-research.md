@@ -127,7 +127,7 @@ The README promises a "one-line agent deploy via Kubernetes DaemonSet".
 
 | # | Problem | Where |
 |---|---|---|
-| f | **It computes `gpu_hours = utilization × interval`.** That mixes up *allocated* hours with *utilized* hours, which corrupts the idle-waste formula (Heliox's headline metric). | `heliox_agent.py:69` |
+| f | ~~Mixes up allocated and utilized hours.~~ **Corrected during 1.2:** idle waste treats `gpu_hours` as *busy* hours against 24 paid hours/day (`analytics.py:486-502`), so `utilization × interval` is the right quantity. The real problem was accuracy: one reading per interval, multiplied by the nominal interval instead of the measured one. | `heliox_agent.py:69` |
 | g | `--send-costs` is `store_true` with `default=True`, so it **can't be turned off**. The agent posts cost *estimates* from a hard-coded price table, which double-counts against real billing data from the cloud connectors. | `heliox_agent.py:112` |
 | h | The provider is hard-coded to `"local"`, and no pod, namespace or node labels are sent. **Per-job, per-team and per-model attribution from the agent is impossible.** | `heliox_agent.py` |
 
@@ -163,6 +163,14 @@ The README promises a "one-line agent deploy via Kubernetes DaemonSet".
 For a cost product, numbers that disagree are a trust-killer. We need one
 attribution service, used by every caller, with a test that per-model costs
 add up to total spend.
+
+**Found while doing 1.2 (all verified):**
+
+| Finding | Where | Status |
+|---|---|---|
+| `usage_snapshots.gpu_hours` was `NUMERIC(12,2)`, so each 60-second agent report was rounded before summing. A 25%-busy GPU stored 0.00 every minute; a 50% one was overstated by 20%. | `models/cost.py:110` | **Fixed in 1.2** (migration 034, `NUMERIC(14,6)`) |
+| Idle waste's "expected hours" is `cost-days × 24` per GPU type, whatever the fleet size. An 8-GPU fleet reports up to 192 busy hours against 24 expected, so it never shows waste. | `analytics.py:486`, `:687` | Open, moved into 1.3 |
+| The GCP connector stores `provider="gcp_billing_bigquery"` while AWS and Azure store `aws`/`azure`, so GCP agent usage (`gcp`) never joins to GCP billing. Fixing it needs a data migration of existing rows. | `gcp_billing_bigquery.py:470,482` | Open, moved into 1.3 |
 
 ### P0-6 · There are no legal pages. *(Verified here)*
 - **What's missing:** no Terms of Service, Privacy Policy, DPA or refund policy

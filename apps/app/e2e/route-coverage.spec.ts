@@ -16,7 +16,6 @@ const protectedRoutes = [
   "/forecast",
   "/onboarding",
   "/optimization",
-  "/proxy",
   "/recommendations",
   "/reports",
   "/roi",

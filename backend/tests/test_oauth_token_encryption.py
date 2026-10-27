@@ -173,9 +173,8 @@ def test_config_raises_on_missing_key_in_production(monkeypatch):
     Settings raises ValueError when INTEGRATIONS_ENCRYPTION_KEY is absent in
     production (or staging).
     """
-    from app.core.config import get_settings
+    from app.core.config import Settings
 
-    get_settings.cache_clear()
     monkeypatch.setenv("ENV", "production")
     monkeypatch.setenv("SECRET_KEY", "a-sufficiently-long-secret-key-for-tests-ok")
     monkeypatch.setenv("CORS_ORIGINS", '["https://app.example.com"]')
@@ -183,11 +182,9 @@ def test_config_raises_on_missing_key_in_production(monkeypatch):
     monkeypatch.setenv("REDIS_URL", "redis://host:6379/0")
     monkeypatch.delenv("INTEGRATIONS_ENCRYPTION_KEY", raising=False)
 
-    try:
-        with pytest.raises(ValueError, match="INTEGRATIONS_ENCRYPTION_KEY"):
-            get_settings()
-    finally:
-        get_settings.cache_clear()
+    # Skip backend/.env, which would otherwise supply the key on a dev machine
+    with pytest.raises(ValueError, match="INTEGRATIONS_ENCRYPTION_KEY"):
+        Settings(_env_file=None)
 
 
 def test_config_raises_on_malformed_key(monkeypatch):

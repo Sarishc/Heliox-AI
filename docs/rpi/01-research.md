@@ -169,8 +169,8 @@ add up to total spend.
 | Finding | Where | Status |
 |---|---|---|
 | `usage_snapshots.gpu_hours` was `NUMERIC(12,2)`, so each 60-second agent report was rounded before summing. A 25%-busy GPU stored 0.00 every minute; a 50% one was overstated by 20%. | `models/cost.py:110` | **Fixed in 1.2** (migration 034, `NUMERIC(14,6)`) |
-| Idle waste's "expected hours" is `cost-days × 24` per GPU type, whatever the fleet size. An 8-GPU fleet reports up to 192 busy hours against 24 expected, so it never shows waste. | `analytics.py:486`, `:687` | Open, moved into 1.3 |
-| The GCP connector stores `provider="gcp_billing_bigquery"` while AWS and Azure store `aws`/`azure`, so GCP agent usage (`gcp`) never joins to GCP billing. Fixing it needs a data migration of existing rows. | `gcp_billing_bigquery.py:470,482` | Open, moved into 1.3 |
+| Idle waste's "expected hours" is `cost-days × 24` per GPU type, whatever the fleet size. An 8-GPU fleet reports up to 192 busy hours against 24 expected, so it never shows waste. The same logic (copied into 5 places) also treated spend with no usage data as 100% idle, producing false "critical idle" recommendations for billing-only teams. | `analytics.py:486`, `:687`; `reports.py`; `recommendations.py`; `optimizer.py` | **Fixed in 1.3** (agent reports allocated GPU-hours; spend without agent data is "unmeasured") |
+| ~~The GCP connector stores `provider="gcp_billing_bigquery"`.~~ **Wrong:** the connector writes `provider = "gcp"` to cost rows (`gcp_billing_bigquery.py:409`). `gcp_billing_bigquery` is only its integration ID and error label (lines 470, 482). All three connectors write canonical `aws` / `gcp` / `azure`. | — | Not a bug; no change needed |
 
 ### P0-6 · There are no legal pages. *(Verified here)*
 - **What's missing:** no Terms of Service, Privacy Policy, DPA or refund policy

@@ -17,7 +17,7 @@ from heliox_cli.output import print_error, print_info, print_success, print_warn
 app = typer.Typer(help="Deploy and manage the Heliox GPU agent DaemonSet.")
 console = Console()
 
-_AGENT_IMAGE = "ghcr.io/heliox-ai/heliox-agent:latest"
+_AGENT_IMAGE = "ghcr.io/sarishc/heliox-agent:latest"
 _DAEMONSET_TEMPLATE = """\
 apiVersion: apps/v1
 kind: DaemonSet
@@ -35,7 +35,6 @@ spec:
       labels:
         app: heliox-agent
     spec:
-      hostPID: true
       tolerations:
         - key: "nvidia.com/gpu"
           operator: "Exists"
@@ -45,12 +44,10 @@ spec:
       containers:
         - name: heliox-agent
           image: {image}
-          command: ["python", "/agent/heliox_agent.py"]
+          # The image's entrypoint is heliox_agent.py; the API key comes from HELIOX_API_KEY, never args
           args:
             - "--endpoint"
             - "{endpoint}"
-            - "--api-key"
-            - "$(HELIOX_API_KEY)"
             - "--interval"
             - "60"
           env:
@@ -59,6 +56,19 @@ spec:
                 secretKeyRef:
                   name: heliox-agent-secret
                   key: api_key
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: utility
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 50m

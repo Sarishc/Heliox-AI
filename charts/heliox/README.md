@@ -115,7 +115,11 @@ GPU Nodes:
 | `agent.apiEndpoint` | `""` | Heliox API URL the agent reports to |
 | `agent.apiKey` | `""` | Team API key for authentication |
 | `agent.existingSecret` | `""` | Pre-existing Secret with `api_key` key |
-| `agent.interval` | `60` | Polling interval in seconds |
+| `agent.interval` | `60` | Seconds between reports |
+| `agent.provider` | `""` | `aws`, `gcp`, `azure` or `on-prem`; empty = detect from instance metadata |
+| `agent.sendCosts` | `false` | Also send price-table cost estimates (leave off with a billing integration) |
+| `agent.runtimeClassName` | `""` | Set to `nvidia` if the NVIDIA runtime isn't the node default |
+| `agent.image.repository` | `ghcr.io/sarishc/heliox-agent` | Agent image, published by CI from `agent/Dockerfile` |
 | `agent.nodeSelector` | `{accelerator: "true"}` | Only schedule on GPU nodes |
 
 ---

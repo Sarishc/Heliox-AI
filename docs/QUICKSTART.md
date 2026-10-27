@@ -61,9 +61,8 @@ curl -s -X POST http://localhost:8000/api/v1/ingest/usage \
 python -m venv agent-venv
 source agent-venv/bin/activate
 pip install -r agent/requirements.txt
-python agent/heliox_agent.py \
+HELIOX_API_KEY=<API_KEY> python agent/heliox_agent.py \
   --endpoint http://localhost:8000 \
-  --api-key <API_KEY> \
   --interval 60 \
   --mock \
   --tags '{"env":"local","cluster":"dev"}'

@@ -141,6 +141,52 @@ jobs:
       - name: Type-check and production build
         run: pnpm --filter app build
 
+  # ── GPU agent: test, build image, publish on main ─────────────────────────────
+  agent:
+    name: GPU Agent
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Test agent
+        run: |
+          pip install -r agent/requirements.txt pytest
+          python -m pytest agent/tests -q
+
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/heliox-agent" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build agent image (push on main)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./agent
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: |
+            ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
+
   # ── Dependency audit ──────────────────────────────────────────────────────────
   dependency-scan:
     name: Dependency Scan

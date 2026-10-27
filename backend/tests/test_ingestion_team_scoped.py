@@ -51,3 +51,27 @@ def test_usage_ingestion_sets_team_id(db_session):
     assert result["inserted"] == 1
     usage = db_session.query(UsageSnapshot).first()
     assert usage.team_id == team.id
+
+
+def test_small_agent_reports_are_not_rounded_away(db_session):
+    """The agent reports every 60s; a 25%-busy GPU sends ~0.0042 GPU-hours per report."""
+    team = Team(name="Precision Team")
+    db_session.add(team)
+    db_session.commit()
+
+    service = UsageIngestionService(db_session)
+    for minute in range(4):
+        service.ingest_usage_metrics(
+            team_id=team.id,
+            metrics=[
+                UsageMetric(
+                    timestamp=datetime(2026, 1, 1, 12, minute, 0),
+                    provider="aws",
+                    gpu_type="a100",
+                    gpu_hours=Decimal("0.004167"),
+                )
+            ],
+        )
+
+    usage = db_session.query(UsageSnapshot).filter(UsageSnapshot.team_id == team.id).one()
+    assert usage.gpu_hours == Decimal("0.016668")

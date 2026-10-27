@@ -1,6 +1,6 @@
 {{- if .Values.agent.enabled }}
-## The agent DaemonSet runs heliox_agent.py on every GPU node.
-## It reports GPU utilization, memory, and job metadata to the Heliox API.
+## The agent DaemonSet runs the heliox-agent image (agent/Dockerfile) on every GPU node.
+## It samples GPU utilization with NVML and reports busy GPU-hours to the Heliox API.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -29,8 +29,10 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "heliox.fullname" . }}-agent
-      ## hostPID=true allows the agent to read GPU process information
-      hostPID: true
+      {{- with .Values.agent.runtimeClassName }}
+      ## e.g. "nvidia" on clusters where the NVIDIA runtime isn't the default
+      runtimeClassName: {{ . }}
+      {{- end }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -39,15 +41,19 @@ spec:
         - name: agent
           image: "{{ include "heliox.imageRepository" (dict "repo" .Values.agent.image.repository "global" .Values.global) }}:{{ .Values.agent.image.tag }}"
           imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
-          command:
-            - python
-            - /agent/heliox_agent.py
+          ## The image's entrypoint is heliox_agent.py; the API key comes from HELIOX_API_KEY, never args
+          args:
             - --endpoint
-            - {{ .Values.agent.apiEndpoint | quote }}
-            - --api-key
-            - $(HELIOX_API_KEY)
+            - {{ required "agent.apiEndpoint is required" .Values.agent.apiEndpoint | quote }}
             - --interval
             - {{ .Values.agent.interval | quote }}
+            {{- with .Values.agent.provider }}
+            - --provider
+            - {{ . | quote }}
+            {{- end }}
+            {{- if .Values.agent.sendCosts }}
+            - --send-costs
+            {{- end }}
           env:
             - name: HELIOX_API_KEY
               valueFrom:
@@ -58,19 +64,22 @@ spec:
                   name: {{ include "heliox.fullname" . }}-agent-secret
                   {{- end }}
                   key: api_key
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            ## Expose every GPU's NVML to the agent without requesting a nvidia.com/gpu resource
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: utility
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
           securityContext:
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-          volumeMounts:
-            - name: agent-code
-              mountPath: /agent
-      volumes:
-        - name: agent-code
-          configMap:
-            name: {{ include "heliox.fullname" . }}-agent-code
       {{- with .Values.agent.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -79,19 +88,6 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
----
-## ConfigMap bundles the agent script into the cluster so no separate image build is required
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "heliox.fullname" . }}-agent-code
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "heliox.labels" . | nindent 4 }}
-    app.kubernetes.io/component: agent
-binaryData:
-  heliox_agent.py: |-
-{{ .Files.Get "files/heliox_agent.py" | b64enc | indent 4 }}
 ---
 ## Secret holding the agent API key
 {{- if not .Values.agent.existingSecret }}

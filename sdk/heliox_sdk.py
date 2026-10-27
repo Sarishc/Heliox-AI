@@ -21,11 +21,21 @@ def send_usage(
     return response.json()
 
 
-def build_metric(provider: str, gpu_type: str, gpu_hours: float, tags: dict | None = None) -> Dict:
-    return {
+def build_metric(
+    provider: str,
+    gpu_type: str,
+    gpu_hours: float,
+    tags: dict | None = None,
+    allocated_gpu_hours: float | None = None,
+) -> Dict:
+    """gpu_hours is busy time; pass allocated_gpu_hours (powered time) to get idle-waste numbers."""
+    metric = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "provider": provider,
         "gpu_type": gpu_type,
         "gpu_hours": float(Decimal(gpu_hours)),
         "tags": tags or {},
     }
+    if allocated_gpu_hours is not None:
+        metric["allocated_gpu_hours"] = float(Decimal(allocated_gpu_hours))
+    return metric

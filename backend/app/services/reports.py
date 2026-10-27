@@ -13,11 +13,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.cost import CostSnapshot, UsageSnapshot
+from app.models.cost import CostSnapshot
 from app.models.job import Job
 from app.models.reporting import ReportFileType, ReportRun, ReportRunStatus, SavedReport
 from app.schemas.recommendation import RecommendationFilters
 from app.schemas.reporting import ReportConfig, ReportSection
+from app.services.gpu_cost_attribution import measure_idle_waste
 from app.services.recommendations import RecommendationEngine
 
 settings = get_settings()
@@ -295,39 +296,7 @@ class ReportService:
         return results
 
     def _get_idle_waste(self, team_id: UUID, start: date, end: date) -> float:
-        cost_stmt = (
-            select(
-                CostSnapshot.gpu_type,
-                CostSnapshot.provider,
-                func.sum(CostSnapshot.cost_usd).label("total_cost"),
-                func.count(CostSnapshot.id).label("days_count"),
-            )
-            .where(
-                CostSnapshot.team_id == team_id,
-                CostSnapshot.date >= start,
-                CostSnapshot.date <= end,
-            )
-            .group_by(CostSnapshot.gpu_type, CostSnapshot.provider)
-        )
-        idle_waste = 0.0
-        for gpu_type, provider, cost_sum, days_count in self.db.execute(cost_stmt).all():
-            expected_hours = float(days_count) * 24.0
-            usage_hours = (
-                self.db.execute(
-                    select(func.sum(UsageSnapshot.gpu_hours)).where(
-                        UsageSnapshot.team_id == team_id,
-                        UsageSnapshot.date >= start,
-                        UsageSnapshot.date <= end,
-                        UsageSnapshot.gpu_type == gpu_type,
-                        UsageSnapshot.provider == provider,
-                    )
-                ).scalar_one_or_none()
-                or 0.0
-            )
-            if expected_hours > 0:
-                waste_ratio = max(0.0, (expected_hours - float(usage_hours)) / expected_hours)
-                idle_waste += float(cost_sum or 0.0) * waste_ratio
-        return round(idle_waste, 2)
+        return round(measure_idle_waste(self.db, team_id, start, end).idle_waste_usd, 2)
 
     def _get_recommended_savings(self, team_id: UUID, start: date, end: date) -> float:
         filters = RecommendationFilters(start_date=start, end_date=end, team_id=team_id)

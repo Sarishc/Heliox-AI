@@ -110,7 +110,17 @@ class UsageSnapshot(Base, UUIDMixin, TimestampMixin):
     gpu_hours: Mapped[Decimal] = mapped_column(
         Numeric(precision=14, scale=6),
         nullable=False,
-        comment="Number of GPU hours used",
+        comment="Busy GPU-hours (utilization x time)",
+    )
+
+    # GPUs present and powered x time, as seen by the agent. This is the paid
+    # capacity that idle waste is measured against; 0 means not measured.
+    allocated_gpu_hours: Mapped[Decimal] = mapped_column(
+        Numeric(precision=14, scale=6),
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="Allocated (powered-on) GPU-hours reported by the agent",
     )
 
     # Composite index for efficient querying

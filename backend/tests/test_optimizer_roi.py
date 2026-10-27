@@ -32,6 +32,7 @@ def test_optimizer_roi_fields(db_session):
                 provider="aws",
                 gpu_type="a100",
                 gpu_hours=4.0,
+                allocated_gpu_hours=24.0,  # one GPU powered all day, ~17% busy
             )
         )
     db_session.commit()

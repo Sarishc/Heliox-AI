@@ -31,7 +31,8 @@ def test_optimizer_generates_actions_for_idle(db_session):
                 date=current,
                 provider="aws",
                 gpu_type="a100",
-                gpu_hours=Decimal("12.0"),  # 50% utilization
+                gpu_hours=Decimal("12.0"),  # 50% utilization of one GPU
+                allocated_gpu_hours=Decimal("24.0"),
             )
         )
     db_session.commit()

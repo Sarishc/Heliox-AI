@@ -5,10 +5,9 @@ from datetime import date, timedelta
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.cost import CostSnapshot, UsageSnapshot
+from app.services.gpu_cost_attribution import measure_idle_waste
 
 logger = logging.getLogger(__name__)
 
@@ -35,45 +34,15 @@ class SelfOptimizingAdvisor:
         if start_date is None:
             start_date = end_date - timedelta(days=30)
 
-        # Aggregate cost by provider/gpu_type
-        cost_stmt = (
-            select(
-                CostSnapshot.provider,
-                CostSnapshot.gpu_type,
-                func.sum(CostSnapshot.cost_usd).label("total_cost"),
-                func.count(CostSnapshot.id).label("days_count"),
-            )
-            .where(
-                CostSnapshot.team_id == team_id,
-                CostSnapshot.date >= start_date,
-                CostSnapshot.date <= end_date,
-            )
-            .group_by(CostSnapshot.provider, CostSnapshot.gpu_type)
-        )
-        cost_rows = self.db.execute(cost_stmt).all()
-
         actions: List[Dict] = []
-        for provider, gpu_type, total_cost, days_count in cost_rows:
-            if not total_cost or not days_count or days_count < self.MIN_DAYS:
+        for group in measure_idle_waste(self.db, team_id, start_date, end_date).groups:
+            # Need enough days of agent data; without it utilization is unknown, not 0%
+            utilization = group.utilization
+            if utilization is None or group.measured_days < self.MIN_DAYS:
                 continue
 
-            expected_hours = float(days_count) * 24.0
-            usage_hours = (
-                self.db.execute(
-                    select(func.sum(UsageSnapshot.gpu_hours)).where(
-                        UsageSnapshot.team_id == team_id,
-                        UsageSnapshot.date >= start_date,
-                        UsageSnapshot.date <= end_date,
-                        UsageSnapshot.provider == provider,
-                        UsageSnapshot.gpu_type == gpu_type,
-                    )
-                ).scalar_one_or_none()
-                or 0.0
-            )
-
-            utilization = float(usage_hours) / expected_hours if expected_hours > 0 else 0.0
-            idle_pct = max(0.0, 1.0 - utilization)
-            savings_estimate = round(float(total_cost) * idle_pct, 2)
+            provider, gpu_type, days_count = group.provider, group.gpu_type, group.measured_days
+            savings_estimate = round(group.idle_waste_usd, 2)
 
             risk_level = self._risk_level(utilization)
             confidence = self._confidence(days_count)

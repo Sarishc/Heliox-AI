@@ -12,7 +12,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   TrendingUp,
-  Zap,
   AlertTriangle,
   Settings,
   BarChart3,
@@ -52,7 +51,6 @@ const navigationSections: NavSection[] = [
     title: "Optimization",
     defaultOpen: true,
     items: [
-      { label: "Proxy",           href: "/proxy",        icon: <Zap          className="h-[15px] w-[15px]" /> },
       { label: "Opportunities",   href: "/optimization", icon: <Sparkles     className="h-[15px] w-[15px]" /> },
       { label: "Budgets & Alerts",href: "/budgets",      icon: <AlertTriangle className="h-[15px] w-[15px]" /> },
     ],

@@ -15,7 +15,6 @@ import {
   TrendingUp,
   Sparkles,
   AlertTriangle,
-  Zap,
   Blocks,
   CreditCard,
   Settings,
@@ -78,14 +77,6 @@ export function CommandPalette() {
         icon: <AlertTriangle className="w-5 h-5" />,
         action: () => router.push("/budgets"),
         keywords: ["limits", "alerts", "thresholds"],
-      },
-      {
-        id: "proxy",
-        label: "Proxy",
-        description: "LLM proxy and caching",
-        icon: <Zap className="w-5 h-5" />,
-        action: () => router.push("/proxy"),
-        keywords: ["llm", "cache", "requests"],
       },
       {
         id: "integrations",

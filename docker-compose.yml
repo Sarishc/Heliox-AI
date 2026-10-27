@@ -99,6 +99,13 @@ services:
       - heliox-network
     restart: unless-stopped
     command: celery -A app.celery_app worker --loglevel=info
+    # The image's HEALTHCHECK probes the API on :8000, which a worker never serves
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d celery@$$HOSTNAME --timeout 10"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
 
   # Celery Beat
   beat:
@@ -126,7 +133,10 @@ services:
     networks:
       - heliox-network
     restart: unless-stopped
-    command: celery -A app.celery_app beat --loglevel=info
+    command: celery -A app.celery_app beat --loglevel=info --schedule=/app/data/celerybeat-schedule.db
+    # Beat has no ping endpoint; the image's API healthcheck would always fail here
+    healthcheck:
+      disable: true
 
 volumes:
   postgres_data:

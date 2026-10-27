@@ -60,13 +60,13 @@ For the full 15-minute founder onboarding flow, see `docs/QUICKSTART.md`.
 Heliox computes spend and efficiency metrics from three sources:
 
 - **Cost snapshots** (`cost_snapshots`): daily provider/GPU costs ingested from AWS Cost Explorer, GCP BigQuery Billing, or Azure Cost Management.
-- **Usage snapshots** (`usage_snapshots`): GPU hours and utilization from the DaemonSet agent or manual ingest.
+- **Usage snapshots** (`usage_snapshots`): busy GPU-hours (`gpu_hours`) and powered GPU-hours (`allocated_gpu_hours`) from the DaemonSet agent or manual ingest.
 - **Job metadata** (`jobs`): optional per-job attribution for model name, team, environment.
 
-Key formulas:
+Key formulas (all computed in `backend/app/services/gpu_cost_attribution.py`, so the dashboard, reports, recommendations, optimizer and assistant agree):
 - **Total spend**: `sum(cost_usd)` across the selected date window.
-- **Idle waste**: `sum(cost_usd * idle_ratio)` where `idle_ratio = max(0, (expected_hours - usage_hours) / expected_hours)`.
-- **Cost per model**: join `jobs` → `cost_snapshots` on `(provider, gpu_type, date)`.
+- **Idle waste**: per `(day, provider, gpu_type)` with agent data, `cost_usd * (1 - busy_gpu_hours / allocated_gpu_hours)`. Spend without agent data is reported as *unmeasured*, not idle, and lowers the metric's confidence.
+- **Cost per model**: each `(day, provider, gpu_type)`'s spend is split between models by the job GPU-seconds overlapping that day on the same provider and GPU type (jobs spanning midnight are split). Spend with no matching jobs is *unattributed*, so models + unattributed = total spend.
 
 Each major endpoint supports `?include_explain=true` to return the formula, inputs, assumptions, and confidence level alongside the result.
 

@@ -11,7 +11,12 @@ class UsageMetric(BaseModel):
     timestamp: datetime = Field(..., description="Sample timestamp")
     provider: str = Field(..., min_length=1, max_length=100)
     gpu_type: str = Field(..., min_length=1, max_length=100)
-    gpu_hours: Decimal = Field(..., ge=0, description="GPU hours for this interval")
+    gpu_hours: Decimal = Field(..., ge=0, description="Busy GPU-hours for this interval (utilization x time)")
+    allocated_gpu_hours: Decimal = Field(
+        Decimal(0),
+        ge=0,
+        description="GPU-hours the GPU was present and powered for this interval; used to measure idle waste",
+    )
     tags: Optional[dict] = Field(default_factory=dict)
 
 

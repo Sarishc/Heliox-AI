@@ -14,6 +14,9 @@ settings = get_settings()
 # Context variable to store request ID across async operations
 request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
 
+# (method, path) of the current HTTP request; None outside a request (Celery, scripts)
+request_route_var: ContextVar[Optional[tuple[str, str]]] = ContextVar("request_route", default=None)
+
 
 class StructuredFormatter(logging.Formatter):
     """
@@ -135,3 +138,13 @@ def set_request_id(request_id: str) -> None:
         request_id: Unique identifier for the request
     """
     request_id_var.set(request_id)
+
+
+def set_request_route(method: str, path: str) -> None:
+    """Record the current request's method and path (used for API key scope checks)."""
+    request_route_var.set((method.upper(), path))
+
+
+def get_request_route() -> Optional[tuple[str, str]]:
+    """Return (method, path) of the current request, or None outside a request."""
+    return request_route_var.get()

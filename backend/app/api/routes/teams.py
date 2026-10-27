@@ -25,7 +25,7 @@ from app.schemas.team_member import (
 from app.schemas.audit import AuditLogResponse
 from app.models.audit_log import AuditLog
 from app.models.team_member import TeamRole
-from app.models.team_api_key import TeamAPIKey
+from app.models.team_api_key import SCOPE_INGEST, TeamAPIKey
 from app.models.team_invite import TeamInvite, generate_invite_token, hash_invite_token
 from app.schemas.team_api_key import (
     TeamAPIKeyCreate,
@@ -307,16 +307,24 @@ def create_team_api_key(
             detail="team_id in path must match payload.team_id",
         )
 
-    # Enforce: API key creation requires Growth plan or above
-    require_plan_for_team(db, team_id, PlanTier.GROWTH, PlanTier.ENTERPRISE)
-
-    # Enforce: check max_api_keys limit for the team's plan
-    current_key_count = db.query(TeamAPIKey).filter(TeamAPIKey.team_id == team_id, TeamAPIKey.is_active == True).count()
-    check_team_limit(db, team_id, "max_api_keys", current_key_count)
+    active_keys = db.query(TeamAPIKey).filter(
+        TeamAPIKey.team_id == team_id,
+        TeamAPIKey.is_active == True,
+        TeamAPIKey.scope == payload.scope,
+    )
+    if payload.scope == SCOPE_INGEST:
+        # Ingest-only keys are on every plan so free teams can run the agent/SDK
+        check_team_limit(db, team_id, "max_ingest_keys", active_keys.count())
+    else:
+        # Enforce: full-access API keys require Growth plan or above
+        require_plan_for_team(db, team_id, PlanTier.GROWTH, PlanTier.ENTERPRISE)
+        check_team_limit(db, team_id, "max_api_keys", active_keys.count())
 
     raw_key = TeamAPIKey.generate_key()
     key_hash = TeamAPIKey.hash_key(raw_key)
-    new_key = TeamAPIKey(team_id=team_id, key_name=payload.key_name, key_hash=key_hash, is_active=True)
+    new_key = TeamAPIKey(
+        team_id=team_id, key_name=payload.key_name, key_hash=key_hash, is_active=True, scope=payload.scope
+    )
     db.add(new_key)
     db.commit()
     db.refresh(new_key)
@@ -326,7 +334,7 @@ def create_team_api_key(
         actor_type="user",
         actor_id=str(current_user.id),
         action="api_key_created",
-        metadata={"key_name": payload.key_name},
+        metadata={"key_name": payload.key_name, "scope": new_key.scope},
     )
     return TeamAPIKeyCreateResponse(
         id=new_key.id,
@@ -334,6 +342,7 @@ def create_team_api_key(
         key_name=new_key.key_name,
         api_key=raw_key,
         is_active=new_key.is_active,
+        scope=new_key.scope,
         created_at=new_key.created_at,
     )
 
@@ -591,6 +600,8 @@ def rotate_team_api_key(
         key_name=payload.key_name,
         key_hash=TeamAPIKey.hash_key(raw_key),
         is_active=True,
+        # Keep the old key's scope; payload.scope is ignored so rotation can't escalate access
+        scope=key.scope,
     )
     db.add(new_key)
     db.commit()
@@ -609,5 +620,6 @@ def rotate_team_api_key(
         key_name=new_key.key_name,
         api_key=raw_key,
         is_active=new_key.is_active,
+        scope=new_key.scope,
         created_at=new_key.created_at,
     )

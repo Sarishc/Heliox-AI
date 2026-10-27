@@ -33,7 +33,8 @@ class PlanTier(str, Enum):
 class PlanLimits:
     max_clusters: int  # max cloud integrations; -1 = unlimited
     history_days: int  # cost data retention; -1 = unlimited
-    max_api_keys: int  # team API keys; -1 = unlimited
+    max_api_keys: int  # full-access team API keys; -1 = unlimited
+    max_ingest_keys: int  # ingest-only keys (agent/SDK); -1 = unlimited
     max_team_members: int  # users per team; -1 = unlimited
     slack_alerts: bool
     sso_enabled: bool
@@ -47,6 +48,7 @@ PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
         max_clusters=1,
         history_days=30,
         max_api_keys=0,
+        max_ingest_keys=1,
         max_team_members=3,
         slack_alerts=False,
         sso_enabled=False,
@@ -58,6 +60,7 @@ PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
         max_clusters=5,
         history_days=365,
         max_api_keys=5,
+        max_ingest_keys=5,
         max_team_members=25,
         slack_alerts=True,
         sso_enabled=False,
@@ -69,6 +72,7 @@ PLAN_LIMITS: Dict[PlanTier, PlanLimits] = {
         max_clusters=-1,
         history_days=-1,
         max_api_keys=-1,
+        max_ingest_keys=-1,
         max_team_members=-1,
         slack_alerts=True,
         sso_enabled=True,

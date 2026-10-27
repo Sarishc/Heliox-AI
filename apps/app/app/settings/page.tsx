@@ -15,6 +15,7 @@ interface TeamApiKey {
   team_id: string;
   key_name: string;
   is_active: boolean;
+  scope?: "full" | "ingest";
   created_at: string;
   last_used_at?: string | null;
 }
@@ -63,6 +64,8 @@ export default function SettingsPage() {
   const [keys, setKeys] = useState<TeamApiKey[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [newKeyName, setNewKeyName] = useState("Founder key");
+  // Ingest-only keys work on every plan (agent/SDK); full access needs Growth+
+  const [newKeyScope, setNewKeyScope] = useState<"ingest" | "full">("ingest");
   const [rotationKey, setRotationKey] = useState<string | null>(null);
   const [rotationKeyValue, setRotationKeyValue] = useState<string | null>(null);
   const [teamBudget, setTeamBudget] = useState<number | null>(null);
@@ -169,7 +172,7 @@ export default function SettingsPage() {
     setErrorMessage(null);
     setInfoMessage(null);
     try {
-      const payload = { team_id: teamId, key_name: newKeyName };
+      const payload = { team_id: teamId, key_name: newKeyName, scope: newKeyScope };
       const response = await fetchJson<{ api_key: string; id: string }>(
         `/api/v1/teams/${teamId}/api-keys`,
         { method: "POST", body: JSON.stringify(payload) }
@@ -370,6 +373,15 @@ export default function SettingsPage() {
                   className="border border-gray-300 rounded-md px-3 py-2 text-sm"
                   placeholder="Key name"
                 />
+                <select
+                  value={newKeyScope}
+                  onChange={(e) => setNewKeyScope(e.target.value as "ingest" | "full")}
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  aria-label="Key access"
+                >
+                  <option value="ingest">Ingest only (agent/SDK)</option>
+                  <option value="full">Full access (Growth plan)</option>
+                </select>
                 <button
                   onClick={createApiKey}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm"
@@ -386,7 +398,8 @@ export default function SettingsPage() {
                     <div>
                       <div className="font-medium text-gray-900">{key.key_name}</div>
                       <div className="text-gray-500">
-                        {key.is_active ? "Active" : "Revoked"} • {key.id.slice(0, 8)}
+                        {key.is_active ? "Active" : "Revoked"} •{" "}
+                        {key.scope === "ingest" ? "Ingest only" : "Full access"} • {key.id.slice(0, 8)}
                       </div>
                     </div>
                     <div className="flex gap-2">

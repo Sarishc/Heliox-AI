@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.db import check_db_connection
-from app.core.logging import get_request_id, set_request_id, setup_logging
+from app.core.logging import get_request_id, set_request_id, set_request_route, setup_logging
 from app.core.rate_limit import RateLimitMiddleware
 from app.core.cache import get_redis
 
@@ -167,6 +167,7 @@ async def request_logging_middleware(request: Request, call_next):
     set_request_id(correlation_id)
 
     path = request.url.path
+    set_request_route(request.method, path)
     from app.core.metrics import METRICS_EXCLUDED_PATHS
 
     record_metrics = path not in METRICS_EXCLUDED_PATHS

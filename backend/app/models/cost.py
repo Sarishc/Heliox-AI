@@ -106,8 +106,9 @@ class UsageSnapshot(Base, UUIDMixin, TimestampMixin):
     )
 
     # Usage Data
+    # 6 decimals: the agent reports every ~60s, so a single report is often < 0.01 h
     gpu_hours: Mapped[Decimal] = mapped_column(
-        Numeric(precision=12, scale=2),
+        Numeric(precision=14, scale=6),
         nullable=False,
         comment="Number of GPU hours used",
     )

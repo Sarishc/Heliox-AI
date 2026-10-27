@@ -125,14 +125,13 @@ Use this checklist when handing off Heliox to a new startup customer.
 
 - [ ] **Deploy Heliox agent** on GPU infrastructure
   ```bash
-  # Option 1: Python agent (recommended)
-  python agent/heliox_agent.py \
+  # Option 1: Kubernetes DaemonSet (recommended)
+  heliox agent deploy        # or: helm install ... charts/heliox (agent.* values)
+
+  # Option 2: Python agent on a GPU host
+  HELIOX_API_KEY=$API_KEY python agent/heliox_agent.py \
     --endpoint https://api.yourdomain.com \
-    --api-key $API_KEY \
     --interval 300  # Send data every 5 minutes
-  
-  # Option 2: Kubernetes DaemonSet
-  kubectl apply -f agent/k8s-daemonset.yaml
   ```
 
 - [ ] **Connect cost data sources**

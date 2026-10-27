@@ -1,2 +1,3 @@
 requests>=2.31.0
-pynvml>=11.5.0
+# Official NVIDIA bindings; provides the `pynvml` module (the old pynvml package is deprecated)
+nvidia-ml-py>=12.535.0

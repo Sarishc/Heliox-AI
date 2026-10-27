@@ -120,7 +120,8 @@ agent:
 
   image:
     ## Dedicated agent image (lighter than the backend image)
-    repository: ghcr.io/heliox-ai/heliox-agent
+    ## Built from agent/Dockerfile and published by CI on pushes to main
+    repository: ghcr.io/sarishc/heliox-agent
     tag: "latest"
     pullPolicy: IfNotPresent
 
@@ -137,6 +138,16 @@ agent:
 
   ## Polling interval in seconds between metric reports
   interval: 60
+
+  ## Cloud provider (aws, gcp, azure, on-prem); empty = detect from instance metadata
+  provider: ""
+
+  ## Also send cost estimates from the agent's built-in price table.
+  ## Leave false when a cloud billing integration is connected, or costs are counted twice.
+  sendCosts: false
+
+  ## Set to "nvidia" if the NVIDIA container runtime isn't the node's default runtime
+  runtimeClassName: ""
 
   resources:
     requests:

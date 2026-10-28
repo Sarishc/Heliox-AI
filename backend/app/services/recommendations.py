@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 import logging
 from app.core.config import get_settings
-from app.models.cost import CostSnapshot, UsageSnapshot
 from app.models.job import Job
 from app.models.team import Team
+from app.services.gpu_cost_attribution import measure_idle_waste
 from app.schemas.recommendation import (
     Recommendation,
     RecommendationEvidence,
@@ -140,82 +140,46 @@ class RecommendationEngine:
         recommendations = []
 
         try:
-            # Get cost data aggregated by gpu_type and provider
-            cost_stmt = (
-                select(
-                    CostSnapshot.gpu_type,
-                    CostSnapshot.provider,
-                    func.sum(CostSnapshot.cost_usd).label("total_cost"),
-                    func.count(CostSnapshot.id).label("days_count"),
+            # Utilization comes from the shared service; groups the agent never measured are skipped
+            # (billing data alone says nothing about idleness)
+            for group in measure_idle_waste(self.db, team_id, start_date, end_date).groups:
+                utilization = group.utilization
+                if utilization is None:
+                    continue
+                utilization_pct = utilization * 100
+                if utilization_pct >= self.IDLE_GPU_THRESHOLD_PERCENTAGE:
+                    continue
+                waste_pct = 100 - utilization_pct
+                severity = self._determine_severity_by_waste(waste_pct)
+                provider, gpu_type = group.provider, group.gpu_type
+
+                recommendations.append(
+                    Recommendation(
+                        type=RecommendationType.IDLE_GPU,
+                        title=f"Idle {gpu_type.upper()} GPUs on {provider.upper()}",
+                        description=(
+                            f"Detected {waste_pct:.1f}% idle GPU capacity on {provider.upper()} "
+                            f"{gpu_type.upper()} instances. You're paying for {group.allocated_hours:.0f} "
+                            f"GPU-hours but only using {group.busy_hours:.0f}. "
+                            f"Consider scaling down or right-sizing your GPU allocation."
+                        ),
+                        severity=severity,
+                        # Same number as the idle-waste metric: measured spend x idle fraction
+                        estimated_savings_usd=round(group.idle_waste_usd, 2),
+                        evidence=RecommendationEvidence(
+                            date_range={
+                                "start_date": str(start_date),
+                                "end_date": str(end_date),
+                            },
+                            total_cost_usd=group.measured_cost_usd,
+                            expected_usage_hours=group.allocated_hours,
+                            actual_usage_hours=group.busy_hours,
+                            waste_percentage=round(waste_pct, 2),
+                            gpu_type=gpu_type,
+                            provider=provider,
+                        ),
+                    )
                 )
-                .where(
-                    CostSnapshot.date >= start_date,
-                    CostSnapshot.date <= end_date,
-                )
-                .group_by(CostSnapshot.gpu_type, CostSnapshot.provider)
-            )
-            if team_id:
-                cost_stmt = cost_stmt.where(CostSnapshot.team_id == team_id)
-
-            cost_results = self.db.execute(cost_stmt).all()
-
-            for gpu_type, provider, total_cost, days_count in cost_results:
-                # Get usage data for the same GPU type and provider
-                usage_stmt = select(func.sum(UsageSnapshot.gpu_hours)).where(
-                    UsageSnapshot.date >= start_date,
-                    UsageSnapshot.date <= end_date,
-                    UsageSnapshot.gpu_type == gpu_type,
-                    UsageSnapshot.provider == provider,
-                )
-                if team_id:
-                    usage_stmt = usage_stmt.where(UsageSnapshot.team_id == team_id)
-
-                actual_usage = self.db.execute(usage_stmt).scalar_one_or_none() or 0.0
-
-                # Estimate expected usage based on cost
-                # Assume 24/7 availability for the period
-                expected_hours_per_day = 24
-                expected_total_hours = days_count * expected_hours_per_day
-
-                # Calculate waste percentage
-                if expected_total_hours > 0:
-                    utilization_pct = (actual_usage / expected_total_hours) * 100
-                    waste_pct = 100 - utilization_pct
-
-                    # Flag if utilization is below threshold
-                    if utilization_pct < self.IDLE_GPU_THRESHOLD_PERCENTAGE:
-                        # Estimate savings (wasted hours * cost per hour)
-                        wasted_hours = expected_total_hours - actual_usage
-                        estimated_savings = wasted_hours * self.HOURLY_GPU_COST_ESTIMATE
-
-                        severity = self._determine_severity_by_waste(waste_pct)
-
-                        recommendations.append(
-                            Recommendation(
-                                type=RecommendationType.IDLE_GPU,
-                                title=f"Idle {gpu_type.upper()} GPUs on {provider.upper()}",
-                                description=(
-                                    f"Detected {waste_pct:.1f}% idle GPU capacity on {provider.upper()} "
-                                    f"{gpu_type.upper()} instances. You're paying for {expected_total_hours:.0f} "
-                                    f"hours but only using {actual_usage:.0f} hours. "
-                                    f"Consider scaling down or right-sizing your GPU allocation."
-                                ),
-                                severity=severity,
-                                estimated_savings_usd=round(estimated_savings, 2),
-                                evidence=RecommendationEvidence(
-                                    date_range={
-                                        "start_date": str(start_date),
-                                        "end_date": str(end_date),
-                                    },
-                                    total_cost_usd=float(total_cost),
-                                    expected_usage_hours=expected_total_hours,
-                                    actual_usage_hours=actual_usage,
-                                    waste_percentage=round(waste_pct, 2),
-                                    gpu_type=gpu_type,
-                                    provider=provider,
-                                ),
-                            )
-                        )
 
         except Exception as e:
             logger.error(f"Error detecting idle GPU spend: {e}", exc_info=True)

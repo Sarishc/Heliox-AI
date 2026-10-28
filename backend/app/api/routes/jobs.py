@@ -84,7 +84,7 @@ def create_job(
     try:
         return crud_job.create_for_team(db, obj_in=job_in)
     except DuplicateJobIdError:
-        # job_id is unique across all teams; don't say who owns it
+        # job_id is unique within a team, so this only ever concerns the caller's own team
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="job_id is already in use. Choose a different job_id or omit it to generate one.",

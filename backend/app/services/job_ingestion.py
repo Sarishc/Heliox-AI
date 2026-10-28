@@ -9,7 +9,7 @@ from typing import Dict, List, Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, ValidationError
-from sqlalchemy import select
+from sqlalchemy import literal_column, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,7 +77,7 @@ class JobIngestionService:
     Handles:
     - Loading and validating mock JSON
     - Creating teams if they don't exist
-    - Upserting jobs by job_id
+    - Upserting jobs by (team_id, job_id)
     - Data normalization
     """
 
@@ -150,16 +150,21 @@ class JobIngestionService:
 
     async def upsert_job(self, job_data: JobData, team_id: UUID) -> tuple[str, bool]:
         """
-        Insert or update a job by job_id.
+        Insert or update one team's job, identified by (team_id, job_id).
 
-        Uses PostgreSQL's ON CONFLICT DO UPDATE for idempotency.
+        Uses PostgreSQL's ON CONFLICT DO UPDATE on uq_jobs_team_id_job_id, so retries
+        are idempotent and concurrent upserts can't create duplicates. A job with the
+        same external job_id in another team is a different job and is never touched;
+        team_id is part of the identity and is never updated. The internal UUID and
+        created_at of an existing job are kept.
 
         Args:
             job_data: Job data to insert/update
             team_id: UUID of the team this job belongs to
 
         Returns:
-            tuple[str, bool]: (job_id, was_inserted)
+            tuple[str, bool]: (job_id, was_inserted); was_inserted is False when an
+            existing job of this team was updated
         """
         # Normalize data
         normalized_data = {
@@ -179,9 +184,8 @@ class JobIngestionService:
         # Perform upsert
         stmt = insert(Job).values(**normalized_data)
         stmt = stmt.on_conflict_do_update(
-            index_elements=["job_id"],
+            index_elements=["team_id", "job_id"],
             set_={
-                "team_id": stmt.excluded.team_id,
                 "model_name": stmt.excluded.model_name,
                 "provider": stmt.excluded.provider,
                 "gpu_type": stmt.excluded.gpu_type,
@@ -193,14 +197,13 @@ class JobIngestionService:
                 "status": stmt.excluded.status,
                 "updated_at": stmt.excluded.updated_at,
             },
+        ).returning(
+            # xmax is 0 only for a freshly inserted row version; an ON CONFLICT update sets it
+            literal_column("(xmax = 0)")
         )
 
         result = await self.db_session.execute(stmt)
-
-        # Determine if it was an insert or update
-        # If rowcount is 1 and we have returning data, it was likely an insert
-        # This is a simplified check; in production you might track this differently
-        was_inserted = result.rowcount > 0
+        was_inserted = bool(result.scalar_one())
 
         return job_data.job_id, was_inserted
 
@@ -263,13 +266,9 @@ class JobIngestionService:
                 if not team_id:
                     raise ValueError(f"Team '{job_data.team_name}' not found in team map")
 
-                # Check if job exists before upserting
-                result = await self.db_session.execute(select(Job).where(Job.job_id == job_data.job_id))
-                existing_job = result.scalar_one_or_none()
-
                 job_id, was_inserted = await self.upsert_job(job_data, team_id)
 
-                if existing_job is None:
+                if was_inserted:
                     jobs_inserted += 1
                     logger.debug(f"Inserted job '{job_id}'")
                 else:
@@ -282,7 +281,9 @@ class JobIngestionService:
                 await self.db_session.rollback()
                 logger.error(f"Failed to ingest job '{job_data.job_id}': {e}")
                 jobs_failed += 1
-                errors.append(f"Job {job_data.job_id}: {str(e)}")
+                # Full database errors stay in the server log; the response names only the failure type
+                detail = str(e) if isinstance(e, ValueError) else type(e).__name__
+                errors.append(f"Job {job_data.job_id}: {detail}")
 
         result = {
             "teams": {

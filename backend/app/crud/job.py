@@ -18,7 +18,7 @@ from app.schemas.job import JobCreate, JobUpdate
 
 
 class DuplicateJobIdError(Exception):
-    """The external job_id is already in use (jobs.job_id is globally unique)."""
+    """The external job_id is already used by another job of the same team (unique per team)."""
 
 
 class CRUDJob(TenantScopedMixin, CRUDBase[Job, JobCreate, JobUpdate]):

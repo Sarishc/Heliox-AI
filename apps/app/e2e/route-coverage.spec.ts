@@ -95,11 +95,11 @@ test.beforeAll(async ({}, workerInfo) => {
   });
   expect(registration.ok).toBeTruthy();
 
+  // Each worker logs in as its own new account, so per-account login limits keep workers apart
   const login = await fetch(`${API_URL}/api/v1/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      "X-Forwarded-For": `198.51.100.${91 + (workerInfo.workerIndex % 100)}`,
     },
     body: new URLSearchParams({ username: auditEmail, password: auditPassword }),
   });

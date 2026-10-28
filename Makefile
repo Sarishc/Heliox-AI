@@ -104,7 +104,7 @@ local-start: ## Start only databases (for local Python development)
 	docker-compose up -d postgres redis
 
 local-run: ## Run API locally (requires Python 3.11 and venv)
-	cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
 
 demo: ## Setup and start demo environment (starts Docker, runs migrations, seeds data)
 	@bash scripts/demo.sh

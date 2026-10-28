@@ -4,6 +4,6 @@ version: '3.9'
 
 services:
   api:
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --no-proxy-headers
     environment:
       RATE_LIMIT_MAX_REQUESTS: "600"

@@ -23,13 +23,6 @@ CSRF_HEADER_NAME = "X-CSRF-Token"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
 
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-
 class CSRFMiddleware(BaseHTTPMiddleware):
     """
     CSRF protection for state-changing requests.

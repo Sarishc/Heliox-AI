@@ -137,7 +137,7 @@ else
         \"ImageRepositoryType\": \"ECR\",
         \"ImageConfiguration\": {
           \"Port\": \"8000\",
-          \"StartCommand\": \"uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2\",
+          \"StartCommand\": \"uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --no-proxy-headers\",
           \"RuntimeEnvironmentVariables\": {
             \"ENV\": \"production\",
             \"SECRET_KEY\": \"${SECRET_KEY}\",

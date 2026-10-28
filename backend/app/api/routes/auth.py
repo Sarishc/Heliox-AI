@@ -30,8 +30,9 @@ from app.auth.brute_force import (
     record_login_attempt,
     is_locked_out,
     is_captcha_required,
-    clear_captcha_requirement,
+    verify_login_captcha,
 )
+from app.core.client_ip import get_client_address
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.crud import user as crud_user
@@ -41,13 +42,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 settings = get_settings()
-
-
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -159,13 +153,14 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
 ) -> Any:
     """
-    Login with email/password. OWASP: rate limit 5/min, lockout after 5 failures,
-    CAPTCHA after 3 failures. Sets httpOnly cookie with JWT.
+    Login with email/password. OWASP: per-account and per-client rate limits,
+    lockout after 5 failures on the account, CAPTCHA after 3. Sets httpOnly cookie with JWT.
     """
-    client_ip = _get_client_ip(request)
+    client = get_client_address(request)
+    email = form_data.username
 
-    # Rate limit: 5 login attempts per minute per IP
-    limited, retry_after = check_login_rate_limit(client_ip)
+    # Rate limits: this account from this client, this account overall, this client overall
+    limited, retry_after = check_login_rate_limit(client, email)
     if limited:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -173,8 +168,8 @@ def login(
             headers={"Retry-After": str(retry_after)},
         )
 
-    # Account lockout after 5 failed attempts
-    locked, remaining = is_locked_out(client_ip)
+    # Lockout after repeated failures; blocks the correct password too
+    locked, remaining = is_locked_out(client, email)
     if locked:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -183,18 +178,18 @@ def login(
         )
 
     # CAPTCHA required after 3 failures
-    captcha_needed = is_captcha_required(client_ip)
+    captcha_needed = is_captcha_required(client, email)
     captcha_token = request.headers.get("X-Captcha-Token")
     if captcha_needed:
-        if not captcha_token or not clear_captcha_requirement(client_ip, captcha_token):
+        if not captcha_token or not verify_login_captcha(client, captcha_token):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="CAPTCHA required. Please complete the CAPTCHA and resubmit.",
             )
 
-    user = crud_user.authenticate(db, email=form_data.username, password=form_data.password)
+    user = crud_user.authenticate(db, email=email, password=form_data.password)
     if not user:
-        locked_out, captcha_required, lockout_sec = record_login_attempt(client_ip, form_data.username, success=False)
+        locked_out, captcha_required, lockout_sec = record_login_attempt(client, email, success=False)
         if locked_out:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -211,7 +206,7 @@ def login(
     if not crud_user.is_active(user):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
 
-    record_login_attempt(client_ip, form_data.username, success=True)
+    record_login_attempt(client, email, success=True)
 
     # Ensure user has a team (fixes users who registered before auto-team was added)
     membership = db.query(TeamMember).filter(TeamMember.user_id == user.id).first()

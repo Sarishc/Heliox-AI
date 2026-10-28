@@ -76,11 +76,11 @@ def create_job(
     *, db: Session = Depends(get_db), job_in: JobCreate, current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
-    Create a job in one of the caller's teams. ``job_id`` (your scheduler's ID) is
-    generated when omitted; a job_id that's already taken returns 409.
+    Create a job in one of the caller's teams (owner/admin). ``job_id`` (your
+    scheduler's ID) is generated when omitted; a job_id that's already taken returns 409.
     """
-    # Same 403 whether the team doesn't exist or the caller isn't a member
-    require_team_access(db, user=current_user, team_id=job_in.team_id)
+    # Same 403 whether the team doesn't exist, the caller isn't a member, or is a viewer
+    require_team_access(db, user=current_user, team_id=job_in.team_id, allowed_roles=MUTATING_ROLES)
     try:
         return crud_job.create_for_team(db, obj_in=job_in)
     except DuplicateJobIdError:

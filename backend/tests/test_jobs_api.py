@@ -321,6 +321,7 @@ def test_cannot_update_or_delete_another_tenants_job(client, world, db_session):
 def test_viewer_cannot_mutate_jobs(client, world):
     world.as_user(world.viewer_a)
 
+    assert client.post(JOBS, json=_create_body(world.team_a.id)).status_code == 403
     assert client.put(f"{JOBS}{world.a_running_aws.id}", json={"status": "failed"}).status_code == 403
     assert client.delete(f"{JOBS}{world.a_running_aws.id}").status_code == 403
 

@@ -19,6 +19,9 @@ sqlalchemy==2.0.43
 alembic==1.16.5
 psycopg2-binary==2.9.9
 asyncpg>=0.28.0
+# SQLAlchemy's async engine (mock job ingestion) needs greenlet; SQLAlchemy only pulls it in
+# automatically on some platforms (not macOS arm64), so declare it for every dev environment
+greenlet>=3.0.0
 
 # Redis
 redis==6.4.0

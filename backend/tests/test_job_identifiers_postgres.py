@@ -29,6 +29,9 @@ from app.models.user import User
 
 BACKEND = Path(__file__).resolve().parents[1]
 SERVER_URL = os.environ.get("HELIOX_MIGRATION_TEST_SERVER_URL")
+if os.environ.get("HELIOX_REQUIRE_POSTGRES_TESTS") == "1" and not SERVER_URL:
+    # CI sets this so these tests fail loudly instead of silently skipping
+    raise RuntimeError("HELIOX_REQUIRE_POSTGRES_TESTS=1 but HELIOX_MIGRATION_TEST_SERVER_URL is not set")
 
 pytestmark = pytest.mark.skipif(not SERVER_URL, reason="HELIOX_MIGRATION_TEST_SERVER_URL not set")
 
@@ -324,3 +327,97 @@ def test_api_uuid_routes_still_work(api):
     assert client.put(f"/api/v1/jobs/{created['id']}", json={"team_id": str(teams["b"].id)}).status_code == 422
     assert client.delete(f"/api/v1/jobs/{created['id']}").status_code == 204
     assert client.get(f"/api/v1/jobs/{created['id']}").status_code == 404
+
+
+# ── ORM metadata agrees with migration 037 ─────────────────────────────────────
+
+_UNIQUE_INDEXES_SQL = """
+    SELECT i.relname, ix.indisprimary, array_agg(a.attname ORDER BY k.ord) AS cols
+    FROM pg_index ix
+    JOIN pg_class t ON t.oid = ix.indrelid
+    JOIN pg_class i ON i.oid = ix.indexrelid
+    JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+    WHERE t.relname = 'jobs' AND t.relnamespace = current_schema()::regnamespace AND {where}
+    GROUP BY i.relname, ix.indisprimary
+"""
+
+
+def _jobs_indexes(engine, unique_only):
+    where = "ix.indisunique" if unique_only else "true"
+    with engine.connect() as conn:
+        rows = conn.execute(text(_UNIQUE_INDEXES_SQL.format(where=where))).all()
+    return {(name, primary, tuple(cols)) for name, primary, cols in rows}
+
+
+def _not_null(engine, column):
+    with engine.connect() as conn:
+        return (
+            conn.execute(
+                text(
+                    "SELECT is_nullable FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = 'jobs' AND column_name = :c"
+                ),
+                {"c": column},
+            ).scalar_one()
+            == "NO"
+        )
+
+
+EXPECTED_UNIQUE = {("jobs_pkey", True, ("id",)), ("uq_jobs_team_id_job_id", False, ("team_id", "job_id"))}
+
+
+@pytest.fixture
+def metadata_engine():
+    """A fresh database whose schema comes only from SQLAlchemy metadata (create_all), not Alembic."""
+    import app.models  # noqa: F401  (registers every model on Base.metadata)
+    from app.models.base import Base
+
+    name = f"heliox_jobidmeta_{uuid.uuid4().hex[:12]}"
+    admin = create_engine(SERVER_URL, isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    eng = create_engine(make_url(SERVER_URL).set(database=name))
+    try:
+        Base.metadata.create_all(bind=eng)
+        yield eng
+    finally:
+        eng.dispose()
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        admin.dispose()
+
+
+def test_metadata_schema_is_tenant_scoped(metadata_engine):
+    db = sessionmaker(bind=metadata_engine, expire_on_commit=False)()
+    try:
+        a, b = _team(db, "meta-a"), _team(db, "meta-b")
+        job_a, job_b = _job(a.id, "train-001"), _job(b.id, "train-001")
+        db.add(job_a)
+        db.commit()
+        db.add(job_b)
+        db.commit()  # same external ID in another team coexists
+        assert job_a.id != job_b.id
+        assert {r.team_id for r in _rows(db, "train-001")} == {a.id, b.id}
+
+        db.add(_job(a.id, "train-001"))
+        with pytest.raises(IntegrityError, match="uq_jobs_team_id_job_id"):
+            db.commit()
+        db.rollback()
+        assert len(_rows(db, "train-001")) == 2
+    finally:
+        db.close()
+
+    assert _jobs_indexes(metadata_engine, unique_only=True) == EXPECTED_UNIQUE
+    # nothing indexes job_id on its own (unique or not)
+    assert not [ix for ix in _jobs_indexes(metadata_engine, unique_only=False) if ix[2] == ("job_id",)]
+    assert _not_null(metadata_engine, "job_id") and _not_null(metadata_engine, "team_id")
+
+
+def test_metadata_and_migration_037_have_the_same_uniqueness(metadata_engine, engine):
+    # `engine` is the module database migrated with Alembic (upgrade head)
+    assert (
+        _jobs_indexes(engine, unique_only=True) == _jobs_indexes(metadata_engine, unique_only=True) == EXPECTED_UNIQUE
+    )
+    assert not [ix for ix in _jobs_indexes(engine, unique_only=False) if ix[2] == ("job_id",)]
+    assert _not_null(engine, "job_id") and _not_null(engine, "team_id")

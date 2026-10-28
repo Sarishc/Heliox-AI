@@ -23,6 +23,9 @@ from sqlalchemy.engine import make_url
 
 BACKEND = Path(__file__).resolve().parents[1]
 SERVER_URL = os.environ.get("HELIOX_MIGRATION_TEST_SERVER_URL")
+if os.environ.get("HELIOX_REQUIRE_POSTGRES_TESTS") == "1" and not SERVER_URL:
+    # CI sets this so the upgrade tests fail loudly instead of silently skipping
+    raise RuntimeError("HELIOX_REQUIRE_POSTGRES_TESTS=1 but HELIOX_MIGRATION_TEST_SERVER_URL is not set")
 
 
 def _script() -> ScriptDirectory:

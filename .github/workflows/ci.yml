@@ -216,13 +216,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+      # Blocking: a fixable CRITICAL/HIGH vulnerability or a detected secret fails the job.
+      # Reviewed false positives live in .trivyignore.yaml (see docs/SECURITY_SCANNING.md).
+      - name: Trivy repository scan (blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: "v0.76.1"
           scan-type: "fs"
           scan-ref: "."
+          scanners: "vuln,secret"
           severity: "CRITICAL,HIGH"
-        continue-on-error: true
+          ignore-unfixed: true
+          trivyignores: ".trivyignore.yaml"
+          exit-code: "1"
+
+      # Report only: every CRITICAL/HIGH vulnerability, including advisories with no fix yet
+      - name: Trivy repository report (incl. unfixed)
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: "v0.76.1"
+          scan-type: "fs"
+          scan-ref: "."
+          scanners: "vuln"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
 
   # ── Docker build ──────────────────────────────────────────────────────────────
   build:
@@ -247,17 +265,43 @@ jobs:
           # A failed cache upload (e.g. "error writing layer blob") shouldn't fail a good build
           cache-to: type=gha,mode=max,ignore-error=true
 
-      - name: Trivy image scan
-        uses: aquasecurity/trivy-action@master
+      # Blocking: a fixable CRITICAL/HIGH vulnerability or a secret in the runtime image fails the job
+      - name: Trivy image scan (blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: "v0.76.1"
+          image-ref: "heliox-api:${{ github.sha }}"
+          scanners: "vuln,secret"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+          trivyignores: ".trivyignore.yaml"
+          exit-code: "1"
+
+      # Report only: every CRITICAL/HIGH vulnerability, including unfixed OS advisories
+      - name: Trivy image report (incl. unfixed)
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: "v0.76.1"
+          image-ref: "heliox-api:${{ github.sha }}"
+          scanners: "vuln"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+
+      # Code scanning (Security tab). Reporting only: it never decides the gate above.
+      - name: Trivy image SARIF
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: "v0.76.1"
           image-ref: "heliox-api:${{ github.sha }}"
           format: "sarif"
           output: "trivy-results.sarif"
           severity: "CRITICAL,HIGH"
-        continue-on-error: true
+          exit-code: "0"
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: success() || failure()
         with:
           sarif_file: trivy-results.sarif

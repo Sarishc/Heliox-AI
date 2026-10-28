@@ -8,6 +8,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Patch the packaging tools the base image ships (they end up in the runtime image).
+# setuptools stays on 81.x: 82+ removes pkg_resources, which runtime packages still import.
+RUN pip install --no-cache-dir --upgrade "pip==26.2.2" "setuptools==81.0.0"
+
 # Set work directory
 WORKDIR /app
 
@@ -35,6 +39,9 @@ FROM base as runtime
 # Copy Python dependencies from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
+
+# pip is only needed to build; drop it (and the libraries it vendors) from the runtime image
+RUN python -m pip uninstall -y pip
 
 # Install gosu for Celery Beat entrypoint (drop root after fixing volume permissions)
 RUN apt-get update && apt-get install -y --no-install-recommends gosu \

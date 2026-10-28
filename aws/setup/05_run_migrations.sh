@@ -129,9 +129,7 @@ TASK_DEF_ARN=$(aws ecs register-task-definition \
       {\"name\": \"ADMIN_API_KEY\", \"value\": \"${ADMIN_API_KEY}\"},
       {\"name\": \"INTEGRATIONS_ENCRYPTION_KEY\", \"value\": \"${INTEGRATIONS_KEY}\"},
       {\"name\": \"REDIS_URL\", \"value\": \"${REDIS_URL}\"},
-      {\"name\": \"ENV\", \"value\": \"production\"},
-      {\"name\": \"STRIPE_SECRET_KEY\", \"value\": \"sk_test_placeholder\"},
-      {\"name\": \"STRIPE_WEBHOOK_SECRET\", \"value\": \"whsec_placeholder\"}
+      {\"name\": \"ENV\", \"value\": \"production\"}
     ],
     \"logConfiguration\": {
       \"logDriver\": \"awslogs\",

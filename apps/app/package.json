@@ -14,7 +14,7 @@
     "date-fns": "^4.1.0",
     "framer-motion": "^12.29.2",
     "lucide-react": "^0.562.0",
-    "next": "16.2.11",
+    "next": "16.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^3.6.0"
@@ -26,7 +26,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.11",
+    "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

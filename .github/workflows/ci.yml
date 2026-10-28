@@ -141,6 +141,9 @@ jobs:
       - name: Type-check and production build
         run: pnpm --filter app build
 
+      - name: API proxy unit tests
+        run: pnpm --filter app test:unit
+
   # ── GPU agent: test, build image, publish on main ─────────────────────────────
   agent:
     name: GPU Agent

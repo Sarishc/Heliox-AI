@@ -31,7 +31,7 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-heliox}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     volumes: []  # Remove source code mount
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4  # Remove --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --no-proxy-headers  # Remove --reload
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

@@ -125,35 +125,31 @@ def test_http_error_returns_false(mock_client_class):
 
 
 @patch("app.auth.captcha_verify.verify_captcha_token")
-def test_clear_captcha_requirement_only_clears_on_valid_verification(mock_verify):
-    """clear_captcha_requirement only clears Redis when verify_captcha_token returns True."""
-    from app.auth.brute_force import clear_captcha_requirement
+def test_verify_login_captcha_only_passes_on_valid_verification(mock_verify):
+    """verify_login_captcha passes only when verify_captcha_token returns True, and resets nothing."""
+    from app.auth.brute_force import verify_login_captcha
+    from app.core.client_ip import ClientAddress
 
     mock_verify.return_value = False
-    result = clear_captcha_requirement("192.168.1.1", "invalid-token")
-    assert result is False
-
-    mock_verify.return_value = True
-    with patch("app.auth.brute_force.get_redis", return_value=None):
-        result = clear_captcha_requirement("192.168.1.1", "valid-token")
-        assert result is True
+    assert verify_login_captcha("192.168.1.1", "invalid-token") is False
 
     mock_verify.return_value = True
     mock_redis = MagicMock()
-    with patch("app.auth.brute_force.get_redis", return_value=mock_redis):
-        result = clear_captcha_requirement("192.168.1.1", "valid-token")
-        assert result is True
-        mock_redis.delete.assert_called_once()
+    with patch("app.auth.brute_force.require_redis", return_value=mock_redis):
+        assert verify_login_captcha("192.168.1.1", "valid-token") is True
+    mock_redis.delete.assert_not_called()
+    mock_verify.assert_called_with("valid-token", remote_ip="192.168.1.1")
+
+    # A shared proxy's address isn't the solver's, so it isn't sent to hCaptcha
+    assert verify_login_captcha(ClientAddress(ip="10.0.0.5", shared=True), "valid-token") is True
+    mock_verify.assert_called_with("valid-token", remote_ip=None)
 
 
-def test_clear_captcha_requirement_rejects_empty_token():
-    """clear_captcha_requirement returns False for empty token without calling verify."""
+def test_verify_login_captcha_rejects_empty_token():
+    """verify_login_captcha returns False for empty token without calling verify."""
     with patch("app.auth.captcha_verify.verify_captcha_token") as mock_verify:
-        from app.auth.brute_force import clear_captcha_requirement
+        from app.auth.brute_force import verify_login_captcha
 
-        result = clear_captcha_requirement("192.168.1.1", "")
-        assert result is False
+        assert verify_login_captcha("192.168.1.1", "") is False
+        assert verify_login_captcha("192.168.1.1", "   ") is False
         mock_verify.assert_not_called()
-
-        result = clear_captcha_requirement("192.168.1.1", "   ")
-        assert result is False

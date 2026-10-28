@@ -1,12 +1,26 @@
-"""Redis-backed rate limiting middleware."""
+"""Redis-backed rate limiting middleware.
 
+Buckets are keyed by identities a client can't mint by editing headers:
+
+- a valid session (JWT signature, expiry and logout are checked) -> ``user:<hash>``
+- an X-API-Key -> ``api_key:<hash>``, plus a per-client ceiling on all API-key
+  traffic so rotating made-up keys can't create unlimited fresh buckets
+- otherwise the client address from app.core.client_ip -> ``ip:<address>``
+
+Keys are ``rl:<bucket>:<window>`` with a 2-window TTL, so buckets from the
+previous scheme (``rl:ip:<peer>``) simply age out.
+"""
+
+import hashlib
 import json
 import logging
+from typing import Optional
 
-from fastapi import Request, status
+from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from app.core.client_ip import get_client_address
 from app.core.logging import get_request_id
 from app.core.config import get_settings
 from app.core.cache import require_redis
@@ -19,26 +33,62 @@ logger = logging.getLogger(__name__)
 
 RATE_LIMIT_WINDOW_SECONDS = int(getattr(settings, "RATE_LIMIT_WINDOW_SECONDS", 60))
 RATE_LIMIT_MAX_REQUESTS = int(getattr(settings, "RATE_LIMIT_MAX_REQUESTS", 100))
+# One client address may run several API keys at full rate, but no more than this many
+API_KEY_CLIENT_MULTIPLIER = 5
 LOGIN_PATH = "/api/v1/auth/login"
 
 
-def get_client_id(request: Request) -> str:
-    """
-    Get client identifier for rate limiting.
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()[:16]
 
-    Uses X-API-Key header if present (team API key), otherwise falls back to IP.
-    """
+
+def _session_subject(request: Request) -> Optional[str]:
+    """Subject of a valid, non-revoked session token, or None. Raises 503 if Redis is down."""
+    import jwt
+
+    from app.auth.cookie_auth import get_token_from_cookie_or_header, is_token_blacklisted
+    from app.auth.security import SECRET_KEY
+
+    token = get_token_from_cookie_or_header(request)
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"], options={"require": ["exp", "sub"]})
+    except jwt.PyJWTError:
+        return None
+    try:
+        if is_token_blacklisted(token):
+            return None
+    except HTTPException:
+        raise
+    except Exception:
+        return None
+    subject = payload.get("sub")
+    return str(subject).lower() if subject else None
+
+
+def get_rate_limit_buckets(request: Request) -> list[tuple[str, int]]:
+    """(bucket, limit) pairs this request counts against."""
+    subject = _session_subject(request)
+    if subject:
+        return [(f"user:{_digest(subject)}", RATE_LIMIT_MAX_REQUESTS)]
+
+    client = get_client_address(request)
     api_key = request.headers.get("X-API-Key")
     if api_key:
-        import hashlib
+        return [
+            (f"api_key:{_digest(api_key)}", RATE_LIMIT_MAX_REQUESTS),
+            (f"api_key_client:{client.bucket}", RATE_LIMIT_MAX_REQUESTS * API_KEY_CLIENT_MULTIPLIER),
+        ]
+    return [(f"ip:{client.bucket}", RATE_LIMIT_MAX_REQUESTS)]
 
-        return f"api_key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
 
-    client_host = request.client.host if request.client else "unknown"
-    return f"ip:{client_host}"
+def get_client_id(request: Request) -> str:
+    """Primary rate-limit identity for this request (see get_rate_limit_buckets)."""
+    return get_rate_limit_buckets(request)[0][0]
 
 
-def is_rate_limited(client_id: str, path: str) -> tuple[bool, int]:
+def is_rate_limited(client_id: str, path: str, limit: Optional[int] = None) -> tuple[bool, int]:
     """
     Check if client has exceeded rate limit.
 
@@ -56,7 +106,7 @@ def is_rate_limited(client_id: str, path: str) -> tuple[bool, int]:
     if count == 1:
         redis_client.expire(key, RATE_LIMIT_WINDOW_SECONDS * 2)
 
-    if count > RATE_LIMIT_MAX_REQUESTS:
+    if count > (limit if limit is not None else RATE_LIMIT_MAX_REQUESTS):
         retry_after = window_start + RATE_LIMIT_WINDOW_SECONDS - current_time
         return True, max(1, retry_after)
 
@@ -89,11 +139,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path == LOGIN_PATH:
             return await call_next(request)
 
-        client_id = get_client_id(request)
         path = request.url.path
 
         try:
-            limited, retry_after = is_rate_limited(client_id, path)
+            limited, retry_after = False, RATE_LIMIT_WINDOW_SECONDS
+            # Every bucket is counted, so rotating identities can't skip the ceiling
+            for client_id, limit in get_rate_limit_buckets(request):
+                bucket_limited, bucket_retry = is_rate_limited(client_id, path, limit)
+                if bucket_limited and (not limited or bucket_retry > retry_after):
+                    limited, retry_after = True, bucket_retry
         except Exception:
             # Redis error already logged by require_redis(); propagate as 503
             return Response(

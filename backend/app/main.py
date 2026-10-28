@@ -497,4 +497,5 @@ if __name__ == "__main__":
         port=settings.PORT,
         reload=True if settings.ENV == "dev" else False,
         log_level=settings.LOG_LEVEL.lower(),
+        proxy_headers=False,  # client identity is resolved by app.core.client_ip (TRUSTED_PROXY_IPS)
     )

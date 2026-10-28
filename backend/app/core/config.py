@@ -126,9 +126,18 @@ class Settings(BaseSettings):
         default=600,
         description="Max requests per window per user/IP (500 req/min target for 100 users)",
     )
-    RATE_LIMIT_LOGIN_ATTEMPTS: int = Field(default=5, description="Max login attempts per minute per IP (OWASP: 5/min)")
+    RATE_LIMIT_LOGIN_ATTEMPTS: int = Field(
+        default=5, description="Max login attempts per minute for one account from one client (OWASP: 5/min)"
+    )
     LOGIN_LOCKOUT_AFTER: int = Field(default=5, description="Account lockout after N failed attempts")
     LOGIN_LOCKOUT_MINUTES: int = Field(default=15, description="Lockout duration in minutes")
+    TRUSTED_PROXY_IPS: str = Field(
+        default="",
+        description=(
+            "Comma-separated IPs/CIDRs of reverse proxies allowed to set X-Forwarded-For "
+            "(e.g. the Next.js server or load balancer). Empty = trust no forwarding headers."
+        ),
+    )
 
     # Stripe Billing
     STRIPE_SECRET_KEY: str = Field(default="", description="Stripe secret key for payment processing")

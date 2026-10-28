@@ -19,10 +19,11 @@ SSE architecture:
   └──────────────────────────────────────────────────────────────┘
 
 Connection lifecycle:
-  1. Client connects → check conn limit → INCR counter in Redis
-  2. Spawn background task to subscribe to Redis channel
-  3. Yield events from queue + periodic pings (every 30 s)
-  4. Client disconnects → cancel background task → DECR counter
+  1. Client connects → atomically take a leased slot (max 5 per team) in Redis
+  2. When the body starts streaming, spawn a task subscribed to the Redis channel
+  3. Yield events from queue + periodic pings (every 30 s); each ping renews the lease
+  4. Client disconnects / error / cancel → cancel the task → release the slot.
+     A slot that is never released (crashed worker) expires with its lease.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ import logging
 import time
 from typing import Any, AsyncGenerator, Optional
 from urllib.parse import urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -42,12 +43,11 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.events import (
     MAX_CONNS_PER_TEAM,
-    decrement_conn,
+    acquire_conn_slot,
     get_channel,
-    get_conn_count,
     get_recent_events,
-    increment_conn,
     mark_event_read,
+    release_conn_slot,
 )
 from app.core.tenant import get_effective_team_id
 
@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PING_INTERVAL_SECONDS = 30
+RECONNECT_MS = 5000
 
 
 # ── Auth: accepts X-API-Key header OR JWT session cookie ─────────────────────
@@ -128,6 +129,11 @@ def _ping_line() -> str:
     return f"id: ping-{int(time.time())}\nevent: ping\ndata: {{}}\n\n"
 
 
+def _open_line() -> str:
+    # Sent at once so proxies and the browser see the stream open without waiting for an event
+    return f": connected\nretry: {RECONNECT_MS}\n\n"
+
+
 async def _redis_subscriber(
     channel: str,
     queue: asyncio.Queue,
@@ -161,7 +167,8 @@ async def _redis_subscriber(
 
         while not stop_event.is_set():
             try:
-                message = await asyncio.wait_for(pubsub.get_message(ignore_subscribe_messages=True), timeout=1.0)
+                # Block up to 1 s for a message (get_message's default timeout of 0 busy-polls)
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message.get("type") == "message":
                     await queue.put(message["data"])
             except asyncio.TimeoutError:
@@ -197,6 +204,7 @@ async def _sse_generator(
     """Yield SSE-formatted strings. Sends pings every 30 s to prevent proxy timeouts."""
     last_ping = time.monotonic()
     try:
+        yield _open_line()
         while True:
             now = time.monotonic()
 
@@ -256,10 +264,16 @@ async def event_stream(
     team_id: UUID = Depends(_resolve_team_id),
 ) -> StreamingResponse:
     team_id_str = str(team_id)
+    conn_id = uuid4().hex
 
-    # Enforce per-team connection limit
-    conn_count = get_conn_count(team_id_str)
-    if conn_count >= MAX_CONNS_PER_TEAM:
+    # Enforce per-team connection limit (check and take the slot in one atomic step)
+    held = acquire_conn_slot(team_id_str, conn_id)
+    if held is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Real-time events are temporarily unavailable. Please retry shortly.",
+        )
+    if not held:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
@@ -269,40 +283,38 @@ async def event_stream(
         )
 
     channel = get_channel(team_id_str)
-    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
-    stop_event = asyncio.Event()
-
-    # Increment connection counter
-    increment_conn(team_id_str)
-
-    # Start Redis subscriber task
-    subscriber_task = asyncio.create_task(_redis_subscriber(channel, queue, stop_event))
-
-    async def _cleanup() -> None:
-        stop_event.set()
-        subscriber_task.cancel()
-        try:
-            await subscriber_task
-        except asyncio.CancelledError:
-            pass
-        decrement_conn(team_id_str)
-        logger.debug("SSE: connection closed for team=%s", team_id_str)
 
     async def _stream() -> AsyncGenerator[str, None]:
+        # Created here, not in the handler, so nothing runs if the body is never streamed
+        queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+        stop_event = asyncio.Event()
+        subscriber_task = asyncio.create_task(_redis_subscriber(channel, queue, stop_event))
         try:
             async for chunk in _sse_generator(team_id, queue, stop_event):
                 # Check if client disconnected
                 if await request.is_disconnected():
                     break
+                # Every ping renews the lease; if it lapsed and the team filled up meanwhile, stop
+                if chunk.startswith("id: ping-") and acquire_conn_slot(team_id_str, conn_id) is False:
+                    break
                 yield chunk
         finally:
-            await _cleanup()
+            # Disconnect, error and cancellation all end here
+            release_conn_slot(team_id_str, conn_id)
+            stop_event.set()
+            subscriber_task.cancel()
+            try:
+                await subscriber_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            logger.debug("SSE: connection closed for team=%s", team_id_str)
 
     return StreamingResponse(
         _stream(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            # no-transform stops intermediaries (and Next's compression) from buffering the stream
+            "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },

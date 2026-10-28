@@ -1,20 +1,40 @@
-"""Job endpoints."""
+"""Job endpoints.
 
-from typing import Any, Optional
+Tenant isolation: every handler first resolves the caller's team IDs and every
+query filters on them in SQL. A job outside those teams is reported as 404,
+the same as a job that doesn't exist.
+"""
+
+from typing import Any, List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_active_user
-from app.core.tenant import require_team_access
-from app.models.team_member import TeamMember, TeamRole
 from app.core.db import get_db
+from app.core.tenant import require_team_access
 from app.crud import job as crud_job
+from app.crud.job import DuplicateJobIdError
+from app.models.team_member import TeamMember, TeamRole
 from app.models.user import User
-from app.schemas.job import Job, JobCreate, JobUpdate
+from app.schemas.job import Job, JobCreate, JobUpdate, check_chronology
 
 router = APIRouter()
+
+JobStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
+MUTATING_ROLES = [TeamRole.OWNER, TeamRole.ADMIN]
+
+
+def _member_team_ids(db: Session, user: User) -> List[UUID]:
+    return [m.team_id for m in db.query(TeamMember.team_id).filter(TeamMember.user_id == user.id).all()]
+
+
+def _get_job_or_404(db: Session, user: User, job_id: UUID):
+    job = crud_job.get_for_teams(db, id=job_id, team_ids=_member_team_ids(db, user))
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job
 
 
 @router.get("/", response_model=dict, summary="List jobs")
@@ -23,53 +43,27 @@ def list_jobs(
     skip: int = Query(default=0, ge=0, description="Number of records to skip"),
     limit: int = Query(default=50, ge=1, le=100, description="Number of records to return (max 100)"),
     team_id: Optional[UUID] = Query(None, description="Filter by team ID"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    provider: Optional[str] = Query(None, description="Filter by provider"),
+    status: Optional[JobStatus] = Query(None, description="Filter by status"),
+    provider: Optional[str] = Query(None, max_length=100, description="Filter by provider (case-insensitive)"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Retrieve jobs with pagination and optional filters.
+    List jobs in the caller's teams, newest first.
 
-    Query Parameters:
-    - skip: Number of records to skip (default: 0)
-    - limit: Number of records to return (default: 50, max: 100)
-    - team_id: Filter by team ID (optional)
-    - status: Filter by status (optional)
-    - provider: Filter by provider (optional)
-
-    Returns:
-    - jobs: List of job records
-    - total: Total number of jobs matching filters
-    - skip: Number of records skipped
-    - limit: Number of records per page
-    - has_more: Whether there are more records
+    Filters (team_id, status, provider) only narrow the caller's own teams;
+    ``total`` and ``has_more`` are computed under exactly the same predicate.
     """
-    from sqlalchemy import select, func
-    from app.models.job import Job as JobModel
-
-    # Build query based on filters
     if team_id:
         require_team_access(db, user=current_user, team_id=team_id)
-        jobs = crud_job.get_by_team(db, team_id=team_id, skip=skip, limit=limit)
-        # Get count for this filter
-        query = select(func.count()).select_from(JobModel).where(JobModel.team_id == team_id)
-    elif status:
-        jobs = crud_job.get_by_status(db, status=status, skip=skip, limit=limit)
-        query = select(func.count()).select_from(JobModel).where(JobModel.status == status)
-    elif provider:
-        jobs = crud_job.get_by_provider(db, provider=provider, skip=skip, limit=limit)
-        query = select(func.count()).select_from(JobModel).where(JobModel.provider == provider)
+        team_ids = [team_id]
     else:
-        # Restrict to user's teams
-        team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()]
-        jobs = db.query(JobModel).filter(JobModel.team_id.in_(team_ids)).offset(skip).limit(limit).all()
-        query = select(func.count()).select_from(JobModel).where(JobModel.team_id.in_(team_ids))
+        team_ids = _member_team_ids(db, current_user)
 
-    # Get total count
-    total = db.execute(query).scalar_one()
-
+    jobs, total = crud_job.list_for_teams(
+        db, team_ids=team_ids, status=status, provider=provider, skip=skip, limit=limit
+    )
     return {
-        "jobs": jobs,
+        "jobs": [Job.model_validate(j) for j in jobs],
         "total": total,
         "skip": skip,
         "limit": limit,
@@ -82,36 +76,27 @@ def create_job(
     *, db: Session = Depends(get_db), job_in: JobCreate, current_user: User = Depends(get_current_active_user)
 ) -> Any:
     """
-    Create new job.
+    Create a job in one of the caller's teams. ``job_id`` (your scheduler's ID) is
+    generated when omitted; a job_id that's already taken returns 409.
     """
-    # Verify team exists + membership
-    from app.crud import team as crud_team
-
-    team = crud_team.get(db, id=job_in.team_id)
-    if not team:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
-
+    # Same 403 whether the team doesn't exist or the caller isn't a member
     require_team_access(db, user=current_user, team_id=job_in.team_id)
-    job = crud_job.create(db, obj_in=job_in)
-    return job
+    try:
+        return crud_job.create_for_team(db, obj_in=job_in)
+    except DuplicateJobIdError:
+        # job_id is unique across all teams; don't say who owns it
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="job_id is already in use. Choose a different job_id or omit it to generate one.",
+        )
 
 
 @router.get("/{job_id}", response_model=Job, summary="Get a job by ID")
 def read_job(
     *, db: Session = Depends(get_db), job_id: UUID, current_user: User = Depends(get_current_active_user)
 ) -> Any:
-    """
-    Get job by ID. Scoped to user's teams at DB level.
-    """
-    team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()]
-    if not team_ids:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    from app.models.job import Job as JobModel
-
-    job = db.query(JobModel).filter(JobModel.id == job_id, JobModel.team_id.in_(team_ids)).first()
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    return job
+    """Get a job in one of the caller's teams."""
+    return _get_job_or_404(db, current_user, job_id)
 
 
 @router.put("/{job_id}", response_model=Job, summary="Update a job")
@@ -123,49 +108,24 @@ def update_job(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Update a job. Scoped to user's teams at DB level.
+    Update a job (owner/admin). Typical use: mark a running job completed or
+    failed and set end_time. team_id and job_id can't be changed.
     """
-    team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()]
-    if not team_ids:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    job = None
-    for tid in team_ids:
-        job = crud_job.get_by_team(db, id=job_id, team_id=tid)
-        if job:
-            break
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    require_team_access(
-        db,
-        user=current_user,
-        team_id=job.team_id,
-        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
-    )
-    job = crud_job.update(db, db_obj=job, obj_in=job_in)
-    return job
+    job = _get_job_or_404(db, current_user, job_id)
+    require_team_access(db, user=current_user, team_id=job.team_id, allowed_roles=MUTATING_ROLES)
+    changes = job_in.model_dump(exclude_unset=True)
+    try:
+        check_chronology(changes.get("start_time", job.start_time), changes.get("end_time", job.end_time))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    return crud_job.update(db, db_obj=job, obj_in=job_in)
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a job")
 def delete_job(
     *, db: Session = Depends(get_db), job_id: UUID, current_user: User = Depends(get_current_active_user)
 ) -> None:
-    """
-    Delete a job. Scoped to user's teams at DB level. Requires owner/admin.
-    """
-    team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == current_user.id).all()]
-    if not team_ids:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    job = None
-    for tid in team_ids:
-        job = crud_job.get_by_team(db, id=job_id, team_id=tid)
-        if job:
-            break
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    require_team_access(
-        db,
-        user=current_user,
-        team_id=job.team_id,
-        allowed_roles=[TeamRole.OWNER, TeamRole.ADMIN],
-    )
-    crud_job.delete_by_team(db, id=job_id, team_id=job.team_id)
+    """Delete a job (owner/admin)."""
+    job = _get_job_or_404(db, current_user, job_id)
+    require_team_access(db, user=current_user, team_id=job.team_id, allowed_roles=MUTATING_ROLES)
+    crud_job.delete_by_team(db, id=job.id, team_id=job.team_id)

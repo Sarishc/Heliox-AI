@@ -127,6 +127,17 @@ def test_spraying_through_shared_proxy_does_not_wall_other_users(env):
     assert env.login(victims[11], peer=NEXT_PROXY).status_code == 200
 
 
+def test_unconfigured_proxy_does_not_wall_or_lock_everyone(env, monkeypatch):
+    # Default config: the Next.js server (an internal address) is not listed in TRUSTED_PROXY_IPS.
+    # Failures sprayed through it must not put every user behind CAPTCHA or a lockout.
+    monkeypatch.setattr(client_ip.get_settings(), "TRUSTED_PROXY_IPS", "")
+    unlisted_proxy = "172.24.0.1"
+    victims = [env.user(f"unlisted-{i}") for i in range(22)]
+    for email in victims[:21]:
+        assert env.login(email, WRONG, peer=unlisted_proxy).status_code == 401
+    assert env.login(victims[21], peer=unlisted_proxy).status_code == 200
+
+
 def test_per_account_per_client_rate_limit(env):
     a = env.user("rate-a")
     codes = [env.login(a).status_code for _ in range(brute_force.LOGIN_RATE_LIMIT + 1)]

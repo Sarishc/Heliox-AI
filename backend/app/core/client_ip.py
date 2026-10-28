@@ -11,9 +11,12 @@ Trust boundary (the only place forwarding headers are interpreted):
   Every entry must be a bare IPv4/IPv6 address, otherwise the header is ignored.
 - ``Forwarded``, ``X-Real-IP`` and similar headers are never trusted.
 
-When the peer is a trusted proxy that didn't forward a usable client address,
-the identity is the proxy itself and ``shared`` is True: many users may sit
-behind it, so per-IP controls must not treat it as a single client.
+The identity is ``shared`` (many users may sit behind it, so per-client
+lockouts must not treat it as one client) when it is a trusted proxy that
+didn't forward a usable client address, or an internal, non-routable address
+(loopback, RFC 1918, CGNAT, link-local, IPv6 ULA). Internet clients can't
+present such a source address, so an unconfigured Next.js server or load
+balancer in front of the API fails safe instead of being locked out for everyone.
 """
 
 from __future__ import annotations
@@ -35,6 +38,22 @@ IPNetwork = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
 
 MAX_FORWARDED_HOPS = 20
 _warned_rewritten_peer = False
+
+# Addresses of infrastructure, not of end users on the internet
+INTERNAL_NETWORKS = tuple(
+    ipaddress.ip_network(net)
+    for net in (
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +106,10 @@ def _is_trusted(addr: IPAddress, trusted: Tuple[IPNetwork, ...]) -> bool:
     return any(addr.version == net.version and addr in net for net in trusted)
 
 
+def _identity(addr: IPAddress, forwarded: bool = False) -> ClientAddress:
+    return ClientAddress(ip=str(addr), shared=_is_trusted(addr, INTERNAL_NETWORKS), forwarded=forwarded)
+
+
 def _forwarded_chain(request: Request) -> Optional[list[IPAddress]]:
     """All X-Forwarded-For entries (repeated headers concatenated), or None if absent/invalid."""
     values = request.headers.getlist("x-forwarded-for")
@@ -122,12 +145,12 @@ def get_client_address(request: Request) -> ClientAddress:
 
     trusted = parse_trusted_proxies(get_settings().TRUSTED_PROXY_IPS)
     if not trusted or not _is_trusted(peer, trusted):
-        return ClientAddress(ip=str(peer))
+        return _identity(peer)
 
     chain = _forwarded_chain(request)
     if chain:
         for addr in reversed(chain):
             if not _is_trusted(addr, trusted):
-                return ClientAddress(ip=str(addr), forwarded=True)
+                return _identity(addr, forwarded=True)
     # Trusted proxy, but no usable end-client address
     return ClientAddress(ip=str(peer), shared=True)

@@ -87,7 +87,8 @@ function upstreamHeaders(request: Request, clientIp: string | null): Headers {
       name === "accept-encoding" ||
       HOP_BY_HOP.has(name) ||
       named.has(name) ||
-      FORWARDING.has(name)
+      FORWARDING.has(name) ||
+      name.startsWith("x-forwarded-")
     ) {
       return;
     }

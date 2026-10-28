@@ -64,7 +64,35 @@ def test_trusted_proxy_cidr(trust):
 def test_untrusted_proxy_headers_ignored(trust):
     trust(NEXT_PROXY)
     req = _request("10.0.0.99", [("X-Forwarded-For", "203.0.113.9")])
-    assert get_client_address(req) == ClientAddress(ip="10.0.0.99")
+    # headers ignored; an internal address is infrastructure, so it is a shared identity
+    assert get_client_address(req) == ClientAddress(ip="10.0.0.99", shared=True)
+    req = _request("198.51.100.20", [("X-Forwarded-For", "203.0.113.9")])
+    assert get_client_address(req) == ClientAddress(ip="198.51.100.20")
+
+
+@pytest.mark.parametrize(
+    "peer",
+    ["127.0.0.1", "10.1.2.3", "172.24.0.1", "192.168.65.1", "100.64.0.9", "169.254.1.1", "::1", "fd00::5", "fe80::1"],
+)
+def test_unconfigured_internal_peer_is_shared_and_headers_ignored(trust, peer):
+    # e.g. a Next.js server or load balancer nobody listed in TRUSTED_PROXY_IPS
+    trust("")
+    addr = get_client_address(_request(peer, [("X-Forwarded-For", "198.51.100.9")]))
+    assert addr.shared is True
+    assert addr.forwarded is False
+    assert addr.ip == peer
+
+
+@pytest.mark.parametrize("peer", ["198.51.100.20", "8.8.8.8", "2001:db8::1", "172.32.0.1", "100.128.0.1"])
+def test_public_peer_is_an_individual_client(trust, peer):
+    trust("")
+    assert get_client_address(_request(peer)).shared is False
+
+
+def test_internal_address_forwarded_by_trusted_proxy_is_shared(trust):
+    trust(NEXT_PROXY)
+    req = _request(NEXT_PROXY, [("X-Forwarded-For", "10.9.9.9")])
+    assert get_client_address(req) == ClientAddress(ip="10.9.9.9", shared=True, forwarded=True)
 
 
 def test_trusted_proxy_without_client_is_shared(trust):

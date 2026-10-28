@@ -208,12 +208,22 @@ test("client-supplied forwarding headers never reach the backend", async () => {
         forwarded: "for=203.0.113.9",
         "x-real-ip": "203.0.113.9",
         "x-forwarded-host": "evil.example",
+        "x-forwarded-server": "evil.example",
         "cf-connecting-ip": "203.0.113.9",
+        "true-client-ip": "203.0.113.9",
       },
     })
   );
   const h = lastSeen().headers;
-  for (const name of ["x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host", "cf-connecting-ip"]) {
+  for (const name of [
+    "x-forwarded-for",
+    "forwarded",
+    "x-real-ip",
+    "x-forwarded-host",
+    "x-forwarded-server",
+    "cf-connecting-ip",
+    "true-client-ip",
+  ]) {
     assert.equal(h[name], undefined, `${name} leaked`);
   }
 });

@@ -75,10 +75,27 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
+      # Throwaway server for the PostgreSQL-only tests (migrations, ON CONFLICT upserts);
+      # each test creates and drops its own database in it
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
 
     env:
-      # conftest.py uses SQLite in-memory — no Postgres service needed for unit tests
+      # conftest.py uses SQLite in-memory for the app; PostgreSQL-only tests use the service above
       DATABASE_URL: "sqlite:///:memory:"
+      HELIOX_MIGRATION_TEST_SERVER_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/postgres
+      # Fail instead of skipping if the PostgreSQL tests ever lose their server
+      HELIOX_REQUIRE_POSTGRES_TESTS: "1"
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-at-least-32-characters-long
       ENV: dev

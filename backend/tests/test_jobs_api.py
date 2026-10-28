@@ -139,16 +139,20 @@ def test_duplicate_job_id_in_same_team_is_409_not_500(client, world):
     assert resp.status_code == 409
 
 
-def test_duplicate_job_id_owned_by_another_tenant_reveals_nothing(client, world):
+def test_job_id_used_by_another_tenant_is_available_and_reveals_nothing(client, world):
+    # External IDs are unique per team: another tenant's ID is simply free here,
+    # so the response can't tell the caller that some other tenant uses it
     world.as_user(world.owner_a)
     resp = client.post(JOBS, json=_create_body(world.team_a.id, job_id=world.b_running_aws.job_id))
 
-    assert resp.status_code == 409
-    text = resp.text
-    assert str(world.team_b.id) not in text and world.b_running_aws.model_name not in text
-    # Same message as a same-team duplicate, so it doesn't reveal which tenant owns it
-    same_team = client.post(JOBS, json=_create_body(world.team_a.id, job_id=world.a_running_aws.job_id))
-    assert same_team.json()["message"] == resp.json()["message"]
+    assert resp.status_code == 201, resp.text
+    created = resp.json()
+    assert created["team_id"] == str(world.team_a.id) and created["id"] != str(world.b_running_aws.id)
+    assert str(world.team_b.id) not in resp.text and world.b_running_aws.model_name not in resp.text
+    # Tenant B's job is untouched
+    world.as_user(world.owner_b)
+    theirs = client.get(f"{JOBS}{world.b_running_aws.id}").json()
+    assert theirs["team_id"] == str(world.team_b.id) and theirs["model_name"] == world.b_running_aws.model_name
 
 
 @pytest.mark.parametrize("bad_id", ["", "x" * 101, "has space", "semi;colon"])

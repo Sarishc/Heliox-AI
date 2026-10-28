@@ -23,12 +23,10 @@ class Job(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "jobs"
 
-    # External Job Identifier (for idempotent ingestion)
+    # External Job Identifier (for idempotent ingestion); unique within a team, see uq_jobs_team_id_job_id
     job_id: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        unique=True,
-        index=True,
         comment="External job identifier for idempotent upserts",
     )
 
@@ -85,6 +83,8 @@ class Job(Base, UUIDMixin, TimestampMixin):
 
     # Indexes for common queries
     __table_args__ = (
+        # Each team names its own jobs; two teams may use the same external ID (migration 037)
+        Index("uq_jobs_team_id_job_id", "team_id", "job_id", unique=True),
         Index("ix_jobs_team_id_status", "team_id", "status"),
         Index("ix_jobs_provider_gpu_type", "provider", "gpu_type"),
         Index("ix_jobs_start_time", "start_time"),

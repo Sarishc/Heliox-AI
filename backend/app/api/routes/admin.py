@@ -418,7 +418,7 @@ def ingest_mock_job_data(
     This endpoint:
     1. Loads mock job data from backend/app/data/mock_jobs.json
     2. Creates teams if they don't exist (by unique name)
-    3. Upserts jobs by job_id (idempotent)
+    3. Upserts jobs by (team, job_id) (idempotent; never moves a job between teams)
     4. Validates timestamps (end_time >= start_time)
     5. Returns statistics on teams/jobs processed
 
@@ -427,7 +427,7 @@ def ingest_mock_job_data(
 
     Idempotency:
     - Teams are created only if they don't exist
-    - Jobs are upserted based on unique job_id
+    - Jobs are upserted on (team_id, job_id), unique per team
     - Safe to run multiple times
 
     Returns:

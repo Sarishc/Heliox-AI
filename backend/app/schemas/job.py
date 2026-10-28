@@ -75,7 +75,7 @@ class JobCreate(JobBase):
         min_length=1,
         max_length=100,
         pattern=JOB_ID_PATTERN,
-        description="External job ID from your scheduler; generated when omitted. Must be unique.",
+        description="External job ID from your scheduler; generated when omitted. Must be unique within the team.",
     )
     start_time: Optional[datetime] = Field(None, description="When the job started")
     end_time: Optional[datetime] = Field(None, description="When the job finished (for already-completed jobs)")

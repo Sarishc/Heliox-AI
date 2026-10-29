@@ -46,7 +46,7 @@ azure-mgmt-costmanagement>=4.0.0
 stripe>=7.0.0
 
 # JWT Authentication
-PyJWT[crypto]==2.13.0
+PyJWT[crypto]==2.15.1
 
 # ML/Forecasting
 numpy>=1.24.0
@@ -63,7 +63,7 @@ pytest-asyncio==0.23.3
 pytest-cov==4.1.0
 
 # Development tools
-black==26.3.1
+black==26.10.1
 ruff==0.1.14
 mypy==1.8.0
 

@@ -1,0 +1,12 @@
+# Reviewed Trivy exceptions. Keep each entry narrow (one rule, explicit paths) and justified.
+# Vulnerabilities are not ignored here: unfixed OS advisories are handled by `ignore-unfixed`
+# in the blocking CI gates and listed in full by the informational report steps
+# (see docs/SECURITY_SCANNING.md).
+
+secrets:
+  # The GCP integration form shows the expected shape of a service-account key as placeholder
+  # text; every value in it is a literal "..." and it contains no key material.
+  - id: gcp-service-account
+    paths:
+      - "apps/app/components/GCPIntegrationForm.tsx"
+    statement: "False positive: UI placeholder text, no credential (reviewed 2026-10-28)"

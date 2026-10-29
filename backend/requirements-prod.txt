@@ -22,7 +22,7 @@ google-cloud-bigquery>=3.14.0
 azure-identity>=1.15.0
 azure-mgmt-costmanagement>=4.0.0
 stripe>=7.0.0
-PyJWT[crypto]==2.13.0
+PyJWT[crypto]==2.15.1
 python3-saml>=1.16.0
 numpy>=1.24.0
 lightgbm>=4.0.0

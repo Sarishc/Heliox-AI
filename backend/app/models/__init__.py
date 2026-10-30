@@ -25,6 +25,28 @@ from app.models.usage import UsageEvent, UsageDailyRollup
 from app.models.user import User
 from app.models.waitlist import WaitlistEntry
 from app.integrations.models import IntegrationConnection, IntegrationSyncRun
+from app.models.cost_ledger import (
+    BillingCanonicalFact,
+    BillingUsageLedger,
+    CostReconciliationAttempt,
+    CostReconciliationBatch,
+    CostReconciliationEntry,
+    CostSourceAuthority,
+    CostSourceAuthorityHistory,
+    CostSourceConflict,
+    CostSourceCoverage,
+    CostSourceObservation,
+    CostSourceRecord,
+    CostSourceStream,
+    CostSourceStreamBinding,
+    CostSourceStreamCheckpoint,
+    CostSourceStreamDay,
+    CostSyncLease,
+    CostSyncRunStream,
+    CostSyncStaging,
+    ManualCostRequest,
+    TeamCostLedgerSettings,
+)
 
 # Export all models for easy importing
 __all__ = [
@@ -65,4 +87,24 @@ __all__ = [
     "IntegrationSyncRun",
     "InferenceSpan",
     "ModelCostSummary",
+    "BillingCanonicalFact",
+    "BillingUsageLedger",
+    "CostReconciliationAttempt",
+    "CostReconciliationBatch",
+    "CostReconciliationEntry",
+    "CostSourceAuthority",
+    "CostSourceAuthorityHistory",
+    "CostSourceConflict",
+    "CostSourceCoverage",
+    "CostSourceObservation",
+    "CostSourceRecord",
+    "CostSourceStream",
+    "CostSourceStreamBinding",
+    "CostSourceStreamCheckpoint",
+    "CostSourceStreamDay",
+    "CostSyncLease",
+    "CostSyncRunStream",
+    "CostSyncStaging",
+    "ManualCostRequest",
+    "TeamCostLedgerSettings",
 ]

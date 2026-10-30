@@ -38,7 +38,11 @@ def _script() -> ScriptDirectory:
 
 
 def test_history_has_exactly_one_head():
-    assert _script().get_heads() == ["037"]
+    assert _script().get_heads() == ["038"]
+
+
+def test_cost_ledger_follows_tenant_scoped_job_ids():
+    assert _script().get_revision("038").down_revision == "037"
 
 
 def test_tenant_scoped_job_ids_follow_the_merge():
@@ -122,7 +126,7 @@ def _assert_final_schema(db_url: str) -> None:
         assert job_indexes["uq_jobs_team_id_job_id"] == (True, ["team_id", "job_id"])
         assert "ix_jobs_job_id" not in job_indexes
 
-        assert _version(engine) == ["037"]
+        assert _version(engine) == ["038"]
     finally:
         engine.dispose()
 
@@ -196,7 +200,7 @@ def test_036_database_with_jobs_upgrades_to_037_and_keeps_every_row(scratch_db_u
         _seed_jobs(engine, [("team-a", "train-001"), ("team-a", "train-002"), ("team-b", "train-003")])
         before = _all_jobs(engine)
 
-        _alembic(scratch_db_url, "upgrade", "head")
+        _alembic(scratch_db_url, "upgrade", "037")
 
         assert _all_jobs(engine) == before  # same UUIDs, owners, IDs and timestamps
         assert _job_indexes(engine)["uq_jobs_team_id_job_id"] == (True, ["team_id", "job_id"])
@@ -221,7 +225,7 @@ def test_036_database_with_jobs_upgrades_to_037_and_keeps_every_row(scratch_db_u
 
 @needs_postgres
 def test_downgrade_with_cross_team_duplicates_is_refused_without_changes(scratch_db_url):
-    _alembic(scratch_db_url, "upgrade", "head")
+    _alembic(scratch_db_url, "upgrade", "037")
     engine = create_engine(scratch_db_url)
     try:
         _seed_jobs(engine, [("team-a", "shared-001"), ("team-b", "shared-001"), ("team-a", "solo-002")])
@@ -240,7 +244,7 @@ def test_downgrade_with_cross_team_duplicates_is_refused_without_changes(scratch
 
 @needs_postgres
 def test_downgrade_without_collisions_restores_global_uniqueness(scratch_db_url):
-    _alembic(scratch_db_url, "upgrade", "head")
+    _alembic(scratch_db_url, "upgrade", "037")
     engine = create_engine(scratch_db_url)
     try:
         _seed_jobs(engine, [("team-a", "a-001"), ("team-b", "b-001")])
@@ -252,7 +256,7 @@ def test_downgrade_without_collisions_restores_global_uniqueness(scratch_db_url)
         assert "uq_jobs_team_id_job_id" not in _job_indexes(engine)
         assert _version(engine) == ["036"]
 
-        _alembic(scratch_db_url, "upgrade", "head")
+        _alembic(scratch_db_url, "upgrade", "037")
         assert _all_jobs(engine) == before
         assert _version(engine) == ["037"]
     finally:
@@ -268,7 +272,7 @@ def test_037_refuses_an_unexpected_schema_without_changes(scratch_db_url):
             conn.execute(text("DROP INDEX ix_jobs_job_id"))
             conn.execute(text("CREATE INDEX ix_jobs_job_id ON jobs (job_id)"))  # not unique
 
-        result = _run_alembic(scratch_db_url, "upgrade", "head")
+        result = _run_alembic(scratch_db_url, "upgrade", "037")
 
         assert result.returncode != 0
         assert "037: expected ix_jobs_job_id to be a unique index" in result.stderr

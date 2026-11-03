@@ -229,6 +229,8 @@ def test_no_application_code_uses_the_ledger_yet():
         APP_DIR / "models" / "__init__.py",
         APP_DIR / "models" / "cost.py",
         APP_DIR / "integrations" / "models.py",
+        # Step 6E shadow-only service; `cost_ledger` above still catches anything that imports it
+        APP_DIR / "services" / "cost_ledger.py",
     }
     users = [
         str(p.relative_to(APP_DIR)) for p in APP_DIR.rglob("*.py") if p not in allowed and names.search(p.read_text())

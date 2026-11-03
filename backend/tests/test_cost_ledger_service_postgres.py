@@ -9,6 +9,7 @@ sessions in separate threads. Nothing here may create billable usage or change l
 import threading
 import time
 import uuid
+from types import SimpleNamespace
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -20,10 +21,13 @@ from sqlalchemy.orm import Session
 
 from app.services.cost_ledger import (
     CostLedgerService,
+    CostLine,
     InvalidCostLine,
     LedgerDisabled,
     LedgerError,
+    LedgerFenced,
     Publication,
+    RunNotActive,
     StreamIdentity,
     TenantMismatch,
     normalize_line,
@@ -33,7 +37,10 @@ pytestmark = needs_postgres
 
 A, B, D = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 ALICE = uuid.uuid4()
-CONN = {name: uuid.uuid4() for name in ("payer", "member", "birch", "gcp", "gcp_copy", "az_sub", "az_ba", "dormant")}
+CONN = {
+    name: uuid.uuid4()
+    for name in ("payer", "member", "birch", "gcp", "gcp_copy", "az_sub", "az_ba", "dormant", "retry", "retry2")
+}
 DAY = date(2026, 10, 20)
 LEGACY_ID = uuid.uuid4()
 
@@ -154,11 +161,13 @@ def sync(engine, conn, sid, lines, *, start=DAY, days=1, complete=True, exempt=F
             out = svc.publish(Publication(run, 1, token, sid, start, start + timedelta(days=days), lines, complete))
             if hold:
                 s.execute(text("SELECT pg_sleep(:t)"), {"t": hold})
-            svc.finish_run(run)
+            svc.finish_run(run, attempt=1, fencing_token=token)
+    except LedgerFenced:
+        raise  # a fenced attempt owns nothing: the newer attempt cleans up
     except Exception:
         # As a worker would: the publish rolled back; record the failed run and release its lease
         with Session(engine) as s, s.begin():
-            CostLedgerService(s).finish_run(run, status="failed")
+            CostLedgerService(s).finish_run(run, attempt=1, fencing_token=token, status="failed")
         raise
     return out
 
@@ -420,7 +429,7 @@ def test_15_injected_failure_rolls_back_everything(engine):
     for table in ("cost_source_records", "cost_sync_run_streams", "cost_source_stream_days"):
         assert q(engine, f"SELECT count(*) FROM {table} WHERE stream_id = :s", s=sid) == 0
     with Session(engine) as s, s.begin():
-        CostLedgerService(s).finish_run(run)
+        CostLedgerService(s).finish_run(run, attempt=1, fencing_token=token)
 
 
 # 16-21: coverage, staleness, estimates, currency
@@ -481,13 +490,13 @@ def test_19_stale_result_cannot_overwrite_a_newer_one(engine):
     with Session(engine) as s, s.begin():
         svc = CostLedgerService(s)
         s.execute(text("UPDATE integration_sync_runs SET phase = 'leased' WHERE id = :r"), {"r": old_run})
-        token = svc.acquire_lease(old_run)
+        token = svc.acquire_lease(old_run, 2)
         s.execute(
             text("UPDATE integration_sync_runs SET fetch_started_at = now() - interval '1 hour' WHERE id = :r"),
             {"r": old_run},
         )
-        out = svc.publish(Publication(old_run, 1, token, sid, day, day + timedelta(1), [line(100, day=day)], True))
-        svc.finish_run(old_run)
+        out = svc.publish(Publication(old_run, 2, token, sid, day, day + timedelta(1), [line(100, day=day)], True))
+        svc.finish_run(old_run, attempt=2, fencing_token=token)
     assert (out.stale, out.corrected, out.inserted) == (1, 0, 0)
     assert money(total(engine, A, day)) == (Decimal("80.00"), "complete")
 
@@ -716,3 +725,447 @@ def test_off_team_cannot_publish(engine):
     with pytest.raises(LedgerDisabled):
         sync(engine, "dormant", sid, [line(5)])
     assert q(engine, "SELECT count(*) FROM cost_source_records WHERE stream_id = :s", s=sid) == 0
+
+
+# Review corrections (PR #17): coverage absence, fencing, conflicts, corrections, completeness, validation
+
+
+def account_id():
+    return f"aws:acct:{uuid.uuid4().hex[:12]}"
+
+
+def make_authority(engine, account, sid, reason="reviewed"):
+    with Session(engine) as s, s.begin():
+        return CostLedgerService(s).set_authority(
+            team_id=A,
+            provider="aws",
+            billing_account="",
+            usage_account=account,
+            stream_id=sid,
+            actor_user_id=ALICE,
+            reason=reason,
+        )
+
+
+def expire_lease(engine, conn):
+    # Test-owned stand-in for time passing beyond LEASE_TTL
+    with engine.begin() as c:
+        c.execute(
+            text(
+                "UPDATE cost_sync_leases SET expires_at = clock_timestamp() - interval '1 second' WHERE connection_id = :c"
+            ),
+            {"c": CONN[conn]},
+        )
+
+
+def lease_state(engine, conn):
+    return q(
+        engine,
+        "SELECT coalesce(holder_run_id::text, '-') || '/' || coalesce(holder_attempt::text, '-') || '/' || token "
+        "FROM cost_sync_leases WHERE connection_id = :c",
+        c=CONN[conn],
+    )
+
+
+def run_state(engine, run):
+    return q(
+        engine,
+        "SELECT phase || '/' || attempt || '/' || coalesce(lease_token::text, '-') FROM integration_sync_runs "
+        "WHERE id = :r",
+        r=run,
+    )
+
+
+def completeness(engine, team, day, account):
+    with Session(engine) as s:
+        found = [c for c in CostLedgerService(s).coverage_completeness(team, [day]) if c.usage_account == account]
+    return found
+
+
+def test_31_witness_only_day_is_unknown_not_zero(engine):
+    day, account = DAY + timedelta(27), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    make_authority(engine, account, payer)
+    facts = q(engine, "SELECT count(*) FROM billing_canonical_facts")
+    out = sync(engine, "member", member, [line(100, day=day)], start=day)
+    assert (out.inserted, out.quarantined, out.new_shadow_facts) == (1, 0, 0)
+    assert q(engine, "SELECT count(*) FROM cost_source_coverage WHERE usage_account = :a", a=account) == 0
+    t = total(engine, A, day)
+    assert (t.amount_usd, t.completeness, t.counted, t.uncovered) == (None, "incomplete", 0, 1)
+    [c] = completeness(engine, A, day, account)
+    assert (c.fetch_state, c.financial_state, c.authoritative_stream_id) == ("uncovered", "incomplete", None)
+    assert q(engine, "SELECT count(*) FROM billing_canonical_facts") == facts
+    # Once the authority publishes, the day is known and complete
+    sync(engine, "payer", payer, [line(100, day=day)], start=day)
+    t = total(engine, A, day)
+    assert (money(t), t.uncovered) == ((Decimal("100.00"), "complete"), 0)
+
+
+def test_32_complete_zero_cost_day_is_a_confirmed_zero(engine):
+    day, account = DAY + timedelta(28), account_id()
+    sid, _ = stream(engine, ["payer"], account=account)
+    out = sync(engine, "payer", sid, [line(0, day=day)], start=day)
+    assert out.inserted == 1
+    t = total(engine, A, day)
+    assert (t.amount_usd, t.completeness, t.counted, t.uncovered, t.blocked) == (Decimal("0.00"), "complete", 1, 0, 0)
+    [c] = completeness(engine, A, day, account)
+    assert (c.fetch_state, c.financial_state, c.converted_total_usd) == ("final", "complete", Decimal("0"))
+    # A complete fetch with no lines on a new day: no bucket (absence), yet a confirmed zero for the account-day
+    empty_day, empty_account = DAY + timedelta(29), account_id()
+    empty, _ = stream(engine, ["payer"], account=empty_account)
+    sync(engine, "payer", empty, [], start=empty_day)
+    assert total(engine, A, empty_day) is None
+    [c] = completeness(engine, A, empty_day, empty_account)
+    assert (c.fetch_state, c.financial_state, c.converted_total_usd) == ("final", "complete", Decimal("0"))
+
+
+def test_33_stale_attempt_cannot_finish_or_release_the_retry(engine):
+    day = DAY + timedelta(30)
+    sid, _ = stream(engine, ["retry"])
+    with Session(engine) as s, s.begin():
+        svc = CostLedgerService(s)
+        run = svc.start_run(CONN["retry"])
+        t1 = svc.acquire_lease(run, 1)
+    expire_lease(engine, "retry")
+    with Session(engine) as s, s.begin():
+        t2 = CostLedgerService(s).acquire_lease(run, 2)
+    assert t2 == t1 + 1
+    lease, state = lease_state(engine, "retry"), run_state(engine, run)
+    assert (lease, state) == (f"{run}/2/{t2}", f"leased/2/{t2}")
+    bill = [line(100, day=day)]
+    refused = [
+        lambda svc: svc.finish_run(run, attempt=1, fencing_token=t1),
+        lambda svc: svc.finish_run(run, attempt=1, fencing_token=t1, status="failed"),
+        lambda svc: svc.finish_run(run, attempt=2, fencing_token=t1),
+        lambda svc: svc.publish(Publication(run, 1, t1, sid, day, day + timedelta(1), bill, True)),
+        lambda svc: svc.publish(Publication(run, 1, t2, sid, day, day + timedelta(1), bill, True)),
+        lambda svc: svc.publish(Publication(run, 2, t1, sid, day, day + timedelta(1), bill, True)),
+    ]
+    for attempt in refused:
+        with pytest.raises(LedgerFenced):
+            with Session(engine) as s, s.begin():
+                attempt(CostLedgerService(s))
+        assert (lease_state(engine, "retry"), run_state(engine, run)) == (lease, state)
+    for table in ("cost_source_records", "cost_sync_run_streams", "cost_source_stream_days"):
+        assert q(engine, f"SELECT count(*) FROM {table} WHERE stream_id = :s", s=sid) == 0
+    with Session(engine) as s, s.begin():
+        svc = CostLedgerService(s)
+        out = svc.publish(Publication(run, 2, t2, sid, day, day + timedelta(1), bill, True))
+        svc.finish_run(run, attempt=2, fencing_token=t2)
+    assert out.inserted == 1
+    assert (lease_state(engine, "retry"), run_state(engine, run)) == (f"-/-/{t2}", f"published/2/{t2}")
+    assert (
+        q(engine, "SELECT attempt || '/' || fencing_token FROM cost_source_observations WHERE sync_run_id = :r", r=run)
+        == f"2/{t2}"
+    )
+
+
+def test_34_terminal_runs_and_old_attempts_cannot_reacquire(engine):
+    day = DAY + timedelta(30)
+    sid, _ = stream(engine, ["retry"])
+    with Session(engine) as s, s.begin():
+        svc = CostLedgerService(s)
+        run = svc.start_run(CONN["retry"])
+        token = svc.acquire_lease(run, 1)
+        svc.finish_run(run, attempt=1, fencing_token=token, status="failed")
+    lease, state = lease_state(engine, "retry"), run_state(engine, run)
+    assert state == f"failed/1/{token}"
+    bill = [line(5, day=day)]
+    for refused in (
+        lambda svc: svc.acquire_lease(run, 2),
+        lambda svc: svc.finish_run(run, attempt=1, fencing_token=token),
+        lambda svc: svc.publish(Publication(run, 1, token, sid, day, day + timedelta(1), bill, True)),
+    ):
+        with pytest.raises(RunNotActive):
+            with Session(engine) as s, s.begin():
+                refused(CostLedgerService(s))
+        assert (lease_state(engine, "retry"), run_state(engine, run)) == (lease, state)
+    # An in-flight run cannot reuse or skip past its attempts either
+    with Session(engine) as s, s.begin():
+        svc = CostLedgerService(s)
+        live = svc.start_run(CONN["retry"])
+        live_token = svc.acquire_lease(live, 1)
+    expire_lease(engine, "retry")
+    for attempt in (1, 6):  # not newer; beyond max_attempts (5)
+        with pytest.raises(LedgerFenced, match="not a newer attempt"):
+            with Session(engine) as s, s.begin():
+                CostLedgerService(s).acquire_lease(live, attempt)
+    assert run_state(engine, live) == f"leased/1/{live_token}"
+    with Session(engine) as s, s.begin():
+        CostLedgerService(s).finish_run(live, attempt=1, fencing_token=live_token, status="failed")
+    assert q(engine, "SELECT count(*) FROM cost_source_records WHERE stream_id = :s", s=sid) == 0
+
+
+def test_35_concurrent_stale_finish_waits_then_is_fenced(engine):
+    day = DAY + timedelta(30)
+    sid, _ = stream(engine, ["retry2"])
+    with Session(engine) as s, s.begin():
+        svc = CostLedgerService(s)
+        run = svc.start_run(CONN["retry2"])
+        t1 = svc.acquire_lease(run, 1)
+    expire_lease(engine, "retry2")
+    retry = {}
+
+    def new_attempt():
+        with Session(engine) as s, s.begin():
+            svc = CostLedgerService(s)
+            retry["token"] = token = svc.acquire_lease(run, 2)
+            retry["out"] = svc.publish(
+                Publication(run, 2, token, sid, day, day + timedelta(1), [line(100, day=day)], True)
+            )
+            s.execute(text("SELECT pg_sleep(1.5)"))
+            svc.finish_run(run, attempt=2, fencing_token=token)
+
+    t = threading.Thread(target=new_attempt)
+    t.start()
+    time.sleep(0.5)
+    started = time.monotonic()
+    with pytest.raises(LedgerFenced):
+        with Session(engine) as s, s.begin():
+            CostLedgerService(s).finish_run(run, attempt=1, fencing_token=t1)
+    waited = time.monotonic() - started
+    t.join()
+    assert waited >= 0.8  # the stale finish blocked on the run row until the retry committed
+    t2 = retry["token"]
+    assert (t2, retry["out"].inserted) == (t1 + 1, 1)
+    assert (lease_state(engine, "retry2"), run_state(engine, run)) == (f"-/-/{t2}", f"published/2/{t2}")
+    assert q(engine, "SELECT count(*) FROM cost_source_records WHERE stream_id = :s", s=sid) == 1
+
+
+def test_36_authority_switch_keeps_open_conflicts(engine, monkeypatch):
+    day, account = DAY + timedelta(31), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    sync(engine, "payer", payer, [line(100, day=day)], start=day)
+    sync(engine, "member", member, [line(95, day=day)], start=day)
+    original = q(engine, "SELECT id FROM cost_source_conflicts WHERE usage_account = :a AND status = 'open'", a=account)
+    conflicts = "SELECT count(*) FROM cost_source_conflicts WHERE usage_account = :a AND status = 'open'"
+    coverage = "SELECT authoritative_stream_id::text || '/' || state FROM cost_source_coverage WHERE usage_account = :a"
+    assert q(engine, coverage, a=account) == f"{payer}/conflict"
+
+    # A failure while re-checking conflicts leaves the authority switch entirely undone
+    def boom(*args, **kwargs):
+        raise RuntimeError("conflict check unavailable")
+
+    monkeypatch.setattr(CostLedgerService, "_detect_conflicts", boom)
+    with pytest.raises(RuntimeError, match="conflict check unavailable"):
+        make_authority(engine, account, member)
+    monkeypatch.undo()
+    assert q(engine, coverage, a=account) == f"{payer}/conflict"
+    assert q(engine, "SELECT count(*) FROM cost_source_authority WHERE usage_account = :a", a=account) == 0
+    assert q(engine, "SELECT count(*) FROM cost_source_authority_history WHERE usage_account = :a", a=account) == 0
+
+    make_authority(engine, account, member, reason="member view adopted")
+    assert q(engine, coverage, a=account) == f"{member}/conflict"
+    assert q(engine, conflicts, a=account) == 2
+    assert (
+        q(
+            engine,
+            "SELECT status || '/' || authoritative_total_usd || '/' || witness_total_usd || '/' "
+            "|| coalesce(resolved_by::text, '-') FROM cost_source_conflicts WHERE id = :i",
+            i=original,
+        )
+        == "open/100.0000000000/95.0000000000/-"
+    )
+    assert (
+        q(
+            engine,
+            "SELECT authoritative_total_usd || '/' || witness_total_usd FROM cost_source_conflicts "
+            "WHERE usage_account = :a AND authoritative_stream_id = :m AND witness_stream_id = :p",
+            a=account,
+            m=member,
+            p=payer,
+        )
+        == "95.0000000000/100.0000000000"
+    )
+    assert money(total(engine, A, day)) == (Decimal("95.00"), "incomplete")
+    [c] = completeness(engine, A, day, account)
+    assert (c.fetch_state, c.financial_state, c.open_conflicts) == ("conflict", "incomplete", 2)
+    # Each disagreement needs its own explicit resolution
+    with Session(engine) as s, s.begin():
+        CostLedgerService(s).resolve_conflict(original, team_id=A, actor_user_id=ALICE, reason="payer view retired")
+    assert money(total(engine, A, day)) == (Decimal("95.00"), "incomplete")
+    second = q(engine, "SELECT id FROM cost_source_conflicts WHERE usage_account = :a AND status = 'open'", a=account)
+    with Session(engine) as s, s.begin():
+        CostLedgerService(s).resolve_conflict(second, team_id=A, actor_user_id=ALICE, reason="member is the invoice")
+    assert money(total(engine, A, day)) == (Decimal("95.00"), "complete")
+    assert (
+        q(engine, "SELECT bool_or(first_billable) FROM billing_canonical_facts WHERE usage_account = :a", a=account)
+        is False
+    )
+
+
+def test_37_non_amount_correction_is_audited(engine):
+    day, account = DAY + timedelta(32), account_id()
+    sid, _ = stream(engine, ["payer"], account=account)
+
+    def eur(bucket, source):
+        return normalize_line(
+            usage_date=day,
+            line_kind="aws:Usage",
+            canonical_service="Amazon EC2",
+            charge_class="usage",
+            cost_bucket=bucket,
+            currency="EUR",
+            amount=Decimal("50"),
+            amount_usd=Decimal("54"),
+            fx_rate=Decimal("1.08"),
+            fx_source=source,
+            dim_1="Amazon EC2",
+        )
+
+    first, second = eur("ec2", "provider"), eur("compute", "ecb")
+    out = sync(engine, "payer", sid, [first], start=day)
+    assert (out.inserted, out.new_shadow_facts) == (1, 1)
+    out = sync(engine, "payer", sid, [second], start=day)
+    assert (out.corrected, out.unchanged, out.new_shadow_facts) == (1, 0, 0)
+    out = sync(engine, "payer", sid, [second], start=day)
+    assert (out.corrected, out.unchanged) == (0, 1)
+    assert (
+        q(
+            engine,
+            "SELECT cost_bucket || '/' || fx_source || '/' || amount_usd FROM cost_source_records WHERE stream_id = :s",
+            s=sid,
+        )
+        == "compute/ecb/54.0000000000"
+    )
+    with engine.connect() as c:
+        trail = c.execute(
+            text(
+                "SELECT o.change_kind, o.payload_sha256, o.observed_amount, o.observed_amount_usd, o.previous_amount, "
+                "o.attempt, o.fencing_token IS NOT NULL AS fenced FROM cost_source_observations o "
+                "JOIN cost_source_records r ON r.id = o.record_id WHERE r.stream_id = :s ORDER BY o.generation"
+            ),
+            {"s": sid},
+        ).all()
+    assert [o.change_kind for o in trail] == ["inserted", "corrected", "unchanged"]
+    assert [bytes(o.payload_sha256) for o in trail] == [
+        first.payload_sha256,
+        second.payload_sha256,
+        second.payload_sha256,
+    ]
+    assert first.payload_sha256 != second.payload_sha256  # the digest commits to the bucket and FX source
+    assert all(o.observed_amount_usd == Decimal("54") and o.attempt == 1 and o.fenced for o in trail)
+    assert (trail[1].observed_amount, trail[1].previous_amount) == (Decimal("50"), Decimal("50"))
+    assert q(engine, "SELECT count(*) FROM billing_canonical_facts WHERE usage_account = :a", a=account) == 1
+    assert (
+        q(
+            engine,
+            "SELECT string_agg(quantity::text, ',' ORDER BY created_at) FROM billing_usage_ledger "
+            "WHERE stream_id = :s AND basis = 'first_ingested'",
+            s=sid,
+        )
+        == "1,0,0"
+    )
+    assert total(engine, A, day) is None  # nothing left in the old bucket
+    assert money(total(engine, A, day, bucket="compute")) == (Decimal("54.00"), "complete")
+
+
+def test_38_final_fetch_with_unconverted_eur_is_financially_incomplete(engine):
+    day, account = DAY + timedelta(33), account_id()
+    sid, _ = stream(engine, ["payer"], account=account)
+    sync(engine, "payer", sid, [line(50, day=day, cur="EUR"), line(10, day=day, svc="Amazon S3")], start=day)
+    assert q(engine, "SELECT state FROM cost_source_coverage WHERE usage_account = :a", a=account) == "final"
+    [c] = completeness(engine, A, day, account)
+    assert (c.fetch_state, c.financial_state, c.unconverted_count, c.converted_total_usd) == (
+        "final",
+        "incomplete",
+        1,
+        Decimal("10"),
+    )
+    t = total(engine, A, day)
+    assert (t.amount_usd, t.completeness, t.unconverted) == (Decimal("10.00"), "incomplete", 1)
+    converted = line(50, day=day, cur="EUR", usd=Decimal("54"), fx=Decimal("1.08"))
+    sync(engine, "payer", sid, [converted, line(10, day=day, svc="Amazon S3")], start=day)
+    [c] = completeness(engine, A, day, account)
+    assert (c.fetch_state, c.financial_state, c.unconverted_count) == ("final", "complete", 0)
+    assert money(total(engine, A, day)) == (Decimal("64.00"), "complete")
+
+
+def test_39_conflict_resolution_and_authority_need_a_reason(engine):
+    day, account = DAY + timedelta(34), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    sync(engine, "payer", payer, [line(100, day=day)], start=day)
+    sync(engine, "member", member, [line(95, day=day)], start=day)
+    conflict = q(engine, "SELECT id FROM cost_source_conflicts WHERE usage_account = :a", a=account)
+    for reason in ("", "   "):
+        with pytest.raises(LedgerError, match="reason"):
+            with Session(engine) as s, s.begin():
+                CostLedgerService(s).resolve_conflict(conflict, team_id=A, actor_user_id=ALICE, reason=reason)
+        with pytest.raises(LedgerError, match="reason"):
+            make_authority(engine, account, member, reason=reason)
+    assert (
+        q(
+            engine,
+            "SELECT status || coalesce(resolved_by::text, '-') FROM cost_source_conflicts WHERE id = :i",
+            i=conflict,
+        )
+        == "open-"
+    )
+    assert q(engine, "SELECT state FROM cost_source_coverage WHERE usage_account = :a", a=account) == "conflict"
+    assert q(engine, "SELECT count(*) FROM cost_source_authority_history WHERE usage_account = :a", a=account) == 0
+
+
+def test_40_set_authority_rejects_foreign_or_mismatched_streams(engine):
+    day, account = DAY + timedelta(35), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    sync(engine, "payer", payer, [line(100, day=day)], start=day)
+    birch, _ = stream(engine, ["birch"], team=B, account=account)
+    other, _ = stream(engine, ["payer"], account=account_id())
+    attribution, _ = stream(engine, ["payer"], account=account, role="attribution", vantage="aws:cur:split")
+    coverage = (
+        "SELECT authoritative_stream_id::text || '/' || generation FROM cost_source_coverage WHERE usage_account = :a"
+    )
+    before = q(engine, coverage, a=account)
+    for bad in (birch, other, attribution, uuid.uuid4()):
+        with pytest.raises(TenantMismatch, match="not a cost stream of this team's account"):
+            make_authority(engine, account, bad)
+    assert q(engine, coverage, a=account) == before
+    for table in ("cost_source_authority", "cost_source_authority_history"):
+        assert q(engine, f"SELECT count(*) FROM {table} WHERE usage_account = :a", a=account) == 0
+
+
+def test_41_cost_lines_cannot_bypass_normalization(engine):
+    day = DAY + timedelta(36)
+    base = dict(
+        usage_date=day,
+        line_kind="aws:Usage",
+        canonical_service="Amazon EC2",
+        charge_class="usage",
+        cost_bucket="ec2",
+        currency="USD",
+        amount=Decimal("1"),
+        amount_usd=Decimal("1"),
+    )
+    eur = dict(base, currency="EUR", amount_usd=None)
+    for bad in (
+        dict(base, amount=0.1, amount_usd=0.1),  # float money
+        dict(base, amount_usd=Decimal("2")),  # USD must equal the amount
+        dict(base, currency="usd"),
+        dict(base, charge_class="bonus"),
+        dict(base, canonical_service=""),
+        dict(base, amount=Decimal("1.00000000001"), amount_usd=Decimal("1.00000000001")),  # 11 places
+        dict(base, amount=Decimal("NaN"), amount_usd=Decimal("NaN")),
+        dict(base, is_estimated="no"),
+        dict(eur, amount_usd=Decimal("1.08")),  # converted without a rate and source
+        dict(eur, amount_usd=Decimal("1.08"), fx_rate=Decimal("0"), fx_source="ecb"),
+        dict(eur, amount_usd=Decimal("1.08"), fx_rate=1.08, fx_source="ecb"),
+    ):
+        with pytest.raises(InvalidCostLine):
+            CostLine(**bad)
+    sid, _ = stream(engine, ["payer"])
+    duck = SimpleNamespace(**base, dim_1="", dim_2="", line_key="", fx_rate=None, fx_source=None, is_estimated=False)
+    duck.identity = (day, "", "", "aws:Usage", "", "USD")
+    with pytest.raises(InvalidCostLine, match="CostLine values only"):
+        sync(engine, "payer", sid, [duck], start=day)
+    for table in ("cost_source_records", "cost_sync_run_streams", "cost_source_stream_days"):
+        assert q(engine, f"SELECT count(*) FROM {table} WHERE stream_id = :s", s=sid) == 0
+    # Accepted values keep full precision; only shadow totals round to cents
+    tiny = [line("0.0000000001", day=day), line("0.0000000002", day=day, svc="Amazon S3")]
+    sync(engine, "payer", sid, tiny, start=day)
+    assert q(engine, "SELECT converted_total_usd FROM cost_source_stream_days WHERE stream_id = :s", s=sid) == Decimal(
+        "0.0000000003"
+    )
+    assert money(total(engine, A, day)) == (Decimal("0.00"), "complete")

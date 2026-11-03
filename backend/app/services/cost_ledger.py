@@ -28,7 +28,8 @@ Contract
 
 Publication semantics (per stream and usage day, ``Publication.window_start`` inclusive to
 ``window_end`` exclusive):
-- incomplete fetch: nothing is written, coverage does not move (``outcome.incomplete``);
+- incomplete fetch: no ledger data is written and coverage does not move (``outcome.incomplete``);
+  the attempt records the stream as failed (``incomplete_fetch``), so the run cannot finish as a success;
 - a day whose newer fetch was already published is skipped (``stale``);
 - a complete but suddenly empty day that previously had cost is held (``held``), nothing retired;
 - otherwise lines are upserted (inserted / corrected / unchanged / reappeared), missing lines are
@@ -36,7 +37,13 @@ Publication semantics (per stream and usage day, ``Publication.window_start`` in
 - cost streams update coverage: a configured authority wins, otherwise the first stream to publish
   the account-day; every other stream is a witness, and a disagreeing witness opens a quarantined
   conflict (``quarantined``). Authority never changes automatically;
+- witnesses are compared on net USD and on USD per (cost bucket, charge class), so equal net totals
+  cannot hide a classification mismatch;
 - attribution streams never affect coverage, totals or billing; they are reconciled per service.
+
+Audit limitation: an observation stores the amount, USD amount, previous amount and a SHA-256 of
+every accepted field. Previous non-amount values (FX source, FX rate, cost bucket, service, charge
+class) are not stored, only provable against the digest; keeping them needs a later migration.
 """
 
 from __future__ import annotations
@@ -77,6 +84,10 @@ class LedgerDisabled(LedgerError):
 
 class LedgerFenced(LedgerError):
     """The run attempt no longer holds the connection's lease (lost, expired, retried or taken over)."""
+
+
+class RunIncomplete(LedgerError):
+    """The run cannot finish as a success: nothing was published, or a stream fetch was incomplete."""
 
 
 class RunNotActive(LedgerFenced):
@@ -230,6 +241,10 @@ class CoverageCompleteness:
     it says whether the provider data is final, not whether it is known in USD. ``financial_state``
     is ``complete`` only when the fetch is final, every authoritative line is converted to USD and no
     conflict is open. Reconciliation must read ``financial_state``; storing it needs a later migration.
+
+    This is not an inventory: only account-days that some cost stream published appear. An expected
+    account that never published is simply absent, so a caller must compare the result with the
+    accounts it expects before treating a day as complete.
     """
 
     provider: str
@@ -242,6 +257,7 @@ class CoverageCompleteness:
     converted_total_usd: Optional[Decimal]
     unconverted_count: int
     open_conflicts: int
+    classification_conflicts: int = 0  # open conflicts whose net totals agree but buckets or charge classes differ
 
 
 # ── Normalization ────────────────────────────────────────────────────────────────
@@ -360,9 +376,11 @@ def normalize_line(
 def aggregate_contributions(contributions: Iterable[Contribution]) -> list[ShadowTotal]:
     """Sum authoritative, present records per (day, provider, bucket). Pure: no database access.
 
-    A bucket is never a confirmed zero unless an authoritative stream published that account-day:
-    present provider records of an account-day without coverage (only witnesses published) make the
-    bucket ``incomplete`` with no amount, and a blocked account-day blocks every bucket it touches.
+    Only authoritative records create a bucket that can be known, including a confirmed zero.
+    A non-authoritative record (witness, attribution) never adds an amount and creates or touches a
+    bucket only to mark it unknown: when it is present and its account-day is uncovered (no
+    authoritative stream published it) or blocked (conflict or suspect empty). Retired
+    non-authoritative records are ignored.
     """
     buckets: dict[tuple, dict[str, Any]] = defaultdict(
         lambda: {
@@ -376,14 +394,17 @@ def aggregate_contributions(contributions: Iterable[Contribution]) -> list[Shado
         }
     )
     for c in contributions:
-        b = buckets[(c.usage_date, c.provider, c.cost_bucket)]
-        if c.source_kind == "provider":
-            if c.coverage_state is None:
-                b["uncovered"] += c.present
-            elif c.coverage_state in ("conflict", "suspect_empty"):
-                b["blocked"] += 1
+        key = (c.usage_date, c.provider, c.cost_bucket)
+        blocked = c.source_kind == "provider" and c.coverage_state in ("conflict", "suspect_empty")
         if not c.authoritative:
+            if c.source_kind == "provider" and c.present and c.coverage_state is None:
+                buckets[key]["uncovered"] += 1
+            elif blocked and c.present:
+                buckets[key]["blocked"] += 1
             continue
+        b = buckets[key]
+        if blocked:
+            b["blocked"] += 1
         if c.source_kind == "provider" and c.coverage_state == "estimated":
             b["estimated"] += 1
         if not c.present:
@@ -553,12 +574,36 @@ class CostLedgerService:
         return token
 
     def finish_run(self, run_id: UUID, *, attempt: int, fencing_token: int, status: str = "success") -> None:
-        """End the run as this attempt and release its lease. A stale or retried attempt is refused."""
+        """End the run as this attempt and release its lease. A stale or retried attempt is refused.
+
+        ``success`` additionally needs a live lease and at least one stream publication by this attempt,
+        all of them published (an incomplete fetch is recorded as failed). Which streams a run must cover
+        is the worker's decision (later step). ``failed`` is allowed after the lease expired.
+        """
         if status not in ("success", "failed"):
             raise LedgerError(f"unknown run status {status!r}")
         run = self._lock_run(run_id)
         if (run.attempt, run.lease_token) != (attempt, fencing_token):
             raise LedgerFenced("a newer attempt owns this run")
+        if status == "success":
+            live = self._x(
+                "SELECT expires_at > clock_timestamp() FROM cost_sync_leases WHERE connection_id = :c "
+                "AND holder_run_id = :r AND holder_attempt = :a AND token = :tok FOR UPDATE",
+                c=run.connection_id,
+                r=run_id,
+                a=attempt,
+                tok=fencing_token,
+            ).scalar()
+            if not live:
+                raise LedgerFenced("the lease expired before the run finished")
+            streams = self._x(
+                "SELECT count(*) AS total, count(*) FILTER (WHERE status = 'published') AS published "
+                "FROM cost_sync_run_streams WHERE sync_run_id = :r AND attempt = :a",
+                r=run_id,
+                a=attempt,
+            ).one()
+            if streams.total == 0 or streams.published != streams.total:
+                raise RunIncomplete("this attempt has no publication or an unpublished stream")
         released = self._x(
             "UPDATE cost_sync_leases SET holder_run_id = NULL, holder_attempt = NULL, expires_at = NULL "
             "WHERE connection_id = :c AND holder_run_id = :r AND holder_attempt = :a AND token = :tok",
@@ -638,13 +683,13 @@ class CostLedgerService:
             s=pub.stream_id,
         ).scalar():
             raise AlreadyPublished("this run already published this stream")
-        if not pub.complete:
-            out.incomplete = True
-            return out  # nothing written, coverage unchanged
-
+        # The attempt's progress row: an incomplete fetch is recorded as failed so the run cannot finish as a success
         self._x(
             "INSERT INTO cost_sync_run_streams (sync_run_id, connection_id, attempt, team_id, stream_id, window_start, "
-            "window_end, status, staged_rows) VALUES (:r, :c, :a, :t, :s, :ws, :we, 'published', :n)",
+            "window_end, status, staged_rows, error_code) VALUES (:r, :c, :a, :t, :s, :ws, :we, :st, :n, :err) "
+            "ON CONFLICT (sync_run_id, attempt, stream_id) DO UPDATE SET window_start = EXCLUDED.window_start, "
+            "window_end = EXCLUDED.window_end, status = EXCLUDED.status, staged_rows = EXCLUDED.staged_rows, "
+            "error_code = EXCLUDED.error_code, updated_at = now()",
             r=pub.run_id,
             c=run.connection_id,
             a=pub.attempt,
@@ -652,8 +697,13 @@ class CostLedgerService:
             s=pub.stream_id,
             ws=pub.window_start,
             we=pub.window_end,
+            st="published" if pub.complete else "failed",
             n=len(pub.lines),
+            err=None if pub.complete else "incomplete_fetch",
         )
+        if not pub.complete:
+            out.incomplete = True
+            return out  # no ledger data written, coverage unchanged
 
         prior = {
             r.usage_date: r
@@ -899,7 +949,12 @@ class CostLedgerService:
         return opened
 
     def _detect_conflicts(self, acct: dict, d: date, authority: UUID, run_id: Optional[UUID]) -> int:
-        """Quarantine every cost witness that disagrees with the authority's day. Never closes a conflict."""
+        """Quarantine every cost witness that disagrees with the authority's day. Never closes a conflict.
+
+        A witness disagrees when its net USD total differs, when either side has unconverted lines, or
+        when its USD per (cost bucket, charge class) differs although the net totals agree (a
+        classification conflict, recorded with equal totals).
+        """
         return self._x(
             "INSERT INTO cost_source_conflicts (id, team_id, provider, billing_account, usage_account, usage_date, "
             "authoritative_stream_id, witness_stream_id, authoritative_total_usd, witness_total_usd, detected_run_id) "
@@ -909,7 +964,12 @@ class CostLedgerService:
             "AND ws.usage_account = :ua AND ws.role = 'cost' AND ws.id <> :auth "
             "JOIN cost_source_stream_days w ON w.stream_id = ws.id AND w.usage_date = :d "
             "WHERE a.stream_id = :auth AND a.usage_date = :d AND (a.unconverted_count > 0 OR w.unconverted_count > 0 "
-            "OR abs(a.converted_total_usd - w.converted_total_usd) > :tol) "
+            "OR abs(a.converted_total_usd - w.converted_total_usd) > :tol OR EXISTS (SELECT 1 FROM "
+            "(SELECT cost_bucket, charge_class, sum(amount_usd) AS amt FROM cost_source_records "
+            "WHERE stream_id = :auth AND usage_date = :d AND state = 'present' GROUP BY 1, 2) x FULL JOIN "
+            "(SELECT cost_bucket, charge_class, sum(amount_usd) AS amt FROM cost_source_records "
+            "WHERE stream_id = w.stream_id AND usage_date = :d AND state = 'present' GROUP BY 1, 2) y "
+            "USING (cost_bucket, charge_class) WHERE abs(coalesce(x.amt, 0) - coalesce(y.amt, 0)) > :tol)) "
             "ON CONFLICT (team_id, provider, billing_account, usage_account, usage_date, witness_stream_id) "
             "WHERE status = 'open' DO NOTHING",
             d=d,
@@ -1130,11 +1190,16 @@ class CostLedgerService:
             "sd.converted_total_usd, sd.unconverted_count, (SELECT count(*) FROM cost_source_conflicts k "
             "WHERE k.status = 'open' AND k.team_id = c.team_id AND k.provider = c.provider "
             "AND k.billing_account = c.billing_account AND k.usage_account = c.usage_account "
-            "AND k.usage_date = c.usage_date) AS open_conflicts FROM cost_source_coverage c "
+            "AND k.usage_date = c.usage_date) AS open_conflicts, (SELECT count(*) FROM cost_source_conflicts k "
+            "WHERE k.status = 'open' AND k.team_id = c.team_id AND k.provider = c.provider "
+            "AND k.billing_account = c.billing_account AND k.usage_account = c.usage_account "
+            "AND k.usage_date = c.usage_date AND abs(k.authoritative_total_usd - k.witness_total_usd) <= :tol) "
+            "AS classification_conflicts FROM cost_source_coverage c "
             "JOIN cost_source_stream_days sd ON sd.team_id = c.team_id AND sd.stream_id = c.authoritative_stream_id "
             "AND sd.usage_date = c.usage_date WHERE c.team_id = :t AND c.usage_date = ANY(:d)",
             t=team_id,
             d=list(days),
+            tol=WITNESS_TOLERANCE_USD,
         )
         result = []
         for r in covered:
@@ -1156,6 +1221,7 @@ class CostLedgerService:
                     r.converted_total_usd,
                     r.unconverted_count,
                     r.open_conflicts,
+                    r.classification_conflicts,
                 )
             )
         uncovered = self._x(

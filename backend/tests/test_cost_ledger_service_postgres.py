@@ -27,6 +27,7 @@ from app.services.cost_ledger import (
     LedgerError,
     LedgerFenced,
     Publication,
+    RunIncomplete,
     RunNotActive,
     StreamIdentity,
     TenantMismatch,
@@ -161,7 +162,7 @@ def sync(engine, conn, sid, lines, *, start=DAY, days=1, complete=True, exempt=F
             out = svc.publish(Publication(run, 1, token, sid, start, start + timedelta(days=days), lines, complete))
             if hold:
                 s.execute(text("SELECT pg_sleep(:t)"), {"t": hold})
-            svc.finish_run(run, attempt=1, fencing_token=token)
+            svc.finish_run(run, attempt=1, fencing_token=token, status="failed" if out.incomplete else "success")
     except LedgerFenced:
         raise  # a fenced attempt owns nothing: the newer attempt cleans up
     except Exception:
@@ -429,7 +430,7 @@ def test_15_injected_failure_rolls_back_everything(engine):
     for table in ("cost_source_records", "cost_sync_run_streams", "cost_source_stream_days"):
         assert q(engine, f"SELECT count(*) FROM {table} WHERE stream_id = :s", s=sid) == 0
     with Session(engine) as s, s.begin():
-        CostLedgerService(s).finish_run(run, attempt=1, fencing_token=token)
+        CostLedgerService(s).finish_run(run, attempt=1, fencing_token=token, status="failed")  # nothing published
 
 
 # 16-21: coverage, staleness, estimates, currency
@@ -441,7 +442,11 @@ def test_16_incomplete_fetch_writes_nothing(engine):
     out = sync(engine, "payer", sid, [line(100, day=day)], start=day, complete=False)
     assert out.incomplete and out.inserted == 0
     assert q(engine, "SELECT count(*) FROM cost_source_records WHERE stream_id = :s", s=sid) == 0
+    assert q(engine, "SELECT count(*) FROM cost_source_stream_days WHERE stream_id = :s", s=sid) == 0
     assert q(engine, "SELECT count(*) FROM cost_source_coverage WHERE authoritative_stream_id = :s", s=sid) == 0
+    # Only the attempt's progress row, marked failed so the run could not finish as a success
+    progress = "SELECT status || '/' || error_code FROM cost_sync_run_streams WHERE stream_id = :s"
+    assert q(engine, progress, s=sid) == "failed/incomplete_fetch"
 
 
 def test_17_missing_rows_under_incomplete_coverage_are_not_retired(engine):
@@ -1169,3 +1174,177 @@ def test_41_cost_lines_cannot_bypass_normalization(engine):
         "0.0000000003"
     )
     assert money(total(engine, A, day)) == (Decimal("0.00"), "complete")
+
+
+# Final review round (PR #17): witness buckets, classification conflicts, run success
+
+
+def test_42_witness_bucket_mismatch_is_quarantined_not_a_zero(engine):
+    day, account = DAY + timedelta(37), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    make_authority(engine, account, payer)
+    sync(engine, "payer", payer, [line(100, day=day, bucket="ec2")], start=day)
+    facts = q(engine, "SELECT count(*) FROM billing_canonical_facts WHERE usage_account = :a", a=account)
+    out = sync(engine, "member", member, [line(100, day=day, svc="Amazon S3", bucket="s3")], start=day)
+    assert (out.quarantined, out.new_shadow_facts) == (1, 0)
+    # Equal net totals: the conflict records agreement on money, so it is a classification conflict
+    assert (
+        q(
+            engine,
+            "SELECT authoritative_total_usd || '/' || witness_total_usd FROM cost_source_conflicts "
+            "WHERE usage_account = :a AND status = 'open'",
+            a=account,
+        )
+        == "100.0000000000/100.0000000000"
+    )
+    ec2, s3 = total(engine, A, day, bucket="ec2"), total(engine, A, day, bucket="s3")
+    assert (ec2.amount_usd, ec2.completeness, ec2.counted) == (Decimal("100.00"), "incomplete", 1)
+    assert (s3.amount_usd, s3.completeness, s3.counted, s3.blocked) == (None, "incomplete", 0, 1)
+    [c] = completeness(engine, A, day, account)
+    assert (c.fetch_state, c.financial_state, c.open_conflicts, c.classification_conflicts) == (
+        "conflict",
+        "incomplete",
+        1,
+        1,
+    )
+    assert q(engine, "SELECT count(*) FROM billing_canonical_facts WHERE usage_account = :a", a=account) == facts
+    # Keeping the authoritative classification: EC2 is complete again and the witness leaves no S3 bucket
+    conflict = q(engine, "SELECT id FROM cost_source_conflicts WHERE usage_account = :a", a=account)
+    with Session(engine) as s, s.begin():
+        CostLedgerService(s).resolve_conflict(conflict, team_id=A, actor_user_id=ALICE, reason="payer classifies EC2")
+    assert money(total(engine, A, day, bucket="ec2")) == (Decimal("100.00"), "complete")
+    assert total(engine, A, day, bucket="s3") is None
+    for table in ("usage_events", "usage_daily_rollups", "stripe_meter_exports"):
+        assert q(engine, f"SELECT count(*) FROM {table}") == 0
+    assert q(engine, "SELECT cost_usd FROM cost_snapshots WHERE id = :i", i=LEGACY_ID) == Decimal("250.00")
+
+
+def test_43_charge_class_mismatch_with_equal_net_is_quarantined(engine):
+    day, account = DAY + timedelta(38), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    sync(engine, "payer", payer, [line(100, day=day)], start=day)
+    out = sync(
+        engine, "member", member, [line(110, day=day), line(-10, day=day, cls="credit", kind="aws:Credit")], start=day
+    )
+    assert out.quarantined == 1
+    [c] = completeness(engine, A, day, account)
+    assert (c.financial_state, c.open_conflicts, c.classification_conflicts) == ("incomplete", 1, 1)
+    assert money(total(engine, A, day)) == (Decimal("100.00"), "incomplete")
+
+
+def test_44_attribution_only_stream_without_coverage(engine):
+    day, account = DAY + timedelta(39), account_id()
+    split, _ = stream(engine, ["payer"], account=account, role="attribution", vantage="aws:cur:split")
+    out = sync(engine, "payer", split, [line(40, day=day)], start=day)
+    assert (out.quarantined, out.new_shadow_facts) == (0, 0)
+    t = total(engine, A, day)
+    assert (t.amount_usd, t.completeness, t.counted, t.uncovered) == (None, "incomplete", 0, 1)
+    assert q(engine, "SELECT attribution_status FROM cost_source_stream_days WHERE stream_id = :s", s=split) == (
+        "no_cost_coverage"
+    )
+    assert completeness(engine, A, day, account) == []  # attribution never stands in for cost coverage
+
+
+def test_45_retired_witness_only_record_creates_no_bucket(engine):
+    day, account = DAY + timedelta(40), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    make_authority(engine, account, payer)
+    s3 = line(5, day=day, svc="Amazon S3", bucket="s3")
+    sync(engine, "member", member, [line(100, day=day), s3], start=day)
+    out = sync(engine, "member", member, [s3], start=day)
+    assert out.retired == 1
+    assert total(engine, A, day, bucket="ec2") is None  # retired witness line: no bucket, not a $0.00
+    t = total(engine, A, day, bucket="s3")
+    assert (t.amount_usd, t.completeness, t.uncovered) == (None, "incomplete", 1)
+    sync(engine, "payer", payer, [s3], start=day)
+    assert money(total(engine, A, day, bucket="s3")) == (Decimal("5.00"), "complete")
+    assert total(engine, A, day, bucket="ec2") is None
+
+
+def test_46_agreeing_views_and_accounts_sharing_a_bucket(engine):
+    day = DAY + timedelta(41)
+    shared, solo, free = account_id(), account_id(), account_id()
+    payer, _ = stream(engine, ["payer"], account=shared)
+    member, _ = stream(engine, ["member"], account=shared, vantage="aws:caller:member")
+    sync(engine, "payer", payer, [line(100, day=day)], start=day)
+    out = sync(engine, "member", member, [line(100, day=day)], start=day)  # same amount, same classification
+    assert out.quarantined == 0
+    second, _ = stream(engine, ["payer"], account=solo)
+    sync(engine, "payer", second, [line(40, day=day)], start=day)
+    zero, _ = stream(engine, ["payer"], account=free)
+    sync(engine, "payer", zero, [line(0, day=day)], start=day)  # an authoritative complete zero
+    t = total(engine, A, day)
+    assert (t.amount_usd, t.completeness, t.counted, t.uncovered, t.blocked) == (Decimal("140.00"), "complete", 3, 0, 0)
+    days = {c.usage_account: c for c in completeness(engine, A, day, shared)} | {
+        c.usage_account: c for a in (solo, free) for c in completeness(engine, A, day, a)
+    }
+    assert {a: (c.financial_state, c.open_conflicts) for a, c in days.items()} == {
+        shared: ("complete", 0),
+        solo: ("complete", 0),
+        free: ("complete", 0),
+    }
+
+
+def test_47_run_success_needs_a_live_lease_and_full_publication(engine):
+    day = DAY + timedelta(42)
+    sid, _ = stream(engine, ["retry"])
+    other, _ = stream(engine, ["retry"])
+    window = (day, day + timedelta(1))
+
+    def begin():
+        with Session(engine) as s, s.begin():
+            svc = CostLedgerService(s)
+            run = svc.start_run(CONN["retry"])
+            return run, svc.acquire_lease(run, 1)
+
+    def finish(run, token, status="success"):
+        with Session(engine) as s, s.begin():
+            CostLedgerService(s).finish_run(run, attempt=1, fencing_token=token, status=status)
+
+    def publish(run, token, stream_id, complete=True):
+        with Session(engine) as s, s.begin():
+            return CostLedgerService(s).publish(
+                Publication(run, 1, token, stream_id, *window, [line(1, day=day)], complete)
+            )
+
+    # Expired lease: success is refused and nothing changes; failing the run is still possible
+    run, token = begin()
+    publish(run, token, sid)
+    expire_lease(engine, "retry")
+    lease, state = lease_state(engine, "retry"), run_state(engine, run)
+    with pytest.raises(LedgerFenced, match="expired"):
+        finish(run, token)
+    assert (lease_state(engine, "retry"), run_state(engine, run)) == (lease, state)
+    finish(run, token, "failed")
+    assert run_state(engine, run) == f"failed/1/{token}"
+    # Nothing published, or an incomplete stream: success is refused
+    run, token = begin()
+    with pytest.raises(RunIncomplete):
+        finish(run, token)
+    publish(run, token, sid)
+    publish(run, token, other, complete=False)
+    with pytest.raises(RunIncomplete):
+        finish(run, token)
+    assert run_state(engine, run) == f"leased/1/{token}"
+    # Completing the missing stream within the same attempt makes the run a success
+    publish(run, token, other)
+    finish(run, token)
+    assert (lease_state(engine, "retry"), run_state(engine, run)) == (f"-/-/{token}", f"published/1/{token}")
+    assert (
+        q(engine, "SELECT string_agg(status, ',') FROM cost_sync_run_streams WHERE sync_run_id = :r", r=run)
+        == "published,published"
+    )
+
+
+def test_48_coverage_completeness_is_not_an_inventory(engine):
+    day = DAY + timedelta(43)
+    reported, silent = account_id(), account_id()
+    sid, _ = stream(engine, ["payer"], account=reported)
+    stream(engine, ["payer"], account=silent)  # expected account whose fetch never arrived
+    sync(engine, "payer", sid, [line(10, day=day)], start=day)
+    with Session(engine) as s:
+        found = {c.usage_account for c in CostLedgerService(s).coverage_completeness(A, [day])}
+    assert reported in found and silent not in found  # absent, not complete: callers check their inventory

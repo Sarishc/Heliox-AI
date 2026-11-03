@@ -257,7 +257,10 @@ class CoverageCompleteness:
     converted_total_usd: Optional[Decimal]
     unconverted_count: int
     open_conflicts: int
-    classification_conflicts: int = 0  # open conflicts whose net totals agree but buckets or charge classes differ
+    # Open conflicts with a demonstrated classification discrepancy: both sides fully converted, net USD
+    # agrees, and USD per (cost bucket, charge class) differs. Read from the current records, because the
+    # conflict row does not record its cause (that needs a later migration).
+    classification_conflicts: int = 0
 
 
 # ── Normalization ────────────────────────────────────────────────────────────────
@@ -1191,10 +1194,20 @@ class CostLedgerService:
             "WHERE k.status = 'open' AND k.team_id = c.team_id AND k.provider = c.provider "
             "AND k.billing_account = c.billing_account AND k.usage_account = c.usage_account "
             "AND k.usage_date = c.usage_date) AS open_conflicts, (SELECT count(*) FROM cost_source_conflicts k "
+            "JOIN cost_source_stream_days ad ON ad.team_id = k.team_id AND ad.stream_id = k.authoritative_stream_id "
+            "AND ad.usage_date = k.usage_date JOIN cost_source_stream_days wd ON wd.team_id = k.team_id "
+            "AND wd.stream_id = k.witness_stream_id AND wd.usage_date = k.usage_date "
             "WHERE k.status = 'open' AND k.team_id = c.team_id AND k.provider = c.provider "
             "AND k.billing_account = c.billing_account AND k.usage_account = c.usage_account "
-            "AND k.usage_date = c.usage_date AND abs(k.authoritative_total_usd - k.witness_total_usd) <= :tol) "
-            "AS classification_conflicts FROM cost_source_coverage c "
+            "AND k.usage_date = c.usage_date AND ad.unconverted_count = 0 AND wd.unconverted_count = 0 "
+            "AND abs(ad.converted_total_usd - wd.converted_total_usd) <= :tol AND EXISTS (SELECT 1 FROM "
+            "(SELECT cost_bucket, charge_class, sum(amount_usd) AS amt FROM cost_source_records "
+            "WHERE stream_id = k.authoritative_stream_id AND usage_date = k.usage_date AND state = 'present' "
+            "GROUP BY 1, 2) x FULL JOIN (SELECT cost_bucket, charge_class, sum(amount_usd) AS amt "
+            "FROM cost_source_records WHERE stream_id = k.witness_stream_id AND usage_date = k.usage_date "
+            "AND state = 'present' GROUP BY 1, 2) y USING (cost_bucket, charge_class) "
+            "WHERE abs(coalesce(x.amt, 0) - coalesce(y.amt, 0)) > :tol)) AS classification_conflicts "
+            "FROM cost_source_coverage c "
             "JOIN cost_source_stream_days sd ON sd.team_id = c.team_id AND sd.stream_id = c.authoritative_stream_id "
             "AND sd.usage_date = c.usage_date WHERE c.team_id = :t AND c.usage_date = ANY(:d)",
             t=team_id,

@@ -1348,3 +1348,34 @@ def test_48_coverage_completeness_is_not_an_inventory(engine):
     with Session(engine) as s:
         found = {c.usage_account for c in CostLedgerService(s).coverage_completeness(A, [day])}
     assert reported in found and silent not in found  # absent, not complete: callers check their inventory
+
+
+def test_49_unconverted_conflict_is_not_a_classification_conflict(engine):
+    day, account = DAY + timedelta(44), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    same = [line(50, day=day, cur="EUR"), line(10, day=day, svc="Amazon S3")]  # identical bucket and charge class
+    sync(engine, "payer", payer, same, start=day)
+    out = sync(engine, "member", member, same, start=day)
+    assert out.quarantined == 1  # unconverted lines cannot be compared in USD
+    totals = (
+        "SELECT authoritative_total_usd || '/' || witness_total_usd FROM cost_source_conflicts WHERE usage_account = :a"
+    )
+    assert q(engine, totals, a=account) == "10.0000000000/10.0000000000"  # converted part only, equal
+    [c] = completeness(engine, A, day, account)
+    assert (c.financial_state, c.open_conflicts, c.classification_conflicts) == ("incomplete", 1, 0)
+
+
+def test_50_matching_totals_alone_are_not_a_classification_conflict(engine):
+    day, account = DAY + timedelta(45), account_id()
+    payer, _ = stream(engine, ["payer"], account=account)
+    member, _ = stream(engine, ["member"], account=account, vantage="aws:caller:member")
+    sync(engine, "payer", payer, [line(100, day=day)], start=day)
+    assert sync(engine, "member", member, [line(95, day=day)], start=day).quarantined == 1  # an amount conflict
+    sync(engine, "member", member, [line(100, day=day)], start=day)  # now agrees; the conflict stays open
+    [c] = completeness(engine, A, day, account)
+    assert (c.financial_state, c.open_conflicts, c.classification_conflicts) == ("incomplete", 1, 0)
+    # A real bucket discrepancy with the same net is counted
+    sync(engine, "member", member, [line(100, day=day, bucket="compute")], start=day)
+    [c] = completeness(engine, A, day, account)
+    assert (c.open_conflicts, c.classification_conflicts) == (1, 1)

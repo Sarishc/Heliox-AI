@@ -4,7 +4,19 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, DateTime, Text, ForeignKey, JSON, Enum as SQLEnum
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Enum as SQLEnum,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -64,6 +76,12 @@ class IntegrationConnection(Base):
     )
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
+    # Cost ledger (migration 038): connections with ledger history are soft-deleted
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Lets tenant-scoped composite foreign keys reference (team_id, id)
+    __table_args__ = (UniqueConstraint("team_id", "id", name="uq_integration_connections_team_id"),)
+
     # Relationships
     team = relationship("Team", back_populates="integration_connections")
     sync_runs = relationship("IntegrationSyncRun", back_populates="connection", cascade="all, delete-orphan")
@@ -113,6 +131,47 @@ class IntegrationSyncRun(Base):
     triggered_by: Mapped[str] = mapped_column(
         String(50), nullable=False, default="manual"
     )  # manual, scheduled, webhook
+
+    # Cost ledger runs (migration 038). Legacy runs keep pipeline 'legacy' and a NULL phase.
+    phase: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    attempt: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
+    max_attempts: Mapped[int] = mapped_column(nullable=False, default=5, server_default=text("5"))
+    lease_token: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    dispatch_deadline_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    fetch_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    phase_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    billing_exempt: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=text("false"))
+    pipeline: Mapped[str] = mapped_column(String(8), nullable=False, default="legacy", server_default="legacy")
+
+    __table_args__ = (
+        UniqueConstraint("id", "connection_id", name="uq_integration_sync_runs_id_connection"),
+        CheckConstraint("pipeline IN ('legacy','ledger')", name="ck_sync_runs_pipeline"),
+        CheckConstraint(
+            "phase IS NULL OR phase IN\n"
+            "    ('queued','leased','fetching','publishing','published','partial','failed','abandoned','dispatch_expired')",
+            name="ck_sync_runs_phase",
+        ),
+        CheckConstraint("(phase IS NULL) = (pipeline = 'legacy')", name="ck_sync_runs_phase_pipeline"),
+        CheckConstraint(
+            "phase IS NULL OR phase NOT IN ('leased','fetching','publishing') "
+            "OR (lease_token IS NOT NULL AND fetch_started_at IS NOT NULL)",
+            name="ck_sync_runs_inflight_fields",
+        ),
+        CheckConstraint(
+            "phase IS NULL OR phase <> 'queued' OR dispatch_deadline_at IS NOT NULL",
+            name="ck_sync_runs_queued_deadline",
+        ),
+        # At most one ledger run in flight per connection
+        Index(
+            "uq_sync_runs_inflight",
+            "connection_id",
+            unique=True,
+            postgresql_where=text("phase IN ('queued','leased','fetching','publishing')"),
+            sqlite_where=text("phase IN ('queued','leased','fetching','publishing')"),
+        ),
+    )
 
     # Relationships
     connection = relationship("IntegrationConnection", back_populates="sync_runs")

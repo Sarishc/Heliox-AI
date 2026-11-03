@@ -1,10 +1,11 @@
 """Cost and usage snapshot models for Heliox-AI."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import Date, ForeignKey, Index, Numeric, String
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -44,6 +45,14 @@ class CostSnapshot(Base, UUIDMixin, TimestampMixin):
         comment="Cost in USD for this snapshot",
     )
 
+    # Cost ledger (migration 038). 'legacy' rows are totals of unknown provenance and only change
+    # through an approved reconciliation; 'ledger' rows are derived from cost_source_records.
+    # The gate constraint keeps every row legacy until the ledger is approved for live use.
+    source_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="legacy", server_default="legacy")
+    completeness: Mapped[str] = mapped_column(String(12), nullable=False, default="legacy", server_default="legacy")
+    unconverted_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
+    ledger_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
     # Composite index and unique constraint for efficient querying and upserts
     __table_args__ = (
         Index(
@@ -55,6 +64,15 @@ class CostSnapshot(Base, UUIDMixin, TimestampMixin):
             unique=True,  # Unique constraint for idempotent upserts
         ),
         Index("ix_cost_snapshots_date", "date"),
+        CheckConstraint("source_mode IN ('legacy','ledger')", name="ck_cost_snapshots_source_mode"),
+        CheckConstraint(
+            "(source_mode = 'legacy' AND completeness = 'legacy' AND unconverted_count = 0 AND ledger_updated_at IS NULL)\n"
+            "    OR (source_mode = 'ledger' AND completeness IN ('complete','estimated','incomplete') "
+            "AND ledger_updated_at IS NOT NULL\n"
+            "        AND unconverted_count >= 0 AND (unconverted_count = 0 OR completeness = 'incomplete'))",
+            name="ck_cost_snapshots_completeness",
+        ),
+        CheckConstraint("source_mode = 'legacy'", name="ck_cost_snapshots_gate_legacy_only"),
     )
 
     def __repr__(self) -> str:

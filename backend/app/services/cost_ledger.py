@@ -849,15 +849,17 @@ class CostLedgerService:
         stream = self._x("SELECT * FROM cost_source_streams WHERE id = :s", s=stream_id).one()
         return self._register_facts(stream, moved, None, False)
 
-    def resolve_conflict(self, conflict_id: UUID, *, actor_user_id: UUID, reason: str) -> None:
-        """Keep the authoritative value for a quarantined conflict (audited)."""
+    def resolve_conflict(self, conflict_id: UUID, *, team_id: UUID, actor_user_id: UUID, reason: str) -> None:
+        """Keep the authoritative value for one of the team's quarantined conflicts (audited)."""
+        self._lock_team(team_id)
         row = self._x(
             "UPDATE cost_source_conflicts SET status = 'resolved_keep_authoritative', resolved_by = :u, "
-            "resolved_at = now(), resolution_reason = :why WHERE id = :id AND status = 'open' "
+            "resolved_at = now(), resolution_reason = :why WHERE id = :id AND team_id = :t AND status = 'open' "
             "RETURNING team_id, provider, billing_account, usage_account, usage_date",
             u=actor_user_id,
             why=reason,
             id=conflict_id,
+            t=team_id,
         ).one_or_none()
         if row is None:
             raise LedgerError("no open conflict with this id")

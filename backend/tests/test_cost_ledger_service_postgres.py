@@ -22,6 +22,7 @@ from app.services.cost_ledger import (
     CostLedgerService,
     InvalidCostLine,
     LedgerDisabled,
+    LedgerError,
     Publication,
     StreamIdentity,
     TenantMismatch,
@@ -582,8 +583,15 @@ def test_24_payer_member_disagreement_is_quarantined(engine):
     assert out.quarantined == 1
     assert money(total(engine, A, day)) == (Decimal("100.00"), "incomplete")
     conflict = q(engine, "SELECT id FROM cost_source_conflicts WHERE usage_account = :a AND status = 'open'", a=account)
+    with pytest.raises(LedgerError, match="no open conflict"):  # another team cannot resolve A's conflict
+        with Session(engine) as s, s.begin():
+            CostLedgerService(s).resolve_conflict(conflict, team_id=B, actor_user_id=ALICE, reason="not yours")
+    assert q(engine, "SELECT status FROM cost_source_conflicts WHERE id = :i", i=conflict) == "open"
+    assert money(total(engine, A, day)) == (Decimal("100.00"), "incomplete")
     with Session(engine) as s, s.begin():
-        CostLedgerService(s).resolve_conflict(conflict, actor_user_id=ALICE, reason="payer view is the invoice")
+        CostLedgerService(s).resolve_conflict(
+            conflict, team_id=A, actor_user_id=ALICE, reason="payer view is the invoice"
+        )
     assert money(total(engine, A, day)) == (Decimal("100.00"), "complete")
     assert (
         q(engine, "SELECT authoritative_stream_id FROM cost_source_coverage WHERE usage_account = :a", a=account)

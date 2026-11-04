@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     # Integrations — also used for OAuth token encryption at rest.
     # REQUIRED in production/staging; optional in dev (a temporary key is generated).
     # Generate: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+    LEDGER_SHADOW_WORKER_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Registers and allows the shadow cost-ledger worker. Off by default. Never enables live billing: "
+            "a team must also be in ledger mode 'shadow' and ENV must not be production."
+        ),
+    )
     INTEGRATIONS_ENCRYPTION_KEY: str = Field(
         default="",
         description=(

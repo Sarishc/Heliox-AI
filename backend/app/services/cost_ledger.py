@@ -188,6 +188,14 @@ class Publication:
     window_end: date
     lines: Sequence[CostLine]
     complete: bool
+    # What the provider proves per day, apart from lines. Both default to empty, meaning every empty day is settled.
+    estimated_days: frozenset = frozenset()  # an empty day here is estimated, not a final zero
+    # An empty day here says nothing. It is not written at all, unless it was already published: then what was
+    # published can no longer stand, and the day is held as suspect_empty with its records kept.
+    unproven_days: frozenset = frozenset()
+    # A day here with lines can't be shown to be whole: the lines are kept, and it is held as suspect_empty, the state
+    # migration 038 has for "known, not financially complete". The name is about its usual cause: it may hold lines.
+    partial_days: frozenset = frozenset()
 
 
 @dataclass
@@ -203,6 +211,10 @@ class PublishOutcome:
     quarantined: int = 0
     incomplete: bool = False
     published_days: list[date] = field(default_factory=list)
+    unproven_days: list[date] = field(default_factory=list)
+    invalidated_claims: list[dict] = field(default_factory=list)  # what each held unproven day said before this run
+    partial_days: list[date] = field(default_factory=list)  # kept lines that can't be shown to be the whole day
+    held_days: list[dict] = field(default_factory=list)  # empty days the provider proved, kept for the cost they held
     new_shadow_facts: int = 0
 
 
@@ -231,6 +243,9 @@ class ShadowTotal:
     unconverted: int
     blocked: int
     uncovered: int = 0  # present provider records for an account-day no authoritative stream has published
+    # A subtotal of what the ledger holds. It says nothing about expected accounts with no records at all, so
+    # "complete" here is never a tenant or provider total: use ledger_shadow.coverage.inventory_total for that.
+    scope: str = "known_contributions"
 
 
 @dataclass(frozen=True)
@@ -261,6 +276,7 @@ class CoverageCompleteness:
     # agrees, and USD per (cost bucket, charge class) differs. Read from the current records, because the
     # conflict row does not record its cause (that needs a later migration).
     classification_conflicts: int = 0
+    source_ambiguous: bool = False  # another active stream bills this usage account to a different billing account
 
 
 # ── Normalization ────────────────────────────────────────────────────────────────
@@ -580,15 +596,16 @@ class CostLedgerService:
         """End the run as this attempt and release its lease. A stale or retried attempt is refused.
 
         ``success`` additionally needs a live lease and at least one stream publication by this attempt,
-        all of them published (an incomplete fetch is recorded as failed). Which streams a run must cover
-        is the worker's decision (later step). ``failed`` is allowed after the lease expired.
+        all of them published (an incomplete fetch is recorded as failed). ``partial`` needs a live lease
+        and at least one published stream: some of the expected coverage is still missing. Which streams
+        a run must cover is the worker's decision. ``failed`` is allowed after the lease expired.
         """
-        if status not in ("success", "failed"):
+        if status not in ("success", "partial", "failed"):
             raise LedgerError(f"unknown run status {status!r}")
         run = self._lock_run(run_id)
         if (run.attempt, run.lease_token) != (attempt, fencing_token):
             raise LedgerFenced("a newer attempt owns this run")
-        if status == "success":
+        if status in ("success", "partial"):
             live = self._x(
                 "SELECT expires_at > clock_timestamp() FROM cost_sync_leases WHERE connection_id = :c "
                 "AND holder_run_id = :r AND holder_attempt = :a AND token = :tok FOR UPDATE",
@@ -605,7 +622,7 @@ class CostLedgerService:
                 r=run_id,
                 a=attempt,
             ).one()
-            if streams.total == 0 or streams.published != streams.total:
+            if streams.published == 0 or (status == "success" and streams.published != streams.total):
                 raise RunIncomplete("this attempt has no publication or an unpublished stream")
         released = self._x(
             "UPDATE cost_sync_leases SET holder_run_id = NULL, holder_attempt = NULL, expires_at = NULL "
@@ -617,10 +634,10 @@ class CostLedgerService:
         ).rowcount
         if released != 1:
             raise LedgerFenced("this attempt no longer holds the connection lease")
-        phase = "published" if status == "success" else "failed"
+        phase = {"success": "published", "partial": "partial", "failed": "failed"}[status]
         updated = self._x(
             "UPDATE integration_sync_runs SET phase = :p, status = :s, finished_at = now(), "
-            "phase_changed_at = clock_timestamp(), published_at = CASE WHEN :p = 'published' THEN now() END "
+            "phase_changed_at = clock_timestamp(), published_at = CASE WHEN :p IN ('published', 'partial') THEN now() END "
             "WHERE id = :r AND attempt = :a AND lease_token = :tok AND phase = ANY(:leased)",
             p=phase,
             s=status,
@@ -711,7 +728,7 @@ class CostLedgerService:
         prior = {
             r.usage_date: r
             for r in self._x(
-                "SELECT usage_date, generation, last_fetch_started_at FROM cost_source_stream_days "
+                "SELECT usage_date, generation, last_fetch_started_at, state, last_run_id FROM cost_source_stream_days "
                 "WHERE stream_id = :s AND usage_date = ANY(:d)",
                 s=pub.stream_id,
                 d=days,
@@ -736,9 +753,31 @@ class CostLedgerService:
             d
             for d in active
             if d not in with_lines
-            and any(k[0] == d and r.state == "present" and r.amount != 0 for k, r in existing.items())
+            and (
+                any(k[0] == d and r.state == "present" and r.amount != 0 for k, r in existing.items())
+                or (d in prior and d in pub.unproven_days)
+            )
         }
         out.held = len(suspect)
+        unproven = {d for d in pub.unproven_days if d in gen and d not in with_lines}
+        active = [d for d in active if d not in unproven or d in suspect]
+        out.unproven_days = sorted(unproven)
+        partial = {d for d in pub.partial_days if d in gen and d in with_lines}
+        out.partial_days = sorted(partial)
+        claims = {
+            d: {
+                "day": d.isoformat(),
+                "previous_state": prior[d].state,
+                "previous_generation": prior[d].generation,
+                "previous_run_id": str(prior[d].last_run_id),
+            }
+            for d in sorted(suspect)
+            if d in prior
+        }
+        out.invalidated_claims = [
+            claim for d, claim in claims.items() if d in unproven and claim["previous_state"] != "suspect_empty"
+        ]
+        out.held_days = [claim for d, claim in claims.items() if d not in unproven]
 
         obs_base = dict(t=run.team_id, run=pub.run_id, c=run.connection_id, a=pub.attempt, tok=pub.fencing_token)
         for ln in lines:
@@ -798,7 +837,7 @@ class CostLedgerService:
 
         current = {ln.identity for ln in lines}
         for key, rec in existing.items():
-            if rec.state != "present" or key in current or key[0] in suspect:
+            if rec.state != "present" or key in current or key[0] in suspect or key[0] in unproven:
                 continue
             self._x(
                 "UPDATE cost_source_records SET state = 'absent', absent_since_generation = :g, absent_at = now(), "
@@ -821,9 +860,9 @@ class CostLedgerService:
             out.retired += 1
 
         for d in active:
-            if d in suspect:
+            if d in suspect or d in partial:
                 state = "suspect_empty"
-            elif any(ln.is_estimated for ln in lines if ln.usage_date == d):
+            elif d in pub.estimated_days or any(ln.is_estimated for ln in lines if ln.usage_date == d):
                 state = "estimated"
             else:
                 state = "final"
@@ -1159,7 +1198,11 @@ class CostLedgerService:
         rows = self._x(
             "SELECT r.usage_date, s.provider, r.cost_bucket, r.amount_usd, r.state = 'present' AS present, "
             "s.source_kind, c.state AS coverage_state, (s.source_kind = 'manual' OR (s.role = 'cost' "
-            "AND c.authoritative_stream_id = r.stream_id)) AS authoritative FROM cost_source_records r "
+            "AND c.authoritative_stream_id = r.stream_id)) AS authoritative, EXISTS (SELECT 1 "
+            "FROM cost_source_streams o JOIN cost_source_stream_bindings b ON b.stream_id = o.id "
+            "AND b.unbound_at IS NULL WHERE o.team_id = s.team_id AND o.provider = s.provider "
+            "AND o.usage_account = s.usage_account AND o.role = 'cost' AND o.billing_account <> s.billing_account) "
+            "AS ambiguous FROM cost_source_records r "
             "JOIN cost_source_streams s ON s.team_id = r.team_id AND s.id = r.stream_id "
             "LEFT JOIN cost_source_coverage c ON c.team_id = r.team_id AND c.provider = s.provider "
             "AND c.billing_account = s.billing_account AND c.usage_account = s.usage_account "
@@ -1176,7 +1219,8 @@ class CostLedgerService:
                 r.present,
                 bool(r.authoritative),
                 r.source_kind,
-                r.coverage_state,
+                # Two billing accounts claim this usage account: whatever was accepted is not a confirmed total
+                "conflict" if r.ambiguous and r.coverage_state else r.coverage_state,
             )
             for r in rows
         )
@@ -1206,7 +1250,11 @@ class CostLedgerService:
             "GROUP BY 1, 2) x FULL JOIN (SELECT cost_bucket, charge_class, sum(amount_usd) AS amt "
             "FROM cost_source_records WHERE stream_id = k.witness_stream_id AND usage_date = k.usage_date "
             "AND state = 'present' GROUP BY 1, 2) y USING (cost_bucket, charge_class) "
-            "WHERE abs(coalesce(x.amt, 0) - coalesce(y.amt, 0)) > :tol)) AS classification_conflicts "
+            "WHERE abs(coalesce(x.amt, 0) - coalesce(y.amt, 0)) > :tol)) AS classification_conflicts, "
+            "EXISTS (SELECT 1 FROM cost_source_streams o JOIN cost_source_stream_bindings b ON b.stream_id = o.id "
+            "AND b.unbound_at IS NULL WHERE o.team_id = c.team_id AND o.provider = c.provider "
+            "AND o.usage_account = c.usage_account AND o.role = 'cost' AND o.billing_account <> c.billing_account) "
+            "AS source_ambiguous "
             "FROM cost_source_coverage c "
             "JOIN cost_source_stream_days sd ON sd.team_id = c.team_id AND sd.stream_id = c.authoritative_stream_id "
             "AND sd.usage_date = c.usage_date WHERE c.team_id = :t AND c.usage_date = ANY(:d)",
@@ -1216,7 +1264,12 @@ class CostLedgerService:
         )
         result = []
         for r in covered:
-            if r.state in ("conflict", "suspect_empty") or r.unconverted_count or r.open_conflicts:
+            if (
+                r.state in ("conflict", "suspect_empty")
+                or r.unconverted_count
+                or r.open_conflicts
+                or r.source_ambiguous
+            ):
                 financial = "incomplete"
             elif r.state == "estimated":
                 financial = "estimated"
@@ -1235,6 +1288,7 @@ class CostLedgerService:
                     r.unconverted_count,
                     r.open_conflicts,
                     r.classification_conflicts,
+                    r.source_ambiguous,
                 )
             )
         uncovered = self._x(

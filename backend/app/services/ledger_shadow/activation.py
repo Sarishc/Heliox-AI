@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -19,6 +20,7 @@ REQUIRED_GATES = (
     "ck_usage_ledger_gate_shadow_only",
 )
 PERMITTED_ENVS = frozenset({"dev", "staging"})
+ELIGIBLE_CONNECTION_STATUS = "active"  # pending, error and disabled all stop here; the model has no separate "revoked"
 
 
 class ShadowActivationRefused(Exception):
@@ -57,6 +59,30 @@ def verify_ledger_schema(session: Session) -> None:
     )
     if present != set(REQUIRED_GATES):
         raise ShadowActivationRefused("ledger_schema_invalid")
+
+
+def require_eligible_connection(session: Session, connection_id: UUID, team_id: UUID) -> Any:
+    """The connection must exist, belong to this team, be active and not deleted, and hold credentials.
+
+    Checked before any provider call and again before publishing, because state can change in between.
+    """
+    row = session.execute(
+        text(
+            "SELECT team_id, provider, status, deleted_at, config_encrypted FROM integration_connections WHERE id = :c"
+        ),
+        {"c": connection_id},
+    ).one_or_none()
+    if row is None:
+        raise ShadowActivationRefused("connection_not_found")
+    if row.team_id != team_id:
+        raise ShadowActivationRefused("connection_not_owned")
+    if row.deleted_at is not None:
+        raise ShadowActivationRefused("connection_deleted")
+    if str(row.status) != ELIGIBLE_CONNECTION_STATUS:
+        raise ShadowActivationRefused(f"connection_{row.status}")
+    if not row.config_encrypted:
+        raise ShadowActivationRefused("credentials_missing")
+    return row
 
 
 def require_shadow_team(session: Session, team_id: UUID) -> None:

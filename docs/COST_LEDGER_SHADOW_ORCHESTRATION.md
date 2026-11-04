@@ -16,7 +16,7 @@ No database transaction is open during a provider call.
 | Request | Activation gates, inventory check, `start_run`, deterministic manifest in `metrics_json` |
 | Claim | Run row lock, newer attempt, fenced lease, one `pending` progress row per expected stream |
 | Each page | Heartbeat (which fences a stale attempt), idempotent staging, progress update |
-| Publish | For all complete streams: `publish`, checkpoint, then `finish_run` and clearing staging |
+| Publish | Eligibility and ambiguity re-checked; for all complete streams: `publish`, checkpoint row, then `finish_run` and clearing staging |
 
 The publish step commits together or not at all. A crash before the commit leaves nothing accepted, and the retry fetches again. A crash after the commit makes the redelivered task a no-op, because the run is terminal. No event or log claims success before the commit.
 
@@ -57,6 +57,28 @@ A stream is complete only when the adapter yields a page with `is_last`, which h
 - **GCP:** every result page is read and the row count matches `total_rows`. The export's latest `export_time` must have passed the window end, otherwise a silent day proves nothing.
 - **Azure:** every `nextLink` is followed, only over HTTPS to `management.azure.com` within the same scope. 401 refreshes the token once; 429 and 5xx retry a bounded number of times. 401 after a refresh, 403 and 404 mean the subscription is inaccessible, never zero.
 
+## Scope verification
+
+A stream with no rows is a confirmed zero only if the provider itself proves the account belongs to this source, independently of cost rows. `verify_scope` runs after the claim and before any cost query. Whatever it doesn't prove is failed with a reason: no coverage, no stream day, no checkpoint.
+
+| Provider | What proves membership | Permission | What it can't prove |
+|---|---|---|---|
+| AWS | `DescribeOrganization.MasterAccountId` must equal the configured payer; `ListAccounts` must list the account with `State = ACTIVE` | Any account can call the first; only the management account or a delegated administrator can call the second | A member connection proves only itself. A payer without `ListAccounts` proves only itself |
+| GCP | `projects.getBillingInfo`: `billingAccountName` matches and `billingEnabled` is true | `resourcemanager.projects.get` on each project | A project that moved reads as moved, even for days it was still on this account |
+| Azure, subscription scope | `Subscriptions - Get` with state Enabled, Warned or PastDue | Read on the subscription | No billing relationship is claimed |
+| Azure, billing scope | The billing account's `billingSubscriptions` list contains the subscription | Billing reader | Accounts or agreement types whose list omits `subscriptionId` are unverified |
+
+AWS `SUSPENDED` accounts and disabled GCP projects are refused even though they may have historical cost. This fails closed on purpose: such a day stays unknown rather than wrong.
+
+## Source identity and overlap
+
+Coverage is keyed by billing account, so a second view counts once only when both name the same bill.
+
+- **AWS:** the billing account is the payer, and verification requires AWS to confirm it, so a connection claiming a different payer stops at `payer_mismatch`.
+- **Azure:** `billing_account` is empty because a subscription id is globally unique. Subscription and billing scopes are therefore witnesses of each other.
+- **GCP:** a copied export is a witness, because table name is only the vantage.
+- **Any provider:** if two active streams in a team claim one usage account under different billing accounts, both are quarantined as `source_identity_ambiguous`, and totals already published for that account read as incomplete. Nothing chooses a winner. A person resolves it by unbinding the wrong connection. `cost_source_authority` is per billing account, so it can't arbitrate this; doing so needs a schema change.
+
 ## Inventory
 
 Migration 038 can hold the inventory, so no new table was needed:
@@ -67,7 +89,36 @@ Migration 038 can hold the inventory, so no new table was needed:
 
 A difference between configuration and bindings blocks the run. So does an empty inventory. An account with no rows is a confirmed zero only if its fetch completed. Unknown accounts are reported, get no stream, and keep the run from being a full success.
 
-AWS member callers and Azure subscription scopes can't list their siblings. Where discovery isn't supported, `discovery` is recorded as `unsupported`, and only the declared inventory is checked.
+AWS member callers and Azure subscription scopes can't list their siblings. Where discovery isn't supported, `discovery` is recorded as `unsupported`, and only the declared inventory is checked. Discovery reports accounts with spend; it does not prove membership, which is what scope verification is for.
+
+## Checkpoints
+
+`cost_source_stream_checkpoints.final_through` stays NULL. Migration 038 stores no starting boundary, so any value there would read as "every earlier day is final", even for a stream first fetched yesterday. The row records only `last_complete_fetch_at` and `export_watermark`, in the publish transaction.
+
+`stream_coverage(session, stream_id, window)` answers the question with an explicit start. It reports each day separately: fetched or missing, provider state, and financial state. `final_through` and `financially_complete_through` in its result are proven from that start and stop at the first gap. Persisting this needs a later migration that adds a coverage start per stream.
+
+## Enrollment
+
+`enroll_connection` and `revoke_connection` are private, with no route. Enrollment requires an owner or admin of the team, a non-blank reason, a team already in shadow mode, an eligible connection, verified scope for every account, no run in flight and no ambiguous source. Changes are written to `audit_logs`. Revoking unbinds the streams, keeps history, and makes the next attempt of any in-flight run stop.
+
+## Connection eligibility
+
+Only `status = 'active'` with `deleted_at` NULL and stored credentials may run; the model has no separate "revoked" state. `pending`, `error` and `disabled` are refused. This is checked before any provider call, again in the claim, and again in the publish transaction.
+
+## Provider contracts
+
+Request and response mappings were compared with the published API references on 2026-11-03. Fake clients prove only this side of each contract.
+
+**Not verified against a real provider:**
+
+- Whether BigQuery accepts the SQL. It has never been parsed by BigQuery; a credentialed dry-run needs separate authorization.
+- The stored spelling of GCP's rounding `cost_type`. The docs say "rounding error"; both spellings are accepted.
+- `DATE(usage_start_time)` uses UTC. The docs state no timezone for usage days, so days may differ from the billing console.
+- Azure result column names (`Cost`, `CostUSD`, `UsageDate`, `Currency`) and that `Currency` is returned without being grouped. A missing column fails closed.
+- Whether Azure's `to` is inclusive. It isn't documented, so the request names the last second of the last day.
+- AWS `RECORD_TYPE` values, which aren't enumerated. Unknown values stay visible as `other`. AWS account `State` values beyond `ACTIVE`, which aren't listed; anything else is refused.
+- Whether a day with no groups reports a zero `Total` in Cost Explorer. A non-zero one fails closed.
+- Azure `204` from the query API, which is documented but undefined. It fails closed, so a provider using it for "no cost" would never complete.
 
 ## Fencing and recovery
 
@@ -80,7 +131,7 @@ All of these are required:
 1. `LEDGER_SHADOW_WORKER_ENABLED=true`. Without it the tasks aren't even registered.
 2. `ENV` is `dev` or `staging`, never `production`.
 3. The team's ledger mode is `shadow`. Nothing enrolls a team automatically.
-4. A valid provider configuration.
+4. An eligible connection with valid provider configuration.
 5. All six migration 038 gate constraints exist.
 6. A valid, non-empty inventory.
 
@@ -89,6 +140,7 @@ Nothing schedules or enqueues the tasks, and the flag cannot enable billing: the
 ## Known limits under migration 038
 
 - `metrics_json` is a JSON column on the run row, so the recovery trail is append-by-rewrite under the run lock, not an append-only table.
-- `final_through` tracks fetch finality, not financial finality. `coverage_completeness` is what reports financial state.
+- `final_through` can't be used safely (see Checkpoints). `stream_coverage` and `coverage_completeness` report the state instead.
+- The ambiguity between billing accounts can't be recorded as a conflict row, because `cost_source_conflicts` requires both streams to share a billing account. It's computed from active bindings when read.
 - Previous non-amount values of a correction survive only as a digest in the observation.
 - The manifest stores the accounts requested for a run, but the configuration behind a stream is stored only as a digest.

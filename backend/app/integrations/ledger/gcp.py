@@ -8,10 +8,14 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 
 from app.integrations.ledger.base import (
+    VERIFIED,
     AdapterConfigError,
     DateWindow,
     Discovery,
     FetchIncomplete,
+    ScopeLookupDenied,
+    ScopeLookupMissing,
+    ScopeVerdict,
     SourcePage,
     StreamSpec,
     is_estimated_day,
@@ -27,7 +31,15 @@ TABLE_RES = {
 }
 NO_PROJECT = "__billing_account__"  # taxes and support carry no project; they must not be dropped
 SETTLE_DAYS = 3
-COST_TYPE_CLASSES = {"regular": "usage", "tax": "tax", "adjustment": "adjustment", "rounding_error": "rounding"}
+# The schema describes cost_type as "regular, tax, adjustment, or rounding error"; the stored spelling of the last
+# is not stated, so both are accepted. An unknown value stays visible as "other".
+COST_TYPE_CLASSES = {
+    "regular": "usage",
+    "tax": "tax",
+    "adjustment": "adjustment",
+    "rounding_error": "rounding",
+    "rounding error": "rounding",
+}
 DISCOUNT_CREDITS = {
     "SUSTAINED_USAGE_DISCOUNT",
     "COMMITTED_USAGE_DISCOUNT",
@@ -69,8 +81,8 @@ WHERE billing_account_id = @billing_account
 
 
 class GcpBillingExportAdapter:
-    """A billing export table covers every project on its billing account, so a project with no rows is a
-    confirmed zero only when the export has caught up with the whole window.
+    """A project with no rows is a confirmed zero only when both hold: Cloud Billing says the project is on this
+    billing account now, and the export has caught up with the whole window. Export rows prove neither.
     """
 
     provider = "gcp"
@@ -81,6 +93,7 @@ class GcpBillingExportAdapter:
         *,
         client_factory: Callable[[], Any],
         parameters: Callable[[Sequence[tuple[str, str, Any]]], Any],
+        project_billing_info: Callable[[str], Mapping[str, Any]],
         today: Callable[[], date] = lambda: datetime.now(timezone.utc).date(),
     ):
         self.export_project = str(config.get("gcp_project_id") or "")
@@ -106,6 +119,7 @@ class GcpBillingExportAdapter:
             raise AdapterConfigError("invalid_project_inventory")
         self._client_factory = client_factory
         self._parameters = parameters
+        self._project_billing_info = project_billing_info
         self._today = today
 
     @property
@@ -126,6 +140,33 @@ class GcpBillingExportAdapter:
             )
             for project in [*self.projects, NO_PROJECT]
         ]
+
+    def verify_scope(self) -> Mapping[str, ScopeVerdict]:
+        verdicts = {f"gcp:project:{project}": self._verify_project(project) for project in self.projects}
+        # Rows with no project belong to the billing account: provable only through a project shown to be on it
+        any_verified = any(v.verified for v in verdicts.values())
+        verdicts[f"gcp:project:{NO_PROJECT}"] = (
+            VERIFIED if any_verified else ScopeVerdict(False, "billing_account_unverified")
+        )
+        return verdicts
+
+    def _verify_project(self, project: str) -> ScopeVerdict:
+        try:
+            info = self._project_billing_info(project)
+        except ScopeLookupMissing:
+            return ScopeVerdict(False, "project_not_found")
+        except ScopeLookupDenied:
+            return ScopeVerdict(False, "project_inaccessible")
+        except Exception:
+            return ScopeVerdict(False, "scope_lookup_failed", retryable=True)
+        account = info.get("billingAccountName")
+        if not account:
+            return ScopeVerdict(False, "project_has_no_billing_account")
+        if account != f"billingAccounts/{self.billing_account}":
+            return ScopeVerdict(False, "project_on_other_billing_account")
+        if info.get("billingEnabled") is not True:
+            return ScopeVerdict(False, "project_billing_disabled")
+        return VERIFIED
 
     def discover(self, window: DateWindow) -> Discovery:
         rows = self._rows(DISCOVERY_QUERY.format(table=self._table_ref), self._common(window))

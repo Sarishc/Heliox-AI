@@ -11,8 +11,10 @@ from app.integrations.ledger.base import (
     MAX_PAGES,
     AdapterConfigError,
     DateWindow,
+    VERIFIED,
     Discovery,
     FetchIncomplete,
+    ScopeVerdict,
     SourcePage,
     StreamSpec,
 )
@@ -52,6 +54,19 @@ def _bucket(service: str) -> str:
     return "aws_other"
 
 
+def _has_cost(total: Any) -> bool:
+    """A day with no groups may report a Total of zero; a non-zero one is cost this query did not break down."""
+    if not isinstance(total, Mapping):
+        return False
+    metric = total.get(METRIC)
+    if not isinstance(metric, Mapping):
+        return bool(total)
+    try:
+        return Decimal(str(metric.get("Amount"))) != 0
+    except InvalidOperation:
+        return True
+
+
 def _error_code(exc: Exception) -> str:
     response = getattr(exc, "response", None)
     if isinstance(response, Mapping):
@@ -62,9 +77,11 @@ def _error_code(exc: Exception) -> str:
 class AwsCostExplorerAdapter:
     """Cost Explorer through a boto3-style client.
 
-    The expected inventory is ``linked_account_ids`` plus the payer. A payer caller is authoritative
-    for every linked account. A member caller can only see itself, so any other expected account is
-    reported as inaccessible rather than as zero spending. Tag grouping is deliberately not offered:
+    ``linked_account_ids`` is what the customer expects; ``verify_scope`` proves it. The configured payer
+    must match the organization's management account as reported by AWS, and a linked account must be
+    an active member. Any account can read its organization's management account, but only the
+    management account or a delegated administrator can list members, so a member connection can prove
+    only itself. Anything unproven is incomplete, never zero. Tag grouping is deliberately not offered:
     tags never decide ownership.
     """
 
@@ -114,6 +131,71 @@ class AwsCostExplorerAdapter:
             )
             for account in self.accounts
         ]
+
+    def verify_scope(self) -> Mapping[str, ScopeVerdict]:
+        caller = self._caller_account()
+        organizations = self._client_factory("organizations")
+        in_organization = True
+        try:
+            master = str(organizations.describe_organization()["Organization"]["MasterAccountId"])
+        except Exception as exc:
+            code = _error_code(exc)
+            if code == "AWSOrganizationsNotInUseException":
+                master, in_organization = caller, False  # a standalone account is its own payer
+            elif code in ACCESS_CODES:
+                return self._all(ScopeVerdict(False, "payer_unverifiable"))
+            elif isinstance(exc, (KeyError, TypeError)):
+                return self._all(ScopeVerdict(False, "payer_unverifiable"))
+            else:
+                return self._all(ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc)))
+        if master != self.payer:
+            return self._all(ScopeVerdict(False, "payer_mismatch"))
+        members = self._organization_members(organizations) if in_organization and caller == self.payer else None
+        verdicts: dict[str, ScopeVerdict] = {}
+        for account in self.accounts:
+            key = f"aws:acct:{account}"
+            if isinstance(members, ScopeVerdict):
+                verdicts[key] = VERIFIED if account == caller else members
+            elif members is not None:
+                state = members.get(account)
+                if state is None:
+                    verdicts[key] = ScopeVerdict(False, "account_not_in_organization")
+                elif state != "ACTIVE":
+                    verdicts[key] = ScopeVerdict(False, "account_not_active")
+                else:
+                    verdicts[key] = VERIFIED
+            elif account == caller:
+                verdicts[key] = VERIFIED
+            elif not in_organization:
+                verdicts[key] = ScopeVerdict(False, "account_not_in_organization")
+            else:
+                verdicts[key] = ScopeVerdict(False, "account_not_visible_to_caller")
+        return verdicts
+
+    def _all(self, verdict: ScopeVerdict) -> dict[str, ScopeVerdict]:
+        return {f"aws:acct:{account}": verdict for account in self.accounts}
+
+    def _organization_members(self, organizations: Any) -> Any:
+        """Account id to State from ListAccounts (Status is retired), or a verdict when it cannot be read."""
+        members: dict[str, str] = {}
+        token: Optional[str] = None
+        seen: set[str] = set()
+        for _ in range(MAX_PAGES):
+            try:
+                response = organizations.list_accounts(**({"NextToken": token} if token else {}))
+            except Exception as exc:
+                if _error_code(exc) in ACCESS_CODES:
+                    return ScopeVerdict(False, "membership_unverifiable")
+                return ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc))
+            for account in response.get("Accounts", []):
+                members[str(account.get("Id"))] = str(account.get("State"))
+            token = response.get("NextToken")
+            if not token:
+                return members
+            if token in seen:
+                return ScopeVerdict(False, "scope_lookup_failed")
+            seen.add(token)
+        return ScopeVerdict(False, "scope_lookup_failed")
 
     def discover(self, window: DateWindow) -> Discovery:
         if self._caller_account() != self.payer:
@@ -174,9 +256,8 @@ class AwsCostExplorerAdapter:
                     raise FetchIncomplete("malformed_estimated_flag")
                 for group in period.get("Groups", []):
                     lines.append(_line(group, day, estimated))
-                if period.get("Total"):
-                    # With GroupBy, AWS reports amounts only in Groups; a populated Total is unexpected
-                    raise FetchIncomplete("unexpected_ungrouped_total")
+                if not period.get("Groups") and _has_cost(period.get("Total")):
+                    raise FetchIncomplete("unexpected_ungrouped_total")  # cost with no group cannot be attributed
             token = response.get("NextPageToken")
             if not token:
                 if seen_days != expected:

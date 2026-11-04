@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.integrations.ledger.aws import AwsCostExplorerAdapter
 from app.integrations.ledger.azure import AzureCostManagementAdapter
 from app.integrations.ledger.base import (
+    VERIFIED,
     AdapterConfigError,
     DateWindow,
     Discovery,
@@ -39,6 +40,7 @@ from app.integrations.ledger.gcp import GcpBillingExportAdapter
 from app.services.cost_ledger import CostLedgerService, LedgerFenced, RunIncomplete, normalize_line
 from app.services.ledger_shadow import activation
 from app.services.ledger_shadow.activation import ShadowActivationRefused, ShadowPolicy
+from app.services.ledger_shadow.coverage import stream_coverage
 from app.services.ledger_shadow.inventory import InventoryInvalid, configure_inventory, resolve_expected
 from app.services.ledger_shadow.orchestrator import ShadowSyncOrchestrator
 from app.services.ledger_shadow.recovery import reap_abandoned_runs
@@ -143,7 +145,8 @@ class Fake:
 
     provider = "aws"
 
-    def __init__(self, scripts, specs=None, discovered=None, discover_error=None):
+    def __init__(self, scripts, specs=None, discovered=None, discover_error=None, verdicts=None):
+        self.verdicts = verdicts
         self.scripts = scripts
         self.specs = specs or [spec(a) for a in scripts]
         self.discovered = discovered
@@ -152,6 +155,9 @@ class Fake:
 
     def streams(self):
         return self.specs
+
+    def verify_scope(self):
+        return self.verdicts if self.verdicts is not None else {x.usage_account: VERIFIED for x in self.specs}
 
     def discover(self, window):
         if self.discover_error:
@@ -188,8 +194,8 @@ class Rig:
             with engine.begin() as c:
                 c.execute(
                     text(
-                        "INSERT INTO integration_connections (id, team_id, provider, name, config_encrypted) "
-                        "VALUES (:i, :t, 'aws', :n, 'not-a-real-config')"
+                        "INSERT INTO integration_connections (id, team_id, provider, name, config_encrypted, status) "
+                        "VALUES (:i, :t, 'aws', :n, 'not-a-real-config', 'active')"
                     ),
                     {"i": self.conn, "t": team, "n": f"c-{self.conn.hex[:8]}"},
                 )
@@ -205,7 +211,7 @@ class Rig:
     def run(self, window=None, script=None):
         if script is not None:
             self.adapter.scripts = script
-        run_id = self.orchestrator.create_run(self.conn, window or DateWindow(DAY, DAY + timedelta(1)))
+        run_id = self.orchestrator.create_run(self.team, self.conn, window or DateWindow(DAY, DAY + timedelta(1)))
         return run_id, self.orchestrator.execute(run_id)
 
     def expire(self):
@@ -271,6 +277,12 @@ def metrics(engine, run_id):
     return q(engine, "SELECT metrics_json FROM integration_sync_runs WHERE id = :r", r=run_id)
 
 
+def fetched_at(engine, stream_id):
+    return q(
+        engine, "SELECT last_complete_fetch_at FROM cost_source_stream_checkpoints WHERE stream_id = :s", s=stream_id
+    )
+
+
 def checkpoint(engine, stream_id):
     return q(engine, "SELECT final_through FROM cost_source_stream_checkpoints WHERE stream_id = :s", s=stream_id)
 
@@ -299,7 +311,8 @@ def test_complete_run_publishes_and_finishes_atomically(engine):
     assert (
         q(engine, "SELECT authoritative_stream_id FROM cost_source_coverage WHERE usage_account = :a", a=account) == sid
     )
-    assert checkpoint(engine, sid) == DAY
+    assert checkpoint(engine, sid) is None  # no starting boundary is stored; see test_ledger_shadow_corrections
+    assert fetched_at(engine, sid) is not None
     assert staged(engine, run_id) == 0  # temporary by design, gone once the run is terminal
     report = metrics(engine, run_id)["ledger"]["inventory"]
     assert report["expected"] == report["fetched"] == report["published"] == report["authoritative"] == [account]
@@ -365,7 +378,7 @@ def test_crash_during_pagination_publishes_nothing_and_a_retry_finishes(engine):
     day, account = DAY + timedelta(4), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(60, day=day, bucket="crash1")], WorkerCrash()]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with pytest.raises(WorkerCrash):
         rig.orchestrator.execute(run_id)
     sid = rig.streams[account]
@@ -399,7 +412,7 @@ def test_crash_after_staging_causes_no_double_accounting(engine, monkeypatch):
     day, account = DAY + timedelta(5), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(100, day=day, bucket="crash2")]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
 
     def crash(*args, **kwargs):
         raise WorkerCrash()
@@ -421,7 +434,7 @@ def test_crash_before_commit_leaves_no_partial_publication(engine, monkeypatch):
     window = DateWindow(day, day + timedelta(1))
     first, second = account_id(), account_id()
     rig = Rig(engine, {first: [[line(70, day=day, bucket="crash3")]], second: [[line(30, day=day, bucket="crash3")]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
 
     def crash(*args, **kwargs):
         raise WorkerCrash()
@@ -468,7 +481,7 @@ def test_duplicate_delivery_while_running_is_refused_by_the_lease(engine):
         assert release.wait(10)
 
     rig = Rig(engine, {account: [wait, [line(100, day=day, bucket="dup")]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     results = {}
     worker = threading.Thread(target=lambda: results.update(first=rig.orchestrator.execute(run_id)))
     worker.start()
@@ -489,7 +502,8 @@ def test_create_run_is_idempotent_while_a_run_is_in_flight(engine):
     rig = Rig(engine, {account: [[line(1, day=day)]]})
     ids = []
     threads = [
-        threading.Thread(target=lambda: ids.append(rig.orchestrator.create_run(rig.conn, window))) for _ in range(4)
+        threading.Thread(target=lambda: ids.append(rig.orchestrator.create_run(rig.team, rig.conn, window)))
+        for _ in range(4)
     ]
     for t in threads:
         t.start()
@@ -508,7 +522,7 @@ def test_task_retry_with_the_same_run_uses_a_newer_attempt(engine):
     rig = Rig(
         engine, {account: [[line(5, day=day, bucket="retry")], FetchIncomplete("provider_page_failed", retryable=True)]}
     )
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     first = rig.orchestrator.execute(run_id)
     assert (first.status, first.retryable, first.reason) == ("retry", True, "provider_page_failed")
     sid = rig.streams[account]
@@ -551,7 +565,7 @@ def test_lease_takeover_fences_the_stale_worker_during_fetch(engine):
         ]
     }
     rig = Rig(engine, script_a)
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     stale = rig.orchestrator.execute(run_id)
     assert new_results["b"].status == "published"
     assert (stale.status, stale.reason) == ("fenced", "lease_lost")
@@ -564,7 +578,7 @@ def test_stale_worker_cannot_publish_after_losing_its_lease(engine, monkeypatch)
     day, account = DAY + timedelta(12), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(100, day=day, bucket="stale")]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     original = ShadowSyncOrchestrator._publish
 
     def lose_then_publish(self, *args, **kwargs):
@@ -584,7 +598,7 @@ def test_stale_token_is_rejected_when_staging_and_heartbeating(engine):
     day, account = DAY + timedelta(13), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(1, day=day)]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with rig.sessions() as s, s.begin():
         token = CostLedgerService(s).acquire_lease(run_id, 1)
         s.execute(text("UPDATE integration_sync_runs SET phase = 'fetching' WHERE id = :r"), {"r": run_id})
@@ -608,7 +622,7 @@ def test_page_retries_are_idempotent_and_conflicting_pages_are_detected(engine):
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(1, day=day)]]})
     sid = rig.streams[account]
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with rig.sessions() as s, s.begin():
         CostLedgerService(s).acquire_lease(run_id, 1)
         s.execute(
@@ -643,7 +657,7 @@ def test_conflicting_pages_never_publish(engine):
     day, account = DAY + timedelta(15), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(10, day=day, bucket="conflict")], [line(11, day=day, bucket="conflict")]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     result = rig.orchestrator.execute(run_id)
     assert (result.status, result.reason) == ("retry", "conflicting_page")
     assert records(engine, rig.streams[account]) == 0
@@ -686,14 +700,14 @@ def test_complete_inventory_confirms_a_zero_cost_account(engine):
     with Session(engine) as s:
         days = {c.usage_account: c for c in CostLedgerService(s).coverage_completeness(A, [day])}
     assert (days[quiet].financial_state, days[quiet].converted_total_usd) == ("complete", Decimal("0"))
-    assert checkpoint(engine, rig.streams[quiet]) == day
+    assert fetched_at(engine, rig.streams[quiet]) is not None
 
 
 def test_an_account_with_no_final_page_is_not_a_zero(engine):
     day, account = DAY + timedelta(18), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: []})  # the fetch ended without ever declaring completion
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     result = rig.orchestrator.execute(run_id)
     assert (result.status, result.reason) == ("retry", "no_final_page")
     assert q(engine, "SELECT count(*) FROM cost_source_stream_days WHERE stream_id = :s", s=rig.streams[account]) == 0
@@ -718,11 +732,11 @@ def test_inventory_is_declared_not_derived_from_rows(engine):
     # Configuration now expects a second account that was never bound: drift blocks the run before any fetch
     rig.adapter.specs = [spec(account), spec(account_id())]
     with pytest.raises(InventoryInvalid) as err:
-        rig.orchestrator.create_run(rig.conn, window)
+        rig.orchestrator.create_run(rig.team, rig.conn, window)
     assert err.value.code == "inventory_drift"
     rig.adapter.specs = []
     with pytest.raises(InventoryInvalid) as err:
-        rig.orchestrator.create_run(rig.conn, window)
+        rig.orchestrator.create_run(rig.team, rig.conn, window)
     assert err.value.code == "inventory_empty"
     assert q(engine, "SELECT count(*) FROM integration_sync_runs WHERE connection_id = :c", c=rig.conn) == 0
     assert rig.adapter.calls == 0
@@ -732,7 +746,7 @@ def test_inventory_change_after_the_run_was_requested_ends_it_with_a_reason(engi
     day, account = DAY + timedelta(21), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(1, day=day)]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     rig.adapter.specs = [spec(account), spec(account_id())]
     result = rig.orchestrator.execute(run_id)
     assert (result.status, result.reason) == ("failed", "inventory_drift")
@@ -757,7 +771,7 @@ def test_reaper_leaves_an_active_worker_alone(engine):
             seen["actions"] = reap_abandoned_runs(s)
 
     rig = Rig(engine, {account: [reap_during_fetch, [line(10, day=day, bucket="active")]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     assert rig.orchestrator.execute(run_id).status == "published"
     assert [a for a in seen["actions"] if a.run_id == run_id] == []
     assert "recovery" not in metrics(engine, run_id)["ledger"]
@@ -768,7 +782,7 @@ def test_reaper_requeues_an_abandoned_attempt_without_declaring_the_fetch_failed
     day, account = DAY + timedelta(23), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(60, day=day, bucket="reap")], WorkerCrash()]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with pytest.raises(WorkerCrash):
         rig.orchestrator.execute(run_id)
     rig.expire()
@@ -795,7 +809,7 @@ def test_reaper_ends_a_run_with_no_attempts_left(engine):
     day, account = DAY + timedelta(24), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(60, day=day, bucket="exhaust")], WorkerCrash()]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with engine.begin() as c:
         c.execute(text("UPDATE integration_sync_runs SET max_attempts = 1 WHERE id = :r"), {"r": run_id})
     with pytest.raises(WorkerCrash):
@@ -818,7 +832,7 @@ def test_reaper_ends_a_run_with_no_attempts_left(engine):
 def test_reaper_expires_a_run_that_was_never_dispatched(engine):
     day, account = DAY + timedelta(25), account_id()
     rig = Rig(engine, {account: [[line(1, day=day)]]})
-    run_id = rig.orchestrator.create_run(rig.conn, DateWindow(day, day + timedelta(1)))
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, DateWindow(day, day + timedelta(1)))
     with rig.sessions() as s, s.begin():
         assert [a for a in reap_abandoned_runs(s) if a.run_id == run_id] == []  # still within its deadline
     with engine.begin() as c:
@@ -837,7 +851,7 @@ def test_reaper_skips_a_run_a_worker_has_locked_and_a_retry_wins_the_race(engine
     day, account = DAY + timedelta(26), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(60, day=day, bucket="race")], WorkerCrash()]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with pytest.raises(WorkerCrash):
         rig.orchestrator.execute(run_id)
     rig.expire()
@@ -870,21 +884,22 @@ def test_checkpoint_is_rolled_back_with_a_failed_publication(engine, monkeypatch
     day, account = DAY + timedelta(27), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(10, day=day, bucket="cp")]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     import app.services.ledger_shadow.orchestrator as orchestrator_module
 
-    original = orchestrator_module.advance_checkpoint
+    original = orchestrator_module.record_complete_fetch
 
-    def advance_then_die(*args, **kwargs):
+    def record_then_die(*args, **kwargs):
         original(*args, **kwargs)
         raise WorkerCrash()
 
-    monkeypatch.setattr(orchestrator_module, "advance_checkpoint", advance_then_die)
+    monkeypatch.setattr(orchestrator_module, "record_complete_fetch", record_then_die)
     with pytest.raises(WorkerCrash):
         rig.orchestrator.execute(run_id)
     monkeypatch.undo()
-    assert checkpoint(engine, rig.streams[account]) is None
-    assert records(engine, rig.streams[account]) == 0
+    sid = rig.streams[account]
+    assert q(engine, "SELECT count(*) FROM cost_source_stream_checkpoints WHERE stream_id = :s", s=sid) == 0
+    assert records(engine, sid) == 0
 
 
 def test_checkpoint_stops_at_estimated_days_and_never_moves_backwards(engine):
@@ -894,12 +909,20 @@ def test_checkpoint_stops_at_estimated_days_and_never_moves_backwards(engine):
     rig = Rig(engine, {account: [[line(10, day=day, bucket="cp2"), line(9, day=second, bucket="cp2", est=True)]]})
     rig.run(window)
     sid = rig.streams[account]
-    assert checkpoint(engine, sid) == day  # the estimated day is not final
+
+    def final_through():
+        with rig.sessions() as s:
+            return stream_coverage(s, sid, window).final_through
+
+    assert final_through() == day  # the estimated day is not final
     assert money(total(engine, A, second, "cp2")) == (Decimal("9.00"), "estimated")
     rig.run(window, {account: [[line(10, day=day, bucket="cp2"), line(9, day=second, bucket="cp2")]]})
-    assert checkpoint(engine, sid) == second
+    assert final_through() == second
+    fetched = fetched_at(engine, sid)
     rig.run(DateWindow(day, day + timedelta(1)), {account: [[line(10, day=day, bucket="cp2")]]})
-    assert checkpoint(engine, sid) == second  # republishing an earlier day leaves it where it was
+    assert final_through() == second  # republishing an earlier day leaves it where it was
+    assert fetched_at(engine, sid) >= fetched  # the stored fetch time only moves forward
+    assert checkpoint(engine, sid) is None
 
 
 def test_an_older_fetch_never_overwrites_a_newer_accepted_result(engine):
@@ -986,7 +1009,7 @@ def test_unconverted_cost_stays_financially_incomplete(engine):
     rig = Rig(engine, {account: [[line(50, day=day, bucket="fx", cur="EUR")]]})
     run_id, result = rig.run(window)
     assert result.status == "published"  # the fetch was complete
-    assert checkpoint(engine, rig.streams[account]) == day  # the checkpoint is about the fetch
+    assert fetched_at(engine, rig.streams[account]) is not None  # the checkpoint row is about the fetch
     with Session(engine) as s:
         [c] = [c for c in CostLedgerService(s).coverage_completeness(A, [day]) if c.usage_account == account]
     assert (c.fetch_state, c.financial_state, c.unconverted_count) == ("final", "incomplete", 1)
@@ -1058,7 +1081,7 @@ def test_secrets_never_reach_the_database_or_logs(engine, caplog):
     day, account = DAY + timedelta(36), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [RuntimeError(f"auth failed with token={SECRET}")]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with caplog.at_level(logging.DEBUG):
         result = rig.orchestrator.execute(run_id)
     assert (result.status, result.reason) == ("retry", "fetch_error")
@@ -1079,14 +1102,14 @@ def test_environment_gates_refuse_before_touching_anything(engine, policy, code)
     day, account = DAY + timedelta(37), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(1, day=day)]]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     closed = ShadowSyncOrchestrator(rig.sessions, lambda p, c: rig.adapter, policy)
     result = closed.execute(run_id)
     assert (result.status, result.reason) == ("disabled", code)
     assert rig.run_state(run_id) == "queued/running/0"
     assert rig.adapter.calls == 0
     with pytest.raises(ShadowActivationRefused) as err:
-        closed.create_run(rig.conn, window)
+        closed.create_run(rig.team, rig.conn, window)
     assert err.value.code == code
 
 
@@ -1094,7 +1117,7 @@ def test_a_team_not_in_shadow_mode_is_refused_and_never_enrolled(engine):
     day, account = DAY + timedelta(38), account_id()
     rig = Rig(engine, {account: [[line(1, day=day)]]}, team=OFF)
     with pytest.raises(ShadowActivationRefused) as err:
-        rig.orchestrator.create_run(rig.conn, DateWindow(day, day + timedelta(1)))
+        rig.orchestrator.create_run(rig.team, rig.conn, DateWindow(day, day + timedelta(1)))
     assert err.value.code == "team_not_in_shadow_mode"
     assert q(engine, "SELECT count(*) FROM team_cost_ledger_settings WHERE team_id = :o", o=OFF) == 0
     assert rig.adapter.calls == 0
@@ -1109,7 +1132,7 @@ def test_team_leaving_shadow_mode_stops_a_queued_run(engine):
         )
     day, account = DAY + timedelta(39), account_id()
     rig = Rig(engine, {account: [[line(1, day=day)]]}, team=team)
-    run_id = rig.orchestrator.create_run(rig.conn, DateWindow(day, day + timedelta(1)))
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, DateWindow(day, day + timedelta(1)))
     with engine.begin() as c:
         c.execute(text("UPDATE team_cost_ledger_settings SET ledger_mode = 'off' WHERE team_id = :t"), {"t": team})
     result = rig.orchestrator.execute(run_id)
@@ -1191,6 +1214,12 @@ class AwsClients:
     def get_dimension_values(self, **kwargs):
         return {"DimensionValues": [{"Value": a} for a in ("111111111111",)]}
 
+    def describe_organization(self):
+        return {"Organization": {"MasterAccountId": "111111111111"}}
+
+    def list_accounts(self, **kwargs):
+        return {"Accounts": [{"Id": i, "State": "ACTIVE"} for i in ("111111111111", "222222222222")]}
+
 
 def rig_with(engine, adapter, team=A):
     rig = Rig(engine, {}, team=team, specs=list(adapter.streams()))
@@ -1266,6 +1295,10 @@ def gcp_adapter(rows, table="gcp_billing_export_v1_0A1B2C_3D4E5F_6A7B8C"):
         },
         client_factory=GcpClient(rows),
         parameters=lambda v: v,
+        project_billing_info=lambda project: {
+            "billingAccountName": "billingAccounts/0A1B2C-3D4E5F-6A7B8C",
+            "billingEnabled": True,
+        },
         today=lambda: date(2026, 10, 1),
     )
 
@@ -1322,6 +1355,12 @@ def azure_adapter(day, config=None, gone=()):
         body = request.read().decode()
         if any(s in str(request.url) or s in body for s in gone):
             return httpx.Response(403)
+        if request.method == "GET" and "billingSubscriptions" in str(request.url):
+            return httpx.Response(
+                200, json={"value": [{"properties": {"subscriptionId": x}} for x in (SUB_OK, SUB_GONE)]}
+            )
+        if request.method == "GET":
+            return httpx.Response(200, json={"state": "Enabled"})
         if json.loads(body)["dataset"]["grouping"] == [{"type": "Dimension", "name": "SubscriptionId"}]:
             return httpx.Response(
                 200,
@@ -1391,7 +1430,7 @@ def test_azure_partial_scope_success_never_marks_the_source_complete_and_overlap
 def test_adapter_config_error_ends_the_run_without_fetching(engine):
     day, account = DAY + timedelta(44), account_id()
     rig = Rig(engine, {account: [[line(1, day=day)]]})
-    run_id = rig.orchestrator.create_run(rig.conn, DateWindow(day, day + timedelta(1)))
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, DateWindow(day, day + timedelta(1)))
 
     def bad_config(provider, config):
         raise AdapterConfigError("invalid_linked_accounts")
@@ -1424,7 +1463,7 @@ def test_concurrent_runs_for_two_connections_of_one_team_both_count(engine):
 def test_finish_run_partial_needs_a_publication(engine):
     day, account = DAY + timedelta(46), account_id()
     rig = Rig(engine, {account: [[line(1, day=day)]]})
-    run_id = rig.orchestrator.create_run(rig.conn, DateWindow(day, day + timedelta(1)))
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, DateWindow(day, day + timedelta(1)))
     with rig.sessions() as s, s.begin():
         token = CostLedgerService(s).acquire_lease(run_id, 1)
     with pytest.raises(RunIncomplete):
@@ -1495,7 +1534,7 @@ def test_an_attempt_past_the_limit_ends_the_run_with_a_reason(engine):
     day, account = DAY + timedelta(47), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(5, day=day, bucket="limit")], WorkerCrash()]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with engine.begin() as c:
         c.execute(text("UPDATE integration_sync_runs SET max_attempts = 1 WHERE id = :r"), {"r": run_id})
     with pytest.raises(WorkerCrash):
@@ -1519,7 +1558,7 @@ def test_a_retryable_failure_on_the_last_attempt_publishes_only_complete_streams
             flaky: [[line(70, day=day, bucket="last")], FetchIncomplete("provider_unavailable", retryable=True)],
         },
     )
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     with engine.begin() as c:
         c.execute(text("UPDATE integration_sync_runs SET max_attempts = 1 WHERE id = :r"), {"r": run_id})
     result = rig.orchestrator.execute(run_id)
@@ -1536,7 +1575,7 @@ def test_cancellation_during_a_fetch_publishes_nothing_and_stays_recoverable(eng
     day, account = DAY + timedelta(49), account_id()
     window = DateWindow(day, day + timedelta(1))
     rig = Rig(engine, {account: [[line(5, day=day, bucket="cancel")], SoftTimeLimitExceeded()]})
-    run_id = rig.orchestrator.create_run(rig.conn, window)
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window)
     result = rig.orchestrator.execute(run_id)
     assert (result.status, result.retryable) == ("retry", True)
     assert records(engine, rig.streams[account]) == 0

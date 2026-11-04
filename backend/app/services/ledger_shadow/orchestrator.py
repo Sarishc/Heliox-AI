@@ -22,30 +22,48 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.integrations.ledger.base import AdapterConfigError, DateWindow, FetchIncomplete, LedgerAdapter, StreamSpec
-from app.services.cost_ledger import CostLedgerService, LedgerDisabled, LedgerFenced, Publication, RunNotActive
+from app.integrations.ledger.base import (
+    AdapterConfigError,
+    DateWindow,
+    FetchIncomplete,
+    LedgerAdapter,
+    ScopeVerdict,
+    StreamSpec,
+)
+from app.services.cost_ledger import (
+    CostLedgerService,
+    LedgerDisabled,
+    LedgerFenced,
+    Publication,
+    RunNotActive,
+    TenantMismatch,
+)
 from app.services.ledger_shadow.activation import (
     ShadowActivationRefused,
     ShadowPolicy,
+    require_eligible_connection,
     require_shadow_team,
     verify_ledger_schema,
 )
 from app.services.ledger_shadow.inventory import (
+    AMBIGUOUS_SOURCE,
     INACCESSIBLE_CODES,
     ExpectedStream,
     InventoryInvalid,
     InventoryReport,
+    ambiguous_streams,
     manifest,
     resolve_expected,
     window_of,
 )
 from app.services.ledger_shadow.recovery import append_recovery_event, terminate_run
 from app.services.ledger_shadow.staging import (
+    MissingPage,
     StagingConflict,
-    advance_checkpoint,
     affected_rows,
     clear_staging,
     heartbeat,
+    record_complete_fetch,
     stage_page,
     staged_lines,
 )
@@ -81,6 +99,7 @@ class _Claim:
     team_id: UUID
     window: DateWindow
     expected: list[ExpectedStream] = field(default_factory=list)
+    ambiguous: set[UUID] = field(default_factory=set)
 
 
 class ShadowSyncOrchestrator:
@@ -96,11 +115,15 @@ class ShadowSyncOrchestrator:
 
     # Requesting a run
 
-    def create_run(self, connection_id: UUID, window: DateWindow, *, triggered_by: str = "manual") -> UUID:
-        """Create or return the run for this connection. At-least-once callers get one in-flight run."""
+    def create_run(
+        self, team_id: UUID, connection_id: UUID, window: DateWindow, *, triggered_by: str = "manual"
+    ) -> UUID:
+        """Create or return the run for this team's connection. At-least-once callers get one in-flight run."""
         self._policy.require()
-        team_id, provider, config = self._connection(connection_id)
-        specs = self._adapters(provider, config).streams()  # may call the provider: no transaction open here
+        with self._sessions() as session:
+            connection = require_eligible_connection(session, connection_id, team_id)
+        # May call the provider, so no transaction is open here. Everything above refused first.
+        specs = self._adapters(str(connection.provider), connection.config_encrypted).streams()
         try:
             with self._sessions() as session, session.begin():
                 verify_ledger_schema(session)
@@ -108,6 +131,7 @@ class ShadowSyncOrchestrator:
                 session.execute(
                     text("SELECT 1 FROM integration_connections WHERE id = :c FOR UPDATE"), {"c": connection_id}
                 )
+                require_eligible_connection(session, connection_id, team_id)
                 existing = _inflight_run(session, connection_id)
                 if existing is not None:
                     return existing
@@ -115,7 +139,10 @@ class ShadowSyncOrchestrator:
                 run_id = CostLedgerService(session).start_run(connection_id, triggered_by=triggered_by)
                 session.execute(
                     text("UPDATE integration_sync_runs SET metrics_json = CAST(:m AS json) WHERE id = :r"),
-                    {"m": json.dumps({"ledger": {"manifest": manifest(window, expected)}}), "r": run_id},
+                    {
+                        "m": json.dumps({"ledger": {"team_id": str(team_id), "manifest": manifest(window, expected)}}),
+                        "r": run_id,
+                    },
                 )
                 return run_id
         except IntegrityError:
@@ -152,14 +179,26 @@ class ShadowSyncOrchestrator:
             return claim
 
         report = InventoryReport()
+        verdicts = self._verify_scope(adapter)
         unknown, discovery_error, discovery_retryable, discovery_status = self._discover(adapter, claim)
         report.discovery = discovery_status
         states: Dict[UUID, _StreamState] = {}
         for expected in claim.expected:
             state = _StreamState(expected)
             states[expected.stream_id] = state
+            account = expected.spec.usage_account
+            verdict = verdicts.get(account, ScopeVerdict(False, "scope_not_reported"))
             try:
-                self._fetch_stream(adapter, claim, state)
+                if expected.stream_id in claim.ambiguous:
+                    report.ambiguous.append(account)
+                    state.error = AMBIGUOUS_SOURCE
+                    self._fail_stream(claim, state)
+                elif not verdict.verified:
+                    report.scope_unverified.append(account)
+                    state.error, state.retryable = verdict.code or "scope_unverified", verdict.retryable
+                    self._fail_stream(claim, state)
+                else:
+                    self._fetch_stream(adapter, claim, state)
             except LedgerFenced:
                 return RunResult("fenced", reason="lease_lost")
 
@@ -167,7 +206,8 @@ class ShadowSyncOrchestrator:
         report.unknown = sorted(unknown)
         report.fetched = [s.expected.spec.usage_account for s in states.values() if s.complete]
         for state in states.values():
-            if state.error in INACCESSIBLE_CODES:
+            account = state.expected.spec.usage_account
+            if state.error in INACCESSIBLE_CODES or account in report.scope_unverified:
                 report.missing.append(state.expected.spec.usage_account)
             elif state.error:
                 report.failed.append(state.expected.spec.usage_account)
@@ -178,34 +218,38 @@ class ShadowSyncOrchestrator:
             return self._release_for_retry(claim, states, discovery_error)
         return self._publish(claim, states, report, discovery_error)
 
-    def _connection(self, connection_id: UUID) -> tuple[UUID, str, str]:
-        with self._sessions() as session:
-            row = session.execute(
-                text("SELECT team_id, provider, config_encrypted FROM integration_connections WHERE id = :c"),
-                {"c": connection_id},
-            ).one_or_none()
-        if row is None:
-            raise ShadowActivationRefused("connection_not_found")
-        return row.team_id, str(row.provider), row.config_encrypted
-
     def _load(self, run_id: UUID):
+        """Everything here is checked before any adapter exists, so a refusal cannot reach a provider."""
         with self._sessions() as session:
             row = session.execute(
                 text(
-                    "SELECT r.phase, r.metrics_json, c.team_id, c.provider, c.config_encrypted "
-                    "FROM integration_sync_runs r JOIN integration_connections c ON c.id = r.connection_id "
+                    "SELECT r.phase, r.connection_id, r.metrics_json FROM integration_sync_runs r "
                     "WHERE r.id = :r AND r.pipeline = 'ledger'"
                 ),
                 {"r": run_id},
             ).one_or_none()
+            connection = None
+            refusal = None
+            if row is not None and row.phase in ("queued", "leased", "fetching", "publishing"):
+                ledger = (row.metrics_json or {}).get("ledger", {})
+                try:
+                    connection = require_eligible_connection(session, row.connection_id, UUID(ledger["team_id"]))
+                except (KeyError, ValueError):
+                    refusal = "manifest_missing"
+                except ShadowActivationRefused as closed:
+                    refusal = closed.code
         if row is None:
             return RunResult("not_found")
         if row.phase not in ("queued", "leased", "fetching", "publishing"):
             return RunResult("already_terminal", reason=row.phase)
-        run_manifest = (row.metrics_json or {}).get("ledger", {}).get("manifest")
+        if refusal is not None:
+            return self._refuse(run_id, refusal)
+        if connection is None:
+            return RunResult("not_found")
+        run_manifest = ledger.get("manifest")
         if not run_manifest:
             return self._refuse(run_id, "manifest_missing")
-        return row.team_id, str(row.provider), row.config_encrypted, run_manifest
+        return connection.team_id, str(connection.provider), connection.config_encrypted, run_manifest
 
     def _refuse(self, run_id: UUID, reason: str) -> RunResult:
         """A closed gate or invalid inventory ends the run with a reason; it never fetches."""
@@ -224,7 +268,9 @@ class ShadowSyncOrchestrator:
             try:
                 verify_ledger_schema(session)
                 require_shadow_team(session, team_id)
-                expected = resolve_expected(session, team_id, _connection_of(session, run_id), specs)
+                connection_id = _connection_of(session, run_id)
+                require_eligible_connection(session, connection_id, team_id)
+                expected = resolve_expected(session, team_id, connection_id, specs)
                 if manifest(window, expected)["sha256"] != run_manifest.get("sha256"):
                     raise InventoryInvalid("manifest_changed")
             except (ShadowActivationRefused, InventoryInvalid) as closed:
@@ -278,14 +324,29 @@ class ShadowSyncOrchestrator:
                                 "we": window.end,
                             },
                         )
-                    return _Claim(run_id, attempt, token, run.max_attempts, team_id, window, expected)
+                    ambiguous = ambiguous_streams(session, [e.stream_id for e in expected])
+                    return _Claim(run_id, attempt, token, run.max_attempts, team_id, window, expected, ambiguous)
         return self._refuse(run_id, refusal or "refused")
+
+    def _verify_scope(self, adapter: LedgerAdapter) -> Mapping[str, ScopeVerdict]:
+        """Fail closed: a lookup that errors verifies nothing. The error text is never kept."""
+        try:
+            return adapter.verify_scope()
+        except FetchIncomplete as err:
+            everything = ScopeVerdict(False, err.code, err.retryable)
+        except Exception as err:
+            logger.warning("ledger scope verification failed error=%s", type(err).__name__)
+            everything = ScopeVerdict(False, "scope_lookup_failed", True)
+        return _AllAccounts(everything)
 
     def _discover(self, adapter: LedgerAdapter, claim: _Claim):
         try:
             discovery = adapter.discover(claim.window)
         except FetchIncomplete as err:
             return set(), err.code, err.retryable, "failed"
+        except Exception as err:
+            logger.warning("ledger discovery failed run=%s error=%s", claim.run_id, type(err).__name__)
+            return set(), "discovery_failed", True, "failed"
         if not discovery.supported:
             return set(), None, False, "unsupported"
         expected = {e.spec.usage_account for e in claim.expected}
@@ -307,12 +368,18 @@ class ShadowSyncOrchestrator:
             state.error, state.retryable = err.code, err.retryable
         except StagingConflict:
             state.error, state.retryable = "conflicting_page", True
+        except MissingPage:
+            state.error, state.retryable = "missing_page", True
         except LedgerFenced:
             raise
         except Exception as err:
             # An unexpected adapter or client failure. Only the type is kept: its message could hold request details.
             logger.warning("ledger fetch failed run=%s stream=%s error=%s", claim.run_id, stream_id, type(err).__name__)
             state.error, state.retryable = "fetch_error", True
+        self._fail_stream(claim, state)
+
+    def _fail_stream(self, claim: _Claim, state: _StreamState) -> None:
+        stream_id = state.expected.stream_id
         with self._sessions() as session, session.begin():
             heartbeat(session, claim.run_id, claim.attempt, claim.token)
             session.execute(
@@ -371,18 +438,27 @@ class ShadowSyncOrchestrator:
         report: InventoryReport,
         discovery_error: Optional[str],
     ) -> RunResult:
-        ready = [s for s in states.values() if s.complete]
         try:
             with self._sessions() as session, session.begin():
                 service = CostLedgerService(session)
                 run = session.execute(
-                    text("SELECT fetch_started_at FROM integration_sync_runs WHERE id = :r FOR UPDATE"),
+                    text("SELECT connection_id, fetch_started_at FROM integration_sync_runs WHERE id = :r FOR UPDATE"),
                     {"r": claim.run_id},
                 ).one()
+                # State can change during a fetch: a connection disabled or a source claimed since the claim stops here
+                require_eligible_connection(session, run.connection_id, claim.team_id)
+                ambiguous = ambiguous_streams(session, [s.expected.stream_id for s in states.values() if s.complete])
+                ready = []
+                for state in states.values():
+                    if state.complete and not _staged_completely(session, claim, state, ambiguous):
+                        state.complete = False
+                        report.fetched = [a for a in report.fetched if a != state.expected.spec.usage_account]
+                    if state.complete:
+                        ready.append(state)
                 for state in ready:
                     stream_id = state.expected.stream_id
                     lines = staged_lines(session, claim.run_id, claim.attempt, stream_id)
-                    outcome = service.publish(
+                    service.publish(
                         Publication(
                             claim.run_id,
                             claim.attempt,
@@ -394,9 +470,7 @@ class ShadowSyncOrchestrator:
                             True,
                         )
                     )
-                    advance_checkpoint(
-                        session, claim.team_id, stream_id, outcome.published_days, run.fetch_started_at, state.watermark
-                    )
+                    record_complete_fetch(session, claim.team_id, stream_id, run.fetch_started_at, state.watermark)
                     report.published.append(state.expected.spec.usage_account)
                 report.incomplete = [s.expected.spec.usage_account for s in states.values() if not s.complete]
                 _classify_roles(session, claim, report)
@@ -409,10 +483,57 @@ class ShadowSyncOrchestrator:
             return RunResult("fenced", reason="lease_lost")
         except LedgerDisabled:
             return self._refuse(claim.run_id, "team_not_in_shadow_mode")
+        except ShadowActivationRefused as closed:
+            return self._refuse(claim.run_id, closed.code)
+        except TenantMismatch:
+            return self._refuse(claim.run_id, "stream_unbound")
         # Only now, after the commit, is there anything true to report
         logger.info("ledger shadow run=%s attempt=%d status=%s", claim.run_id, claim.attempt, status)
         names = {"success": "published", "partial": "partial", "failed": "failed"}
         return RunResult(names[status], report=report)
+
+
+class _AllAccounts(dict):
+    """One verdict for every account, when the provider could not be asked at all."""
+
+    def __init__(self, verdict: ScopeVerdict):
+        super().__init__()
+        self.verdict = verdict
+
+    def get(self, key, default=None):
+        return self.verdict
+
+
+def _staged_completely(session: Session, claim: _Claim, state: _StreamState, ambiguous: set[UUID]) -> bool:
+    """A final-page marker in memory is not enough: the durable progress row must agree. Marks a refusal as failed."""
+    stream_id = state.expected.stream_id
+    progress = session.execute(
+        text(
+            "SELECT rs.status, rs.pages, rs.staged_rows, (SELECT count(*) FROM cost_sync_staging x "
+            "WHERE x.sync_run_id = rs.sync_run_id AND x.attempt = rs.attempt AND x.stream_id = rs.stream_id) AS staged "
+            "FROM cost_sync_run_streams rs WHERE rs.sync_run_id = :r AND rs.attempt = :a AND rs.stream_id = :s"
+        ),
+        {"r": claim.run_id, "a": claim.attempt, "s": stream_id},
+    ).one_or_none()
+    if stream_id in ambiguous:
+        state.error = AMBIGUOUS_SOURCE
+    elif (
+        progress is None
+        or progress.status != "complete"
+        or progress.pages < 1
+        or progress.staged != progress.staged_rows
+    ):
+        state.error = "stream_not_complete"
+    else:
+        return True
+    session.execute(
+        text(
+            "UPDATE cost_sync_run_streams SET status = 'failed', error_code = :e, updated_at = now() "
+            "WHERE sync_run_id = :r AND attempt = :a AND stream_id = :s"
+        ),
+        {"e": state.error, "r": claim.run_id, "a": claim.attempt, "s": stream_id},
+    )
+    return False
 
 
 def _classify_roles(session: Session, claim: _Claim, report: InventoryReport) -> None:
@@ -478,4 +599,8 @@ def _default_adapter(provider: str, config_encrypted: str) -> LedgerAdapter:
     from app.integrations.encryption import get_encryption
     from app.integrations.ledger.factory import build_adapter
 
-    return build_adapter(provider, get_encryption().decrypt_config(config_encrypted))
+    try:
+        config = get_encryption().decrypt_config(config_encrypted)
+    except ValueError:
+        raise AdapterConfigError("credentials_unreadable") from None
+    return build_adapter(provider, config)

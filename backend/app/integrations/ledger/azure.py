@@ -12,10 +12,12 @@ import httpx
 
 from app.integrations.ledger.base import (
     MAX_PAGES,
+    VERIFIED,
     AdapterConfigError,
     DateWindow,
     Discovery,
     FetchIncomplete,
+    ScopeVerdict,
     SourcePage,
     StreamSpec,
     is_estimated_day,
@@ -23,10 +25,14 @@ from app.integrations.ledger.base import (
 from app.services.cost_ledger import InvalidCostLine, normalize_line
 
 MANAGEMENT_HOST = "management.azure.com"
-API_VERSION = "2023-11-01"
+API_VERSION = "2026-06-01"
+SUBSCRIPTIONS_API_VERSION = "2022-12-01"
+BILLING_API_VERSION = "2024-04-01"
+ACTIVE_SUBSCRIPTION_STATES = frozenset({"Enabled", "Warned", "PastDue"})
 SUBSCRIPTION_RE = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 BILLING_ACCOUNT_RE = re.compile(r"^[0-9A-Za-z:_-]{1,128}$")
 MAX_RETRIES = 3
+RETRY_AFTER_HEADER = "x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after"
 MAX_RETRY_AFTER_SECONDS = 120
 SETTLE_DAYS = 3
 CHARGE_CLASSES = {
@@ -47,8 +53,8 @@ BUCKETS = (
 )
 
 
-def is_trusted_continuation(url: Any, scope: str) -> bool:
-    """A continuation link may only go to the management API, within the same scope, over HTTPS."""
+def is_trusted_continuation(url: Any, scope: str, resource: str = "/providers/microsoft.costmanagement/query") -> bool:
+    """A continuation link may only go to the management API, for the same resource in the same scope, over HTTPS."""
     if not isinstance(url, str):
         return False
     try:
@@ -62,16 +68,16 @@ def is_trusted_continuation(url: Any, scope: str) -> bool:
         and port in (None, 443)
         and parts.username is None
         and parts.password is None
-        and parts.path.lower().startswith(f"{scope}/providers/microsoft.costmanagement/query".lower())
+        and parts.path.lower().startswith(f"{scope}{resource}".lower())
     )
 
 
 class AzureCostManagementAdapter:
     """Subscriptions are the expected inventory. An inaccessible subscription is incomplete, never zero.
 
-    A connection observes through either subscription scopes or one billing-account scope. Configuring
-    both would observe the same charges twice from one connection, so it is refused. Overlap between
-    connections is handled by the ledger: the second view is a witness.
+    A connection observes through subscription scopes or through one billing-account scope, chosen by
+    ``use_billing_account_scope``, so it cannot overlap with itself. Overlap between connections is
+    handled by the ledger, because both views name the same account: the second is a witness.
     """
 
     provider = "azure"
@@ -97,8 +103,6 @@ class AzureCostManagementAdapter:
             raise AdapterConfigError("invalid_billing_account")
         if self.use_billing_scope and not self.billing_account:
             raise AdapterConfigError("billing_scope_needs_billing_account")
-        if config.get("additional_subscription_scopes") and self.use_billing_scope:
-            raise AdapterConfigError("overlapping_scopes", "a connection uses one scope kind, not both")
         self._http = http
         self._token_provider = token_provider
         self._sleep = sleep
@@ -128,6 +132,54 @@ class AzureCostManagementAdapter:
             for subscription in self.subscriptions
         ]
 
+    def verify_scope(self) -> Mapping[str, ScopeVerdict]:
+        if self.use_billing_scope:
+            return self._verify_billing_scope()
+        return {f"azure:sub:{s}": self._verify_subscription(s) for s in self.subscriptions}
+
+    def _verify_subscription(self, subscription: str) -> ScopeVerdict:
+        """Subscription scope claims no billing relationship; it needs the subscription to exist, be active and be readable."""
+        url = f"https://{MANAGEMENT_HOST}/subscriptions/{subscription}?api-version={SUBSCRIPTIONS_API_VERSION}"
+        try:
+            payload = self._request("GET", url, None)
+        except FetchIncomplete as err:
+            return ScopeVerdict(False, err.code, err.retryable)
+        return (
+            VERIFIED
+            if payload.get("state") in ACTIVE_SUBSCRIPTION_STATES
+            else ScopeVerdict(False, "subscription_not_active")
+        )
+
+    def _verify_billing_scope(self) -> dict[str, ScopeVerdict]:
+        """Only the billing account's own list proves a billing relationship; access to a subscription does not."""
+        scope = self._scope("")
+        url = f"https://{MANAGEMENT_HOST}{scope}/billingSubscriptions?api-version={BILLING_API_VERSION}"
+        listed: set[str] = set()
+        seen: set[str] = set()
+        try:
+            for _ in range(MAX_PAGES):
+                payload = self._request("GET", url, None)
+                for item in payload.get("value", []):
+                    subscription_id = (item.get("properties") or {}).get("subscriptionId")
+                    if subscription_id:
+                        listed.add(str(subscription_id).lower())
+                next_link = payload.get("nextLink")
+                if not next_link:
+                    break
+                if not is_trusted_continuation(next_link, scope, "/billingSubscriptions") or next_link in seen:
+                    raise FetchIncomplete("untrusted_continuation_url")
+                seen.add(next_link)
+                url = next_link
+            else:
+                raise FetchIncomplete("too_many_pages")
+        except FetchIncomplete as err:
+            code = "billing_scope_unverifiable" if err.code == "subscription_inaccessible" else err.code
+            return {f"azure:sub:{s}": ScopeVerdict(False, code, err.retryable) for s in self.subscriptions}
+        return {
+            f"azure:sub:{s}": VERIFIED if s in listed else ScopeVerdict(False, "subscription_not_in_billing_scope")
+            for s in self.subscriptions
+        }
+
     def discover(self, window: DateWindow) -> Discovery:
         if not self.use_billing_scope:
             return Discovery(supported=False)  # a subscription scope cannot list its siblings
@@ -149,7 +201,7 @@ class AzureCostManagementAdapter:
         scope = self._scope(subscription)
         body = self._body(
             window,
-            grouping=["ServiceName", "ChargeType", "Currency"],
+            grouping=["ServiceName", "ChargeType"],  # the documented maximum is two; Currency is a result column
             subscription=subscription if self.use_billing_scope else None,
         )
         today = self._today()
@@ -179,8 +231,12 @@ class AzureCostManagementAdapter:
         return {
             "type": "ActualCost",
             "timeframe": "Custom",
-            # Azure's "to" is inclusive; the ledger's window end is exclusive
-            "timePeriod": {"from": window.start.isoformat(), "to": (window.end - timedelta(days=1)).isoformat()},
+            # The API takes date-times and does not document whether "to" is inclusive. The last second of the
+            # last ledger day reads the same either way, and the ledger's window end stays exclusive.
+            "timePeriod": {
+                "from": f"{window.start.isoformat()}T00:00:00Z",
+                "to": f"{(window.end - timedelta(days=1)).isoformat()}T23:59:59Z",
+            },
             "dataset": dataset,
         }
 
@@ -188,7 +244,7 @@ class AzureCostManagementAdapter:
         url = f"https://{MANAGEMENT_HOST}{scope}/providers/Microsoft.CostManagement/query?api-version={API_VERSION}"
         seen: set[str] = set()
         for _ in range(MAX_PAGES):
-            payload = self._post(url, body)
+            payload = self._request("POST", url, body)
             yield payload
             properties = payload.get("properties")
             next_link = properties.get("nextLink") if isinstance(properties, Mapping) else None
@@ -202,7 +258,7 @@ class AzureCostManagementAdapter:
             url = next_link
         raise FetchIncomplete("too_many_pages")
 
-    def _post(self, url: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _request(self, method: str, url: str, body: Optional[Mapping[str, Any]]) -> Mapping[str, Any]:
         refreshed = False
         for attempt in range(MAX_RETRIES + 1):
             if self._token is None:
@@ -211,13 +267,17 @@ class AzureCostManagementAdapter:
                 except Exception:
                     raise FetchIncomplete("token_request_failed", retryable=True) from None
             try:
-                response = self._http.post(url, json=body, headers={"Authorization": f"Bearer {self._token}"})
+                response = self._http.request(
+                    method, url, json=body, headers={"Authorization": f"Bearer {self._token}"}
+                )
             except httpx.HTTPError:
                 if attempt == MAX_RETRIES:
                     raise FetchIncomplete("provider_request_failed", retryable=True) from None
                 self._sleep(2**attempt)
                 continue
             status = response.status_code
+            if status == 204:
+                raise FetchIncomplete("provider_no_content")  # documented, but not defined as "no cost"
             if status == 200:
                 try:
                     payload = response.json()
@@ -291,8 +351,9 @@ class AzureCostManagementAdapter:
 
 
 def _retry_after(response: httpx.Response, attempt: int) -> float:
+    header = response.headers.get(RETRY_AFTER_HEADER) or response.headers.get("Retry-After", "")
     try:
-        seconds = float(response.headers.get("Retry-After", ""))
+        seconds = float(header)
     except ValueError:
         seconds = float(2**attempt)
     if seconds > MAX_RETRY_AFTER_SECONDS:

@@ -261,6 +261,7 @@ class CoverageCompleteness:
     # agrees, and USD per (cost bucket, charge class) differs. Read from the current records, because the
     # conflict row does not record its cause (that needs a later migration).
     classification_conflicts: int = 0
+    source_ambiguous: bool = False  # another active stream bills this usage account to a different billing account
 
 
 # ── Normalization ────────────────────────────────────────────────────────────────
@@ -1160,7 +1161,11 @@ class CostLedgerService:
         rows = self._x(
             "SELECT r.usage_date, s.provider, r.cost_bucket, r.amount_usd, r.state = 'present' AS present, "
             "s.source_kind, c.state AS coverage_state, (s.source_kind = 'manual' OR (s.role = 'cost' "
-            "AND c.authoritative_stream_id = r.stream_id)) AS authoritative FROM cost_source_records r "
+            "AND c.authoritative_stream_id = r.stream_id)) AS authoritative, EXISTS (SELECT 1 "
+            "FROM cost_source_streams o JOIN cost_source_stream_bindings b ON b.stream_id = o.id "
+            "AND b.unbound_at IS NULL WHERE o.team_id = s.team_id AND o.provider = s.provider "
+            "AND o.usage_account = s.usage_account AND o.role = 'cost' AND o.billing_account <> s.billing_account) "
+            "AS ambiguous FROM cost_source_records r "
             "JOIN cost_source_streams s ON s.team_id = r.team_id AND s.id = r.stream_id "
             "LEFT JOIN cost_source_coverage c ON c.team_id = r.team_id AND c.provider = s.provider "
             "AND c.billing_account = s.billing_account AND c.usage_account = s.usage_account "
@@ -1177,7 +1182,8 @@ class CostLedgerService:
                 r.present,
                 bool(r.authoritative),
                 r.source_kind,
-                r.coverage_state,
+                # Two billing accounts claim this usage account: whatever was accepted is not a confirmed total
+                "conflict" if r.ambiguous and r.coverage_state else r.coverage_state,
             )
             for r in rows
         )
@@ -1207,7 +1213,11 @@ class CostLedgerService:
             "GROUP BY 1, 2) x FULL JOIN (SELECT cost_bucket, charge_class, sum(amount_usd) AS amt "
             "FROM cost_source_records WHERE stream_id = k.witness_stream_id AND usage_date = k.usage_date "
             "AND state = 'present' GROUP BY 1, 2) y USING (cost_bucket, charge_class) "
-            "WHERE abs(coalesce(x.amt, 0) - coalesce(y.amt, 0)) > :tol)) AS classification_conflicts "
+            "WHERE abs(coalesce(x.amt, 0) - coalesce(y.amt, 0)) > :tol)) AS classification_conflicts, "
+            "EXISTS (SELECT 1 FROM cost_source_streams o JOIN cost_source_stream_bindings b ON b.stream_id = o.id "
+            "AND b.unbound_at IS NULL WHERE o.team_id = c.team_id AND o.provider = c.provider "
+            "AND o.usage_account = c.usage_account AND o.role = 'cost' AND o.billing_account <> c.billing_account) "
+            "AS source_ambiguous "
             "FROM cost_source_coverage c "
             "JOIN cost_source_stream_days sd ON sd.team_id = c.team_id AND sd.stream_id = c.authoritative_stream_id "
             "AND sd.usage_date = c.usage_date WHERE c.team_id = :t AND c.usage_date = ANY(:d)",
@@ -1217,7 +1227,12 @@ class CostLedgerService:
         )
         result = []
         for r in covered:
-            if r.state in ("conflict", "suspect_empty") or r.unconverted_count or r.open_conflicts:
+            if (
+                r.state in ("conflict", "suspect_empty")
+                or r.unconverted_count
+                or r.open_conflicts
+                or r.source_ambiguous
+            ):
                 financial = "incomplete"
             elif r.state == "estimated":
                 financial = "estimated"
@@ -1236,6 +1251,7 @@ class CostLedgerService:
                     r.unconverted_count,
                     r.open_conflicts,
                     r.classification_conflicts,
+                    r.source_ambiguous,
                 )
             )
         uncovered = self._x(

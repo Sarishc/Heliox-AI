@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import Any, Iterable, Optional
+from datetime import datetime
+from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import text
@@ -22,8 +22,14 @@ class StagingConflict(Exception):
     """A page delivered a different value for a line already staged in this attempt."""
 
 
+class MissingPage(Exception):
+    """A page arrived ahead of one that was never staged. A final-page marker cannot paper over the gap."""
+
+
 def heartbeat(session: Session, run_id: UUID, attempt: int, token: int) -> None:
     """Extend a live lease, or refuse. An expired lease is never revived: a newer attempt may own the run."""
+    # Run row first, then lease: the order every path uses. Taking them the other way round deadlocks the reaper.
+    session.execute(text("SELECT 1 FROM integration_sync_runs WHERE id = :r FOR UPDATE"), {"r": run_id})
     updated = affected_rows(
         session.execute(
             text(
@@ -44,7 +50,25 @@ def heartbeat(session: Session, run_id: UUID, attempt: int, token: int) -> None:
 
 
 def stage_page(session: Session, run_id: UUID, attempt: int, stream_id: UUID, page: SourcePage) -> None:
-    """Stage one page under run, attempt and stream. A re-delivered page changes nothing; a different value refuses."""
+    """Stage one page under run, attempt and stream.
+
+    Pages must arrive contiguously from zero. A re-delivered page must match what is staged and changes
+    nothing; a skipped page, or a different value for a staged line, refuses.
+    """
+    progress = session.execute(
+        text(
+            "SELECT status, pages FROM cost_sync_run_streams WHERE sync_run_id = :r AND attempt = :a AND stream_id = :s "
+            "FOR UPDATE"
+        ),
+        {"r": run_id, "a": attempt, "s": stream_id},
+    ).one_or_none()
+    if progress is None or progress.status not in ("pending", "fetching"):
+        raise LedgerFenced("the stream is not being fetched by this attempt")
+    if page.seq < 0 or page.seq > progress.pages:
+        raise MissingPage(f"page {page.seq} arrived after {progress.pages} contiguous pages")
+    replay = page.seq < progress.pages
+    if replay and page.is_last and page.seq != progress.pages - 1:
+        raise StagingConflict("an earlier page claims to be the last")
     for line in page.lines:
         inserted = session.execute(
             text(
@@ -76,6 +100,8 @@ def stage_page(session: Session, run_id: UUID, attempt: int, stream_id: UUID, pa
                 "sha": line.payload_sha256,
             },
         ).scalar()
+        if inserted is not None and replay:
+            raise StagingConflict("a re-delivered page holds a line it did not have before")
         if inserted is None:
             existing = session.execute(
                 text(
@@ -97,6 +123,17 @@ def stage_page(session: Session, run_id: UUID, attempt: int, stream_id: UUID, pa
             ).scalar_one()
             if bytes(existing) != line.payload_sha256:
                 raise StagingConflict("conflicting value for a staged line")
+    if replay:
+        delivered = {line.payload_sha256 for line in page.lines}
+        kept = session.execute(
+            text(
+                "SELECT payload_sha256 FROM cost_sync_staging WHERE sync_run_id = :r AND attempt = :a AND stream_id = :s "
+                "AND page_seq = :seq"
+            ),
+            {"r": run_id, "a": attempt, "s": stream_id, "seq": page.seq},
+        )
+        if any(bytes(row.payload_sha256) not in delivered for row in kept):
+            raise StagingConflict("a re-delivered page is missing a line it had before")
     updated = affected_rows(
         session.execute(
             text(
@@ -156,43 +193,25 @@ def clear_staging(session: Session, run_id: UUID) -> None:
     session.execute(text("DELETE FROM cost_sync_staging WHERE sync_run_id = :r"), {"r": run_id})
 
 
-def advance_checkpoint(
+def record_complete_fetch(
     session: Session,
     team_id: UUID,
     stream_id: UUID,
-    days: Iterable[date],
     fetch_started_at: datetime,
     watermark: Optional[datetime],
 ) -> None:
-    """Advance only over a contiguous run of accepted final days, and never backwards. Same transaction as publish."""
-    ordered = sorted(days)
-    if not ordered:
-        return
-    states = dict(
-        session.execute(
-            text("SELECT usage_date, state FROM cost_source_stream_days WHERE stream_id = :s AND usage_date = ANY(:d)"),
-            {"s": stream_id, "d": ordered},
-        )
-        .tuples()
-        .all()
-    )
-    final_through = None
-    for day in ordered:
-        if states.get(day) != "final":
-            break
-        final_through = day
-    current = session.execute(
-        text("SELECT final_through FROM cost_source_stream_checkpoints WHERE stream_id = :s"), {"s": stream_id}
-    ).scalar()
-    if final_through is not None and current is not None and (ordered[0] - current).days > 1:
-        final_through = None  # a gap before this window: nothing proves the days in between
+    """Record, in the publish transaction, that a complete fetch was accepted. Both values only move forward.
+
+    ``final_through`` stays NULL. Migration 038 stores no starting boundary, so a value there would read as
+    "every earlier day is final" even for a stream whose first window was yesterday. Use ``stream_coverage``,
+    which takes an explicit start and reports every day in the range.
+    """
     session.execute(
         text(
-            "INSERT INTO cost_source_stream_checkpoints AS c (team_id, stream_id, final_through, export_watermark, "
-            "last_complete_fetch_at) VALUES (:t, :s, :ft, :w, :f) ON CONFLICT (stream_id) DO UPDATE SET "
-            "final_through = GREATEST(c.final_through, EXCLUDED.final_through), "
+            "INSERT INTO cost_source_stream_checkpoints AS c (team_id, stream_id, export_watermark, "
+            "last_complete_fetch_at) VALUES (:t, :s, :w, :f) ON CONFLICT (stream_id) DO UPDATE SET "
             "export_watermark = GREATEST(c.export_watermark, EXCLUDED.export_watermark), "
             "last_complete_fetch_at = GREATEST(c.last_complete_fetch_at, EXCLUDED.last_complete_fetch_at)"
         ),
-        {"t": team_id, "s": stream_id, "ft": final_through, "w": watermark, "f": fetch_started_at},
+        {"t": team_id, "s": stream_id, "w": watermark, "f": fetch_started_at},
     )

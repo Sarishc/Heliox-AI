@@ -15,6 +15,7 @@ from app.integrations.ledger.base import DateWindow, StreamSpec
 from app.services.cost_ledger import CostLedgerService
 
 INACCESSIBLE_CODES = frozenset({"subscription_inaccessible", "account_not_visible_to_caller", "access_denied"})
+AMBIGUOUS_SOURCE = "source_identity_ambiguous"
 
 
 class InventoryInvalid(Exception):
@@ -45,6 +46,8 @@ class InventoryReport:
     witness: list[str] = field(default_factory=list)
     attribution: list[str] = field(default_factory=list)
     authoritative: list[str] = field(default_factory=list)
+    scope_unverified: list[str] = field(default_factory=list)
+    ambiguous: list[str] = field(default_factory=list)
     discovery: str = "not_attempted"
 
     def as_dict(self) -> dict:
@@ -69,6 +72,27 @@ def configure_inventory(
         {"c": connection_id, "keep": stream_ids},
     )
     return stream_ids
+
+
+def ambiguous_streams(session: Session, stream_ids: Sequence[UUID]) -> set[UUID]:
+    """Cost streams claiming an account that an active stream in the team bills to a different billing account.
+
+    Coverage is keyed by billing account, so two such streams would both be authoritative for one bill.
+    No authority can be chosen here: cost_source_authority is per billing account, so it cannot arbitrate
+    between them. Each stays quarantined until a person unbinds the wrong one.
+    """
+    if not stream_ids:
+        return set()
+    rows = session.execute(
+        text(
+            "SELECT s.id FROM cost_source_streams s WHERE s.id = ANY(:ids) AND s.role = 'cost' AND EXISTS ("
+            "SELECT 1 FROM cost_source_streams o JOIN cost_source_stream_bindings b ON b.stream_id = o.id "
+            "AND b.unbound_at IS NULL WHERE o.team_id = s.team_id AND o.provider = s.provider "
+            "AND o.usage_account = s.usage_account AND o.role = 'cost' AND o.billing_account <> s.billing_account)"
+        ),
+        {"ids": list(stream_ids)},
+    )
+    return {row.id for row in rows}
 
 
 def resolve_expected(

@@ -34,6 +34,26 @@ class FetchIncomplete(Exception):
         self.retryable = retryable
 
 
+class ScopeLookupDenied(Exception):
+    """The provider refused the scope lookup: membership cannot be established."""
+
+
+class ScopeLookupMissing(Exception):
+    """The provider says the account or project does not exist, or is not visible to this credential."""
+
+
+@dataclass(frozen=True)
+class ScopeVerdict:
+    """Whether an expected account is proven to belong to this source's scope. Unproven is never zero."""
+
+    verified: bool
+    code: Optional[str] = None
+    retryable: bool = False
+
+
+VERIFIED = ScopeVerdict(True)
+
+
 @dataclass(frozen=True)
 class DateWindow:
     """Half-open usage window: ``start`` inclusive, ``end`` exclusive."""
@@ -104,6 +124,13 @@ class LedgerAdapter(Protocol):
 
     def streams(self) -> Sequence[StreamSpec]:
         """The expected inventory, from explicit configuration; never derived from fetched rows."""
+        ...
+
+    def verify_scope(self) -> Mapping[str, ScopeVerdict]:
+        """Prove each expected account belongs to this source, from the provider and independently of cost rows.
+
+        An account missing from the result counts as unverified. May raise FetchIncomplete.
+        """
         ...
 
     def discover(self, window: DateWindow) -> Discovery:

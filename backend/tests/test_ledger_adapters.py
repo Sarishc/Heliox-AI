@@ -77,6 +77,12 @@ class FakeAws:
     def get_dimension_values(self, **kwargs):
         return {"DimensionValues": [{"Value": v} for v in self.dimension_values]}
 
+    def describe_organization(self):
+        return {"Organization": {"MasterAccountId": PAYER}}
+
+    def list_accounts(self, **kwargs):
+        return {"Accounts": [{"Id": i, "State": "ACTIVE"} for i in (PAYER, MEMBER)]}
+
 
 def aws(pages, accounts=(PAYER,), **kwargs):
     fake = FakeAws(pages, **kwargs)
@@ -299,6 +305,10 @@ def gcp(pages=(), config=None, **kwargs):
             {**GCP_CONFIG, **(config or {})},
             client_factory=fake,
             parameters=lambda values: list(values),
+            project_billing_info=lambda project: {
+                "billingAccountName": f"billingAccounts/{BILLING_ACCOUNT}",
+                "billingEnabled": True,
+            },
             today=lambda: date(2026, 9, 30),
         ),
         fake,
@@ -522,7 +532,7 @@ def test_azure_follows_every_page_and_uses_an_inclusive_provider_end():
     assert [(p.seq, p.is_last) for p in pages] == [(0, False), (1, False), (2, True)]
     assert sum(ln.amount for ln in lines_of(pages)) == Decimal("19")
     body = script.requests[0].read().decode().replace(" ", "")
-    assert '"from":"2026-09-01"' in body and '"to":"2026-09-02"' in body
+    assert '"from":"2026-09-01T00:00:00Z"' in body and '"to":"2026-09-02T23:59:59Z"' in body
     assert [r.url.host for r in script.requests] == ["management.azure.com"] * 3
 
 
@@ -615,19 +625,6 @@ def test_azure_each_subscription_is_a_stream_and_billing_scope_filters_to_it():
     assert SUB_B in script.requests[0].read().decode()
 
 
-def test_azure_overlapping_scopes_on_one_connection_are_refused():
-    with pytest.raises(AdapterConfigError) as err:
-        azure(
-            [],
-            {
-                "billing_account_id": "BA-1",
-                "use_billing_account_scope": True,
-                "additional_subscription_scopes": [SUB_A],
-            },
-        )
-    assert err.value.code == "overlapping_scopes"
-
-
 def test_azure_negative_adjustment_and_conversion_details_are_preserved():
     rows = [
         azure_row(cost=-5, usd=-5, charge="Adjustment"),
@@ -668,3 +665,454 @@ def test_windows_are_half_open_and_never_empty():
     assert DateWindow(DAY, DAY + timedelta(2)).days == [DAY, DAY + timedelta(1)]
     with pytest.raises(AdapterConfigError):
         DateWindow(DAY, DAY)
+
+
+# Scope verification, from each provider's own source and never from cost rows
+
+
+class AwsError(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code}}
+
+
+def aws_scope(accounts, *, caller=PAYER, master=PAYER, org_error=None, members=None, list_error=None, pages=None):
+    class Client:
+        def __call__(self, service):
+            return self
+
+        def get_caller_identity(self):
+            return {"Account": caller}
+
+        def describe_organization(self):
+            if org_error:
+                raise org_error
+            return {"Organization": {"MasterAccountId": master}}
+
+        def list_accounts(self, **kwargs):
+            if list_error:
+                raise list_error
+            if pages is not None:
+                return pages[kwargs.get("NextToken")]
+            return {"Accounts": members if members is not None else []}
+
+    return AwsCostExplorerAdapter(
+        {"payer_account_id": PAYER, "linked_account_ids": list(accounts)}, client_factory=Client()
+    )
+
+
+def verdict_codes(verdicts):
+    return {k.split(":")[-1]: (v.verified, v.code, v.retryable) for k, v in verdicts.items()}
+
+
+def test_aws_scope_uses_the_organization_and_never_the_configuration():
+    members = [
+        {"Id": PAYER, "State": "ACTIVE"},
+        {"Id": MEMBER, "State": "ACTIVE"},
+        {"Id": "333333333333", "State": "SUSPENDED"},
+        {"Id": "444444444444", "Status": "ACTIVE"},  # the retired field proves nothing
+    ]
+    adapter = aws_scope([PAYER, MEMBER, "333333333333", "444444444444", "555555555555"], members=members)
+    assert verdict_codes(adapter.verify_scope()) == {
+        PAYER: (True, None, False),
+        MEMBER: (True, None, False),
+        "333333333333": (False, "account_not_active", False),
+        "444444444444": (False, "account_not_active", False),
+        "555555555555": (False, "account_not_in_organization", False),
+    }
+
+
+def test_aws_scope_reads_every_page_of_members():
+    pages = {
+        None: {"Accounts": [{"Id": PAYER, "State": "ACTIVE"}], "NextToken": "n2"},
+        "n2": {"Accounts": [{"Id": MEMBER, "State": "ACTIVE"}]},
+    }
+    assert all(v.verified for v in aws_scope([PAYER, MEMBER], pages=pages).verify_scope().values())
+    repeated = {None: {"Accounts": [], "NextToken": "n"}, "n": {"Accounts": [], "NextToken": "n"}}
+    assert not aws_scope([MEMBER], pages=repeated).verify_scope()[f"aws:acct:{MEMBER}"].verified
+
+
+@pytest.mark.parametrize(
+    "kwargs,code,retryable",
+    [
+        ({"master": "999999999999"}, "payer_mismatch", False),  # the configured payer is not the real one
+        ({"org_error": AwsError("AccessDeniedException")}, "payer_unverifiable", False),
+        ({"org_error": AwsError("ThrottlingException")}, "scope_lookup_failed", True),
+        ({"org_error": KeyError("Organization")}, "payer_unverifiable", False),
+    ],
+)
+def test_aws_unproven_payer_verifies_nothing(kwargs, code, retryable):
+    assert verdict_codes(aws_scope([PAYER, MEMBER], **kwargs).verify_scope()) == {
+        PAYER: (False, code, retryable),
+        MEMBER: (False, code, retryable),
+    }
+
+
+def test_aws_member_connection_can_prove_only_itself():
+    adapter = aws_scope([PAYER, MEMBER], caller=MEMBER)
+    assert verdict_codes(adapter.verify_scope()) == {
+        PAYER: (False, "account_not_visible_to_caller", False),
+        MEMBER: (True, None, False),
+    }
+
+
+def test_aws_payer_without_list_permission_proves_only_itself():
+    adapter = aws_scope([PAYER, MEMBER], list_error=AwsError("AccessDeniedException"))
+    assert verdict_codes(adapter.verify_scope()) == {
+        PAYER: (True, None, False),
+        MEMBER: (False, "membership_unverifiable", False),
+    }
+
+
+def test_aws_standalone_account_is_its_own_payer_and_nothing_else():
+    adapter = aws_scope([PAYER, MEMBER], org_error=AwsError("AWSOrganizationsNotInUseException"))
+    assert verdict_codes(adapter.verify_scope()) == {
+        PAYER: (True, None, False),
+        MEMBER: (False, "account_not_in_organization", False),
+    }
+    wrong = aws_scope([MEMBER], caller=MEMBER, org_error=AwsError("AWSOrganizationsNotInUseException"))
+    assert verdict_codes(wrong.verify_scope())[MEMBER][1] == "payer_mismatch"  # it claims a payer it does not have
+
+
+def gcp_scope(lookup, projects=("ml-prod-1", "ml-dev-2")):
+    return GcpBillingExportAdapter(
+        {**GCP_CONFIG, "project_ids": list(projects)},
+        client_factory=FakeBigQuery([]),
+        parameters=lambda v: v,
+        project_billing_info=lookup,
+    )
+
+
+def test_gcp_scope_comes_from_cloud_billing_not_export_rows():
+    from app.integrations.ledger.base import ScopeLookupDenied, ScopeLookupMissing
+
+    answers = {
+        "good-project": {"billingAccountName": f"billingAccounts/{BILLING_ACCOUNT}", "billingEnabled": True},
+        "moved-project": {"billingAccountName": "billingAccounts/FFFFFF-FFFFFF-FFFFFF", "billingEnabled": True},
+        "unlinked-project": {"billingAccountName": "", "billingEnabled": False},
+        "disabled-project": {"billingAccountName": f"billingAccounts/{BILLING_ACCOUNT}", "billingEnabled": False},
+        "missing-project": ScopeLookupMissing(),
+        "denied-project": ScopeLookupDenied(),
+        "flaky-project": RuntimeError("503 with detail"),
+    }
+
+    def lookup(project):
+        answer = answers[project]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    assert verdict_codes(gcp_scope(lookup, list(answers)).verify_scope()) == {
+        "good-project": (True, None, False),
+        "moved-project": (False, "project_on_other_billing_account", False),
+        "unlinked-project": (False, "project_has_no_billing_account", False),
+        "disabled-project": (False, "project_billing_disabled", False),
+        "missing-project": (False, "project_not_found", False),
+        "denied-project": (False, "project_inaccessible", False),
+        "flaky-project": (False, "scope_lookup_failed", True),
+        NO_PROJECT: (True, None, False),
+    }
+
+
+def test_gcp_billing_account_level_rows_need_a_verified_project():
+    def lookup(project):
+        return {"billingAccountName": "billingAccounts/FFFFFF-FFFFFF-FFFFFF", "billingEnabled": True}
+
+    assert verdict_codes(gcp_scope(lookup).verify_scope())[NO_PROJECT] == (False, "billing_account_unverified", False)
+
+
+def azure_handler(routes):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        for needle, response in routes.items():
+            if needle in str(request.url):
+                return response if isinstance(response, httpx.Response) else httpx.Response(200, json=response)
+        raise AssertionError(f"unexpected {request.url}")
+
+    return handler, calls
+
+
+def azure_scope(routes, config=None):
+    handler, calls = azure_handler(routes)
+    return (
+        AzureCostManagementAdapter(
+            {"subscription_ids": [SUB_A], **(config or {})},
+            http=httpx.Client(transport=httpx.MockTransport(handler)),
+            token_provider=lambda force: "token",
+            sleep=lambda s: None,
+        ),
+        calls,
+    )
+
+
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        ({"state": "Enabled"}, (True, None, False)),
+        ({"state": "Warned"}, (True, None, False)),
+        ({"state": "PastDue"}, (True, None, False)),
+        ({"state": "Disabled"}, (False, "subscription_not_active", False)),
+        ({"state": "Deleted"}, (False, "subscription_not_active", False)),
+        ({}, (False, "subscription_not_active", False)),
+        (httpx.Response(404), (False, "subscription_inaccessible", False)),
+        (httpx.Response(403), (False, "subscription_inaccessible", False)),
+    ],
+)
+def test_azure_subscription_scope_verdicts(response, expected):
+    adapter, calls = azure_scope({f"/subscriptions/{SUB_A}": response})
+    assert verdict_codes(adapter.verify_scope()) == {SUB_A: expected}
+    assert calls[0].method == "GET" and "api-version=2022-12-01" in str(calls[0].url)
+
+
+BILLING = {"billing_account_id": "BA-1", "use_billing_account_scope": True}
+LIST_URL = "https://management.azure.com/providers/Microsoft.Billing/billingAccounts/BA-1/billingSubscriptions?api-version=2024-04-01"
+
+
+def test_azure_billing_scope_needs_the_billing_accounts_own_list():
+    adapter, calls = azure_scope(
+        {"billingSubscriptions": {"value": [{"properties": {"subscriptionId": SUB_A.upper()}}]}}, BILLING
+    )
+    assert adapter.verify_scope()[f"azure:sub:{SUB_A}"].verified
+    assert str(calls[0].url) == LIST_URL
+    adapter, _ = azure_scope(
+        {"billingSubscriptions": {"value": [{"properties": {"subscriptionId": SUB_B}}, {"name": "no-id"}]}}, BILLING
+    )
+    assert verdict_codes(adapter.verify_scope())[SUB_A] == (False, "subscription_not_in_billing_scope", False)
+    adapter, _ = azure_scope({"billingSubscriptions": httpx.Response(403)}, BILLING)
+    assert verdict_codes(adapter.verify_scope())[SUB_A] == (False, "billing_scope_unverifiable", False)
+
+
+def test_azure_billing_list_follows_only_trusted_pages():
+    page2 = LIST_URL + "&$skiptoken=2"
+    adapter, _ = azure_scope(
+        {
+            "skiptoken=2": {"value": [{"properties": {"subscriptionId": SUB_A}}]},
+            "billingSubscriptions": {"value": [], "nextLink": page2},
+        },
+        BILLING,
+    )
+    assert adapter.verify_scope()[f"azure:sub:{SUB_A}"].verified
+    adapter, calls = azure_scope(
+        {"billingSubscriptions": {"value": [], "nextLink": "https://evil.example.com/billingSubscriptions"}}, BILLING
+    )
+    assert verdict_codes(adapter.verify_scope())[SUB_A][1] == "untrusted_continuation_url"
+    assert len(calls) == 1
+
+
+# Provider contracts, checked against the published API references. Fake clients prove our side only.
+
+
+def test_aws_request_matches_the_documented_shape():
+    pages = {None: {"ResultsByTime": [period(DAY, []), period(DAY + timedelta(1), [])]}}
+    adapter, fake = aws(pages)
+    collect(adapter, adapter.streams()[0])
+    request = fake.requests[0]
+    assert set(request) == {"TimePeriod", "Granularity", "Metrics", "GroupBy", "Filter"}
+    assert request["Metrics"] == ["UnblendedCost"]
+    assert len(request["GroupBy"]) == 2 and {g["Key"] for g in request["GroupBy"]} == {"SERVICE", "RECORD_TYPE"}
+
+
+def test_aws_day_with_no_groups_and_a_zero_total_is_empty_but_unbroken_cost_is_not():
+    zero = dict(period(DAY, []), Total={"UnblendedCost": {"Amount": "0", "Unit": "USD"}})
+    adapter, _ = aws({None: {"ResultsByTime": [zero, period(DAY + timedelta(1), [])]}})
+    assert lines_of(collect(adapter, adapter.streams()[0])) == []
+    cost = dict(period(DAY, []), Total={"UnblendedCost": {"Amount": "5", "Unit": "USD"}})
+    adapter, _ = aws({None: {"ResultsByTime": [cost, period(DAY + timedelta(1), [])]}})
+    incomplete(adapter, adapter.streams()[0], "unexpected_ungrouped_total")
+
+
+def test_aws_unknown_record_type_stays_visible_as_other():
+    adapter, _ = aws(
+        {None: {"ResultsByTime": [period(DAY, [group("X", "SomeNewType", "1")]), period(DAY + timedelta(1), [])]}}
+    )
+    [line] = lines_of(collect(adapter, adapter.streams()[0]))
+    assert (line.charge_class, line.line_kind) == ("other", "aws:SomeNewType")
+
+
+def test_gcp_query_uses_documented_columns_and_bound_parameters():
+    from app.integrations.ledger.gcp import QUERY
+
+    documented = (
+        "billing_account_id",
+        "usage_start_time",
+        "service.id",
+        "service.description",
+        "cost_type",
+        "currency",
+        "invoice.month",
+        "currency_conversion_rate",
+        "credits",
+        "export_time",
+        "credit.type",
+        "credit.amount",
+    )
+    for column in documented:
+        assert column in QUERY, column
+    for parameter in ("@billing_account", "@start_date", "@end_date"):
+        assert parameter in QUERY
+    adapter, fake = gcp([[]])
+    collect(adapter, spec_for(adapter))
+    sql = fake.queries[0][0]
+    assert "billing-admin-1.billing_export.gcp_billing_export_v1_0A1B2C_3D4E5F_6A7B8C" in sql
+    assert "project.id = @project" in sql
+    assert "ml-prod-1" not in sql and BILLING_ACCOUNT not in sql  # values only ever arrive as parameters
+
+
+def test_gcp_rounding_spelling_and_unknown_cost_types():
+    adapter, _ = gcp([[gcp_row(sub_type="rounding error"), gcp_row(sub_type="brand_new", service_id="B")]])
+    lines = lines_of(collect(adapter, spec_for(adapter)))
+    assert [ln.charge_class for ln in lines] == ["rounding", "other"]
+
+
+def test_azure_request_respects_documented_limits():
+    adapter, script, _, _ = azure([azure_payload([azure_row()])])
+    collect(adapter, adapter.streams()[0])
+    import json as _json
+
+    body = _json.loads(script.requests[0].read())
+    assert body["type"] == "ActualCost" and body["timeframe"] == "Custom"
+    assert len(body["dataset"]["grouping"]) <= 2 and len(body["dataset"]["aggregation"]) <= 2
+    assert {a["function"] for a in body["dataset"]["aggregation"].values()} == {"Sum"}
+    assert all(g["type"] == "Dimension" for g in body["dataset"]["grouping"])
+    assert "api-version=2026-06-01" in str(script.requests[0].url)
+
+
+def test_azure_documented_rate_limit_header_is_honoured():
+    adapter, _, _, sleeps = azure(
+        [
+            httpx.Response(429, headers={"x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after": "11"}),
+            azure_payload([azure_row()]),
+        ]
+    )
+    assert collect(adapter, adapter.streams()[0])[-1].is_last
+    assert sleeps == [11.0]
+
+
+def test_azure_no_content_is_not_read_as_zero():
+    adapter, _, _, _ = azure([httpx.Response(204)])
+    incomplete(adapter, adapter.streams()[0], "provider_no_content")
+
+
+# Factory
+
+
+def test_factory_selects_each_adapter_and_uses_only_injected_clients(caplog):
+    from app.integrations.ledger.factory import ClientFactories, build_adapter
+
+    made = []
+    secret = "wJalr-SECRET-do-not-log-000000000000000000"
+
+    class Session_:
+        def client(self, service):
+            made.append(service)
+            return FakeAws({})
+
+    def aws_session(config):
+        assert config["aws_secret_access_key"] == secret
+        return Session_()
+
+    clients = ClientFactories(
+        aws_session=aws_session,
+        bigquery_client=lambda c: FakeBigQuery([]),
+        bigquery_parameters=lambda v: v,
+        billing_session=lambda c: None,
+        azure_credential=lambda c: None,
+        http_client=lambda: httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))),
+    )
+    aws_adapter = build_adapter(
+        "aws",
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": secret,
+            "payer_account_id": PAYER,
+            "linked_account_ids": PAYER,
+        },
+        clients,
+    )
+    assert isinstance(aws_adapter, AwsCostExplorerAdapter) and made == []  # nothing connects until it is needed
+    specs = aws_adapter.streams()
+    assert made == ["sts"]
+    assert secret not in str(specs) and secret not in caplog.text
+    gcp_adapter = build_adapter(
+        "gcp_billing_bigquery", {**GCP_CONFIG, "service_account_json": '{"type": "service_account"}'}, clients
+    )
+    assert isinstance(gcp_adapter, GcpBillingExportAdapter)
+    azure_adapter = build_adapter(
+        "azure",
+        {"azure_tenant_id": "t", "azure_client_id": "c", "azure_client_secret": secret, "subscription_ids": [SUB_A]},
+        clients,
+    )
+    assert isinstance(azure_adapter, AzureCostManagementAdapter)
+    assert secret not in str(azure_adapter.streams())
+
+
+@pytest.mark.parametrize(
+    "provider,config,code",
+    [
+        ("stripe", {}, "unsupported_provider"),
+        ("gcp", {"service_account_json": "{}"}, "unsupported_provider"),
+        ("aws", {"aws_access_key_id": "x"}, "missing_credentials"),
+        ("gcp_billing_bigquery", {}, "missing_credentials"),
+        ("gcp_billing_bigquery", {"service_account_json": "not json"}, "invalid_credentials"),
+        ("gcp_billing_bigquery", {"service_account_json": "[1]"}, "invalid_credentials"),
+        ("azure", {"azure_tenant_id": "t", "azure_client_id": "c"}, "missing_credentials"),
+    ],
+)
+def test_factory_refuses_bad_configuration_before_any_client_exists(provider, config, code):
+    from app.integrations.ledger.factory import ClientFactories, build_adapter
+
+    def forbidden(*args):
+        raise AssertionError("no client may be created")
+
+    clients = ClientFactories(forbidden, forbidden, forbidden, forbidden, forbidden, forbidden)
+    with pytest.raises(AdapterConfigError) as err:
+        build_adapter(provider, config, clients)
+    assert err.value.code == code
+
+
+def test_factory_billing_lookup_maps_statuses_and_azure_tokens_refresh():
+    from app.integrations.ledger.base import ScopeLookupDenied, ScopeLookupMissing
+    from app.integrations.ledger.factory import _azure_tokens, _project_billing_lookup
+
+    class Response:
+        def __init__(self, status):
+            self.status_code = status
+
+        def json(self):
+            return {"billingEnabled": True}
+
+    urls = []
+
+    def session_with(status):
+        class S:
+            def get(self, url, timeout):
+                urls.append(url)
+                return Response(status)
+
+        return lambda: S()
+
+    assert _project_billing_lookup(session_with(200))("ml-prod-1") == {"billingEnabled": True}
+    assert urls == ["https://cloudbilling.googleapis.com/v1/projects/ml-prod-1/billingInfo"]
+    with pytest.raises(ScopeLookupDenied):
+        _project_billing_lookup(session_with(403))("ml-prod-1")
+    with pytest.raises(ScopeLookupMissing):
+        _project_billing_lookup(session_with(404))("ml-prod-1")
+    with pytest.raises(RuntimeError):
+        _project_billing_lookup(session_with(500))("ml-prod-1")
+    with pytest.raises(ScopeLookupMissing):  # an invalid id never reaches a URL
+        _project_billing_lookup(session_with(200))("../../evil")
+
+    created = []
+
+    class Credential:
+        def __init__(self):
+            created.append(self)
+
+        def get_token(self, scope):
+            assert scope == "https://management.azure.com/.default"
+            return type("T", (), {"token": f"token-{len(created)}"})
+
+    tokens = _azure_tokens(Credential)
+    assert (tokens(False), tokens(False), tokens(True)) == ("token-1", "token-1", "token-2")

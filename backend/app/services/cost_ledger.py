@@ -580,15 +580,16 @@ class CostLedgerService:
         """End the run as this attempt and release its lease. A stale or retried attempt is refused.
 
         ``success`` additionally needs a live lease and at least one stream publication by this attempt,
-        all of them published (an incomplete fetch is recorded as failed). Which streams a run must cover
-        is the worker's decision (later step). ``failed`` is allowed after the lease expired.
+        all of them published (an incomplete fetch is recorded as failed). ``partial`` needs a live lease
+        and at least one published stream: some of the expected coverage is still missing. Which streams
+        a run must cover is the worker's decision. ``failed`` is allowed after the lease expired.
         """
-        if status not in ("success", "failed"):
+        if status not in ("success", "partial", "failed"):
             raise LedgerError(f"unknown run status {status!r}")
         run = self._lock_run(run_id)
         if (run.attempt, run.lease_token) != (attempt, fencing_token):
             raise LedgerFenced("a newer attempt owns this run")
-        if status == "success":
+        if status in ("success", "partial"):
             live = self._x(
                 "SELECT expires_at > clock_timestamp() FROM cost_sync_leases WHERE connection_id = :c "
                 "AND holder_run_id = :r AND holder_attempt = :a AND token = :tok FOR UPDATE",
@@ -605,7 +606,7 @@ class CostLedgerService:
                 r=run_id,
                 a=attempt,
             ).one()
-            if streams.total == 0 or streams.published != streams.total:
+            if streams.published == 0 or (status == "success" and streams.published != streams.total):
                 raise RunIncomplete("this attempt has no publication or an unpublished stream")
         released = self._x(
             "UPDATE cost_sync_leases SET holder_run_id = NULL, holder_attempt = NULL, expires_at = NULL "
@@ -617,10 +618,10 @@ class CostLedgerService:
         ).rowcount
         if released != 1:
             raise LedgerFenced("this attempt no longer holds the connection lease")
-        phase = "published" if status == "success" else "failed"
+        phase = {"success": "published", "partial": "partial", "failed": "failed"}[status]
         updated = self._x(
             "UPDATE integration_sync_runs SET phase = :p, status = :s, finished_at = now(), "
-            "phase_changed_at = clock_timestamp(), published_at = CASE WHEN :p = 'published' THEN now() END "
+            "phase_changed_at = clock_timestamp(), published_at = CASE WHEN :p IN ('published', 'partial') THEN now() END "
             "WHERE id = :r AND attempt = :a AND lease_token = :tok AND phase = ANY(:leased)",
             p=phase,
             s=status,

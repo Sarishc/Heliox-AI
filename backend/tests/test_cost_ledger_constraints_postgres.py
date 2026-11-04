@@ -231,11 +231,24 @@ def test_no_application_code_uses_the_ledger_yet():
         APP_DIR / "integrations" / "models.py",
         # Step 6E shadow-only service; `cost_ledger` above still catches anything that imports it
         APP_DIR / "services" / "cost_ledger.py",
+        # Step 6F shadow-only orchestration, adapters and its disabled-by-default task module
+        *(APP_DIR / "services" / "ledger_shadow").glob("*.py"),
+        *(APP_DIR / "integrations" / "ledger").glob("*.py"),
+        APP_DIR / "tasks" / "ledger_shadow_tasks.py",
     }
     users = [
         str(p.relative_to(APP_DIR)) for p in APP_DIR.rglob("*.py") if p not in allowed and names.search(p.read_text())
     ]
     assert users == []
+    # The worker path is reached only by the conditional import below; nothing schedules or calls it
+    shadow = re.compile(r"ledger_shadow|integrations\.ledger|ledger\.shadow_sync|ledger\.reap_abandoned_runs")
+    reached_from = {
+        str(p.relative_to(APP_DIR)) for p in APP_DIR.rglob("*.py") if p not in allowed and shadow.search(p.read_text())
+    }
+    assert reached_from == {"celery_app.py"}
+    celery_source = (APP_DIR / "celery_app.py").read_text()
+    assert "if settings.LEDGER_SHADOW_WORKER_ENABLED:\n    import app.tasks.ledger_shadow_tasks" in celery_source
+    assert "ledger." not in celery_source.split("beat_schedule = {")[1].split("\n}\n")[0]
 
 
 # ── Financial identity ────────────────────────────────────────────────────────────

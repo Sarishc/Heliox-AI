@@ -120,3 +120,7 @@ import app.tasks.integration_tasks  # noqa: F401
 import app.tasks.rollup_tasks  # noqa: F401
 import app.tasks.slack_tasks  # noqa: F401
 import app.tasks.usage_tasks  # noqa: F401
+
+# The shadow cost-ledger worker exists only when explicitly enabled, and is never in the Beat schedule
+if settings.LEDGER_SHADOW_WORKER_ENABLED:
+    import app.tasks.ledger_shadow_tasks  # noqa: F401

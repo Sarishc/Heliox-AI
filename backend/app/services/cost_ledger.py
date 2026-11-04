@@ -193,7 +193,7 @@ class Publication:
     # An empty day here says nothing. It is not written at all, unless it was already published: then what was
     # published can no longer stand, and the day is held as suspect_empty with its records kept.
     unproven_days: frozenset = frozenset()
-    # A day here with lines is only part of the day: the lines are kept, and it is held as suspect_empty, the state
+    # A day here with lines can't be shown to be whole: the lines are kept, and it is held as suspect_empty, the state
     # migration 038 has for "known, not financially complete". The name is about its usual cause: it may hold lines.
     partial_days: frozenset = frozenset()
 
@@ -213,7 +213,7 @@ class PublishOutcome:
     published_days: list[date] = field(default_factory=list)
     unproven_days: list[date] = field(default_factory=list)
     invalidated_claims: list[dict] = field(default_factory=list)  # what each held unproven day said before this run
-    partial_days: list[date] = field(default_factory=list)  # kept lines that are only part of the day
+    partial_days: list[date] = field(default_factory=list)  # kept lines that can't be shown to be the whole day
     held_days: list[dict] = field(default_factory=list)  # empty days the provider proved, kept for the cost they held
     new_shadow_facts: int = 0
 

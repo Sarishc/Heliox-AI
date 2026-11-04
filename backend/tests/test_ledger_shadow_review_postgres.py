@@ -301,8 +301,8 @@ def test_aws_days_after_joining_are_proven_and_rows_before_it_still_count(engine
     costly = rig_with(
         engine, aws_adapter([LINKED], LateJoiner(day, datetime(2026, 6, 1, tzinfo=timezone.utc), amount="40")), team2
     )
-    assert costly.run(window_of(day))[1].status == "published"  # rows are evidence, whatever the join date says
-    assert money(total(engine, team2, day, "ec2")) == (Decimal("40.00"), "complete")
+    assert costly.run(window_of(day))[1].status == "partial"  # rows are kept, but can't prove the whole day
+    assert money(total(engine, team2, day, "ec2")) == (Decimal("40.00"), "incomplete")
 
 
 def test_aws_estimated_flag_on_any_page_of_a_day_holds():
@@ -1072,7 +1072,7 @@ def test_aws_cost_on_and_before_the_joining_day_is_kept(engine):
     rig = rig_with(engine, aws_adapter([LINKED], JoinedAt(joined, amounts)), team)
     run_id, result = rig.run(window_of(before, 3))
     assert result.status == "partial"
-    assert money(total(engine, team, before, "ec2")) == (Decimal("7.00"), "complete")
+    assert money(total(engine, team, before, "ec2")) == (Decimal("7.00"), "incomplete")
     assert money(total(engine, team, joining, "ec2")) == (Decimal("40.00"), "incomplete")
     assert stream_day(engine, rig.streams[account], following).state == "final"
     assert (
@@ -1414,3 +1414,153 @@ def test_step_6e_publication_still_holds_without_new_evidence(engine):
     assert (out.held, out.retired, out.unproven_days, out.partial_days) == (1, 0, [], [])
     assert [h["day"] for h in out.held_days] == [day.isoformat()]
     assert stream_day(engine, sid, day).state == "suspect_empty"
+
+
+# Before a provable full-day boundary, lines are real but say nothing about the rest of the day
+
+
+JOINED_JUNE_10 = datetime(2026, 6, 10, 18, tzinfo=timezone.utc)
+UNTRUSTED_JOINS = {
+    "missing": None,
+    "naive": datetime(2020, 1, 1),
+    "malformed_text": "2020-01-01",
+    "aware_but_unconvertible": datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=5))),
+}
+
+
+def assert_kept_and_never_complete(engine, team, day, rig, run_id, result, amount):
+    """The whole path: evidence, publication, coverage, totals and the run's diagnostics."""
+    account = f"aws:acct:{LINKED}"
+    sid = rig.streams[account]
+    assert result.status == "partial"
+    assert rig.run_state(run_id).split("/")[:2] == ["partial", "partial"]
+    inventory_report = metrics(engine, run_id)["ledger"]["inventory"]
+    assert day.isoformat() in inventory_report["partial_days"][account]
+    row = stream_day(engine, sid, day)
+    assert (row.state, row.record_count, row.converted_total_usd) == ("suspect_empty", 1, Decimal(amount))
+    assert q(
+        engine,
+        "SELECT amount FROM cost_source_records WHERE stream_id = :s AND usage_date = :d AND state = 'present'",
+        s=sid,
+        d=day,
+    ) == Decimal(amount)
+    assert observed_kinds(engine, sid).split(",")[0] == "inserted"
+    assert coverage_row(engine, team, account) == "suspect_empty"
+    [c] = completeness(engine, team, day, account)
+    assert (c.financial_state, c.converted_total_usd) == ("incomplete", Decimal(amount))
+    assert financial(engine, team, day, sid).days[0].financial_state == "incomplete"
+    assert money(total(engine, team, day, "ec2")) == (Decimal(amount).quantize(Decimal("0.01")), "incomplete")
+    assert_no_confirmed_total(engine, team, day, Decimal(amount).quantize(Decimal("0.01")))
+    legacy_untouched(engine)
+
+
+def test_aws_cost_on_a_day_before_joining_is_kept_and_never_complete(engine):
+    team, day = new_team(engine), date(2026, 6, 5)
+    rig = rig_with(engine, aws_adapter([LINKED], JoinedAt(JOINED_JUNE_10, {day: "25"})), team)
+    run_id, result = rig.run(window_of(day))
+    assert_kept_and_never_complete(engine, team, day, rig, run_id, result, "25")
+
+
+@pytest.mark.parametrize("joined", UNTRUSTED_JOINS.values(), ids=UNTRUSTED_JOINS.keys())
+def test_aws_cost_with_no_trustworthy_join_time_is_kept_and_never_complete(engine, joined):
+    team, day = new_team(engine), date(2026, 6, 5)
+    rig = rig_with(engine, aws_adapter([LINKED], JoinedAt(joined, {day: "40"})), team)
+    run_id, result = rig.run(window_of(day))
+    assert_kept_and_never_complete(engine, team, day, rig, run_id, result, "40")
+
+
+def test_aws_evidence_either_side_of_the_full_day_boundary():
+    before, quiet, joining, first_full = (date(2026, 6, d) for d in (8, 9, 10, 11))
+    amounts = {before: "25", joining: "5", first_full: "9"}
+    evidence = aws_evidence(JoinedAt(JOINED_JUNE_10, amounts), start=before, days=5)
+    assert evidence == {
+        before: "partial",
+        quiet: DAY_UNPROVEN,
+        joining: "partial",
+        first_full: DAY_FINAL,
+        first_full + timedelta(1): DAY_FINAL,
+    }
+
+
+def test_aws_joining_at_midnight_makes_that_day_full_and_the_day_before_not():
+    joined = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    before, joining = date(2026, 6, 9), date(2026, 6, 10)
+    evidence = aws_evidence(JoinedAt(joined, {before: "25", joining: "5"}), start=before, days=2)
+    assert evidence == {before: "partial", joining: DAY_FINAL}
+
+
+def estimated(client_type):
+    class Estimated(client_type):
+        def get_cost_and_usage(self, **kwargs):
+            response = super().get_cost_and_usage(**kwargs)
+            for period in response["ResultsByTime"]:
+                period["Estimated"] = True
+            return response
+
+    return Estimated
+
+
+def test_aws_estimated_flag_never_makes_a_day_before_joining_more_than_it_was():
+    before, quiet = date(2026, 6, 8), date(2026, 6, 9)
+    evidence = aws_evidence(estimated(JoinedAt)(JOINED_JUNE_10, {before: "25"}), start=before, days=2)
+    assert evidence == {before: "partial", quiet: DAY_ESTIMATED}
+
+
+def test_aws_first_full_day_after_joining_is_complete_with_its_cost(engine):
+    team, day = new_team(engine), date(2026, 6, 11)
+    rig = rig_with(engine, aws_adapter([LINKED], JoinedAt(JOINED_JUNE_10, {day: "9"})), team)
+    run_id, result = rig.run(window_of(day))
+    assert result.status == "published"
+    assert metrics(engine, run_id)["ledger"]["inventory"]["partial_days"] == {}
+    assert inventory(engine, team, "aws", day).confirmed_usd == Decimal("9.00")
+
+
+@pytest.mark.parametrize("caller", [PAYER, LINKED], ids=["payer_itself", "member_itself"])
+@pytest.mark.parametrize("joined", [JOINED_JUNE_10, None], ids=["join_time_later", "no_join_time"])
+def test_aws_account_reading_its_own_history_is_not_bound_by_a_join_time(engine, caller, joined):
+    team, day = new_team(engine), date(2026, 6, 5)
+    client = JoinedAt(joined, {day: "25"}, account=caller, caller=caller)
+    rig = rig_with(engine, aws_adapter([caller], client), team)
+    run_id, result = rig.run(window_of(day))
+    assert result.status == "published"
+    assert metrics(engine, run_id)["ledger"]["inventory"]["partial_days"] == {}
+    assert inventory(engine, team, "aws", day).confirmed_usd == Decimal("25.00")
+
+
+def test_aws_day_recovers_when_membership_becomes_provable(engine):
+    team, day = new_team(engine), date(2026, 6, 5)
+    rig = rig_with(engine, aws_adapter([LINKED], JoinedAt(None, {day: "40"})), team)
+    assert rig.run(window_of(day))[1].status == "partial"
+    assert inventory(engine, team, "aws", day).confirmed_usd is None
+    rig.adapter._client_factory = JoinedAt(datetime(2020, 1, 1, tzinfo=timezone.utc), {day: "40"})
+    run_id, result = rig.run(window_of(day))
+    assert result.status == "published"
+    assert metrics(engine, run_id)["ledger"]["inventory"]["partial_days"] == {}
+    assert stream_day(engine, rig.streams[f"aws:acct:{LINKED}"], day).state == "final"
+    assert inventory(engine, team, "aws", day).confirmed_usd == Decimal("40.00")
+
+
+def test_aws_cost_across_pages_is_still_only_part_of_a_day_before_joining(engine):
+    team, day = new_team(engine), date(2026, 6, 5)
+
+    class Paged(JoinedAt):
+        def get_cost_and_usage(self, **kwargs):
+            response = super().get_cost_and_usage(**kwargs)
+            period = response["ResultsByTime"][0]
+            if kwargs.get("NextPageToken"):
+                return response
+            return {"ResultsByTime": [{**period, "Groups": []}], "NextPageToken": "more"}
+
+    rig = rig_with(engine, aws_adapter([LINKED], Paged(JOINED_JUNE_10, {day: "25"})), team)
+    run_id, result = rig.run(window_of(day))
+    assert_kept_and_never_complete(engine, team, day, rig, run_id, result, "25")
+
+
+def test_a_day_before_joining_in_one_team_does_not_touch_another(engine):
+    day = date(2026, 6, 5)
+    team, other = new_team(engine), new_team(engine)
+    rig_with(engine, aws_adapter([LINKED], JoinedAt(JOINED_JUNE_10, {day: "25"})), team).run(window_of(day))
+    full = JoinedAt(datetime(2020, 1, 1, tzinfo=timezone.utc), {day: "25"})
+    rig_with(engine, aws_adapter([LINKED], full), other).run(window_of(day))
+    assert inventory(engine, team, "aws", day).confirmed_usd is None
+    assert inventory(engine, other, "aws", day).confirmed_usd == Decimal("25.00")

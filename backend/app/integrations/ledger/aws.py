@@ -296,12 +296,14 @@ class AwsCostExplorerAdapter:
                 joining_day = self._joining_day.get(account)
                 evidence = {}
                 for day in window.days:
-                    if day == joining_day:  # cost from earlier that day went to the previous payer, or nowhere known
-                        evidence[day] = DAY_PARTIAL if day in days_with_lines else DAY_UNPROVEN
-                    elif day in estimated_days:
+                    if day >= provable_from:
+                        evidence[day] = DAY_ESTIMATED if day in estimated_days else DAY_FINAL
+                    elif day in days_with_lines:  # real cost, but other cost may have gone to another payer
+                        evidence[day] = DAY_PARTIAL
+                    elif day in estimated_days and day != joining_day:
                         evidence[day] = DAY_ESTIMATED
                     else:
-                        evidence[day] = DAY_FINAL if day in days_with_lines or day >= provable_from else DAY_UNPROVEN
+                        evidence[day] = DAY_UNPROVEN
                 yield SourcePage(
                     seq, tuple(lines), is_last=True, watermark=datetime.now(timezone.utc), day_evidence=evidence
                 )
@@ -333,10 +335,13 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 def _utc(joined: Any) -> Optional[datetime]:
-    """A timestamp with no UTC offset can't be placed on a UTC day, so it proves nothing, like a missing one."""
+    """A timestamp that can't be placed on a UTC day proves nothing, like a missing one."""
     if not isinstance(joined, datetime) or joined.utcoffset() is None:
         return None
-    return joined.astimezone(timezone.utc)
+    try:
+        return joined.astimezone(timezone.utc)
+    except OverflowError:
+        return None
 
 
 def _first_full_utc_day(joined_at: datetime) -> date:

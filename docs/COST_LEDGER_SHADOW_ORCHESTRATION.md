@@ -89,7 +89,7 @@ Migration 038 has no separate "incomplete" state, so `suspect_empty` also covers
 
 | Provider | `final` for an empty day | Otherwise |
 |---|---|---|
-| AWS | `Estimated` is false, and the account is the caller's own or the day is on or after its first full UTC day in the organization | `Estimated` true is `estimated`; before that day, or with no join time or one with no UTC offset, is `unproven`. The joining day itself, unless it joined at exactly 00:00 UTC, is `partial` with lines and `unproven` without, whatever `Estimated` says |
+| AWS | `Estimated` is false, and the account is the caller's own or the day is on or after its first full UTC day in the organization | Before that day, or with no usable join time (missing, malformed or with no UTC offset), any day with lines is `partial`, whatever `Estimated` says. Without lines it is `unproven`, or `estimated` if `Estimated` is true, except that the joining day is always `unproven`. Joining at exactly 00:00 UTC makes that day a full one |
 | Azure, subscription scope | Older than the settle period (3 days, a heuristic) | Recent days are `estimated` |
 | Azure, billing scope | Never | Recent days are `estimated`, older ones `unproven`, because a subscription may have been billed elsewhere then |
 | GCP | Never | Always `unproven` |

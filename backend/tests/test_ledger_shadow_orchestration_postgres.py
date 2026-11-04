@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.integrations.ledger.aws import AwsCostExplorerAdapter
 from app.integrations.ledger.azure import AzureCostManagementAdapter
 from app.integrations.ledger.base import (
+    DAY_FINAL,
     VERIFIED,
     AdapterConfigError,
     DateWindow,
@@ -145,8 +146,9 @@ class Fake:
 
     provider = "aws"
 
-    def __init__(self, scripts, specs=None, discovered=None, discover_error=None, verdicts=None):
+    def __init__(self, scripts, specs=None, discovered=None, discover_error=None, verdicts=None, evidence=None):
         self.verdicts = verdicts
+        self.evidence = evidence
         self.scripts = scripts
         self.specs = specs or [spec(a) for a in scripts]
         self.discovered = discovered
@@ -177,7 +179,9 @@ class Fake:
             elif isinstance(step, BaseException):
                 raise step
             else:
-                yield SourcePage(seq, tuple(step), is_last=i == pages[-1] and i == len(steps) - 1)
+                last = i == pages[-1] and i == len(steps) - 1
+                evidence = (self.evidence or {d: DAY_FINAL for d in window.days}) if last else None
+                yield SourcePage(seq, tuple(step), is_last=last, day_evidence=evidence)
                 seq += 1
 
 
@@ -1218,7 +1222,12 @@ class AwsClients:
         return {"Organization": {"MasterAccountId": "111111111111"}}
 
     def list_accounts(self, **kwargs):
-        return {"Accounts": [{"Id": i, "State": "ACTIVE"} for i in ("111111111111", "222222222222")]}
+        return {
+            "Accounts": [
+                {"Id": i, "State": "ACTIVE", "JoinedTimestamp": datetime(2020, 1, 1, tzinfo=timezone.utc)}
+                for i in ("111111111111", "222222222222")
+            ]
+        }
 
 
 def rig_with(engine, adapter, team=A):
@@ -1330,8 +1339,11 @@ def test_gcp_credits_late_corrections_and_copied_exports(engine):
             text("INSERT INTO team_cost_ledger_settings (team_id, ledger_mode) VALUES (:t, 'shadow')"), {"t": team}
         )
     main = rig_with(engine, gcp_adapter(gcp_rows(day, "100", "-10")), team)
-    _, result = main.run(window)
-    assert result.status == "published"
+    run_id, result = main.run(window)
+    assert result.status == "partial"  # the stream for rows with no project has no rows: unknown, not zero
+    report = metrics(engine, run_id)["ledger"]["inventory"]
+    assert list(report["unproven_days"]) == ["gcp:project:__billing_account__"]
+    assert "gcp:project:ml-prod-1" in report["published"]
     assert money(total(engine, team, day, "gcp-compute", "gcp")) == (Decimal("90.00"), "complete")
     # A late-arriving correction in the export replaces the earlier values on the next deterministic re-fetch
     main.adapter = gcp_adapter(gcp_rows(day, "120", "-10"))
@@ -1341,7 +1353,8 @@ def test_gcp_credits_late_corrections_and_copied_exports(engine):
     # A copied export table is a separate witness, not a second charge
     copy = rig_with(engine, gcp_adapter(gcp_rows(day, "120", "-10"), table="gcp_billing_export_v1"), team)
     _, result = copy.run(window)
-    assert result.status == "published"
+    assert result.status == "partial"
+    assert records(engine, copy.streams["gcp:project:ml-prod-1"]) == 2
     assert money(total(engine, team, day, "gcp-compute", "gcp")) == (Decimal("110.00"), "complete")
     assert q(engine, "SELECT count(*) FROM cost_source_conflicts WHERE team_id = :t", t=team) == 0
 

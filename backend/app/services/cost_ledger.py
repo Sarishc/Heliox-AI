@@ -188,6 +188,9 @@ class Publication:
     window_end: date
     lines: Sequence[CostLine]
     complete: bool
+    # What the provider proves per day, apart from lines. Both default to empty, meaning every empty day is settled.
+    estimated_days: frozenset = frozenset()  # an empty day here is estimated, not a final zero
+    unproven_days: frozenset = frozenset()  # an empty day here says nothing: it is not written at all
 
 
 @dataclass
@@ -203,6 +206,7 @@ class PublishOutcome:
     quarantined: int = 0
     incomplete: bool = False
     published_days: list[date] = field(default_factory=list)
+    unproven_days: list[date] = field(default_factory=list)
     new_shadow_facts: int = 0
 
 
@@ -231,6 +235,9 @@ class ShadowTotal:
     unconverted: int
     blocked: int
     uncovered: int = 0  # present provider records for an account-day no authoritative stream has published
+    # A subtotal of what the ledger holds. It says nothing about expected accounts with no records at all, so
+    # "complete" here is never a tenant or provider total: use ledger_shadow.coverage.inventory_total for that.
+    scope: str = "known_contributions"
 
 
 @dataclass(frozen=True)
@@ -741,6 +748,9 @@ class CostLedgerService:
             and any(k[0] == d and r.state == "present" and r.amount != 0 for k, r in existing.items())
         }
         out.held = len(suspect)
+        unproven = {d for d in pub.unproven_days if d in gen and d not in with_lines and d not in suspect}
+        active = [d for d in active if d not in unproven]
+        out.unproven_days = sorted(unproven)
 
         obs_base = dict(t=run.team_id, run=pub.run_id, c=run.connection_id, a=pub.attempt, tok=pub.fencing_token)
         for ln in lines:
@@ -800,7 +810,7 @@ class CostLedgerService:
 
         current = {ln.identity for ln in lines}
         for key, rec in existing.items():
-            if rec.state != "present" or key in current or key[0] in suspect:
+            if rec.state != "present" or key in current or key[0] in suspect or key[0] in unproven:
                 continue
             self._x(
                 "UPDATE cost_source_records SET state = 'absent', absent_since_generation = :g, absent_at = now(), "
@@ -825,7 +835,7 @@ class CostLedgerService:
         for d in active:
             if d in suspect:
                 state = "suspect_empty"
-            elif any(ln.is_estimated for ln in lines if ln.usage_date == d):
+            elif d in pub.estimated_days or any(ln.is_estimated for ln in lines if ln.usage_date == d):
                 state = "estimated"
             else:
                 state = "final"

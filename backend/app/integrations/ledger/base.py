@@ -9,6 +9,11 @@ from uuid import UUID
 
 from app.services.cost_ledger import CostLine, StreamIdentity
 
+# What a provider proves about one usage day, independently of whether any cost line exists for it
+DAY_FINAL = "final"  # the provider states this day is settled: no lines means a proven zero
+DAY_ESTIMATED = "estimated"  # the provider may still revise it: no lines is not a zero
+DAY_UNPROVEN = "unproven"  # nothing shows this source would hold the day's cost: no lines means unknown
+
 MAX_PAGES = 1000  # a provider that never stops paginating is an incomplete fetch, not an endless task
 
 
@@ -101,12 +106,16 @@ class StreamSpec:
 
 @dataclass(frozen=True)
 class SourcePage:
-    """One provider page for one stream. ``is_last`` is set only once every page has been read."""
+    """One provider page for one stream. ``is_last`` is set only once every page has been read.
+
+    The last page carries ``day_evidence`` for every day of the window. A day it leaves out counts as unproven.
+    """
 
     seq: int
     lines: Tuple[CostLine, ...]
     is_last: bool = False
     watermark: Optional[datetime] = None
+    day_evidence: Optional[Mapping[date, str]] = None
 
 
 @dataclass(frozen=True)

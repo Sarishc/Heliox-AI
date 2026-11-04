@@ -516,7 +516,7 @@ def azure(responses, config=None):
 def link(sub=SUB_A, skip="abc"):
     return (
         f"https://management.azure.com/subscriptions/{sub}/providers/Microsoft.CostManagement/query"
-        f"?api-version=2023-11-01&$skiptoken={skip}"
+        f"?api-version=2026-06-01&$skiptoken={skip}"
     )
 
 

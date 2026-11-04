@@ -6,11 +6,14 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 import httpx
 
 from app.integrations.ledger.base import (
+    DAY_ESTIMATED,
+    DAY_FINAL,
+    DAY_UNPROVEN,
     MAX_PAGES,
     VERIFIED,
     AdapterConfigError,
@@ -29,6 +32,9 @@ API_VERSION = "2026-06-01"
 SUBSCRIPTIONS_API_VERSION = "2022-12-01"
 BILLING_API_VERSION = "2024-04-01"
 ACTIVE_SUBSCRIPTION_STATES = frozenset({"Enabled", "Warned", "PastDue"})
+QUERY_RESOURCE = "/providers/Microsoft.CostManagement/query"
+BILLING_LIST_RESOURCE = "/billingSubscriptions"
+CONTINUATION_PARAMETERS = frozenset({"api-version", "$skiptoken", "skiptoken", "$skip", "$top"})
 SUBSCRIPTION_RE = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 BILLING_ACCOUNT_RE = re.compile(r"^[0-9A-Za-z:_-]{1,128}$")
 MAX_RETRIES = 3
@@ -53,23 +59,53 @@ BUCKETS = (
 )
 
 
-def is_trusted_continuation(url: Any, scope: str, resource: str = "/providers/microsoft.costmanagement/query") -> bool:
-    """A continuation link may only go to the management API, for the same resource in the same scope, over HTTPS."""
-    if not isinstance(url, str):
-        return False
+def canonical_continuation(
+    url: Any, scope: str, resource: str = QUERY_RESOURCE, api_version: str = API_VERSION
+) -> Optional[str]:
+    """The exact URL to send for a continuation link, or None if it could leave this resource.
+
+    HTTPX normalizes dot segments before sending, so a raw path check can validate one location while the request
+    goes to another. Validation therefore covers both the raw text and what HTTPX would really send. Links must
+    name exactly this scope and resource, with only pagination parameters; anything unusual is refused.
+    """
+    if not isinstance(url, str) or any(c in url for c in "\\#\t\r\n ") or not url.isascii():
+        return None
+    expected_path = f"{scope}{resource}".lower()
     try:
-        parts = urlsplit(url)
-        port = parts.port
+        raw = urlsplit(url)
+        raw_port = raw.port
+        sent = httpx.URL(url)
+        sent_port = sent.port
+    except (ValueError, httpx.InvalidURL):
+        return None
+    if raw.scheme != "https" or raw.hostname != MANAGEMENT_HOST or raw.username is not None or raw.password is not None:
+        return None
+    if raw_port not in (None, 443) or raw.netloc.lower() not in (MANAGEMENT_HOST, f"{MANAGEMENT_HOST}:443"):
+        return None
+    # One decoding must reach the expected path: anything still encoded, or any dot segment, is not a plain path
+    decoded = unquote(raw.path)
+    if decoded.lower() != expected_path or "%" in decoded or "//" in decoded:
+        return None
+    try:
+        pairs = parse_qsl(raw.query, keep_blank_values=True, strict_parsing=True)
     except ValueError:
-        return False
-    return (
-        parts.scheme == "https"
-        and parts.hostname == MANAGEMENT_HOST
-        and port in (None, 443)
-        and parts.username is None
-        and parts.password is None
-        and parts.path.lower().startswith(f"{scope}{resource}".lower())
-    )
+        return None
+    names = [name for name, _ in pairs]
+    if len(names) != len(set(names)) or not set(names) <= CONTINUATION_PARAMETERS:
+        return None
+    if dict(pairs).get("api-version") != api_version:
+        return None
+    if sent.scheme != "https" or sent.host != MANAGEMENT_HOST or sent_port is not None or sent.userinfo:
+        return None
+    if sent.path.lower() != expected_path or sent.fragment:
+        return None
+    return str(sent)
+
+
+def is_trusted_continuation(
+    url: Any, scope: str, resource: str = QUERY_RESOURCE, api_version: str = API_VERSION
+) -> bool:
+    return canonical_continuation(url, scope, resource, api_version) is not None
 
 
 class AzureCostManagementAdapter:
@@ -166,10 +202,11 @@ class AzureCostManagementAdapter:
                 next_link = payload.get("nextLink")
                 if not next_link:
                     break
-                if not is_trusted_continuation(next_link, scope, "/billingSubscriptions") or next_link in seen:
+                canonical = canonical_continuation(next_link, scope, BILLING_LIST_RESOURCE, BILLING_API_VERSION)
+                if canonical is None or canonical in seen:
                     raise FetchIncomplete("untrusted_continuation_url")
-                seen.add(next_link)
-                url = next_link
+                seen.add(canonical)
+                url = canonical
             else:
                 raise FetchIncomplete("too_many_pages")
         except FetchIncomplete as err:
@@ -206,14 +243,36 @@ class AzureCostManagementAdapter:
         )
         today = self._today()
         previous: Optional[tuple] = None
+        days_with_rows: set[date] = set()
         seq = -1
         for payload in self._pages(scope, body):
             lines = tuple(self._lines(payload, window, today))
+            days_with_rows.update(line.usage_date for line in lines)
             if previous is not None:
                 yield SourcePage(seq, previous)
             previous = lines
             seq += 1
-        yield SourcePage(max(seq, 0), previous or (), is_last=True, watermark=datetime.now(timezone.utc))
+        yield SourcePage(
+            max(seq, 0),
+            previous or (),
+            is_last=True,
+            watermark=datetime.now(timezone.utc),
+            day_evidence=self._evidence(window, today, days_with_rows),
+        )
+
+    def _evidence(self, window: DateWindow, today: date, days_with_rows: set[date]) -> dict[date, str]:
+        """Recent days are estimated. Under a billing scope a day with no rows is unknown, because a subscription
+        may have been billed elsewhere then. A subscription scope sees that subscription's whole history.
+        """
+        evidence = {}
+        for day in window.days:
+            if is_estimated_day(day, today, SETTLE_DAYS):
+                evidence[day] = DAY_ESTIMATED
+            elif day in days_with_rows or not self.use_billing_scope:
+                evidence[day] = DAY_FINAL
+            else:
+                evidence[day] = DAY_UNPROVEN
+        return evidence
 
     def _body(self, window: DateWindow, *, grouping: Sequence[str], subscription: Optional[str]) -> dict[str, Any]:
         dataset: dict[str, Any] = {
@@ -250,12 +309,13 @@ class AzureCostManagementAdapter:
             next_link = properties.get("nextLink") if isinstance(properties, Mapping) else None
             if not next_link:
                 return
-            if not is_trusted_continuation(next_link, scope):
+            canonical = canonical_continuation(next_link, scope)
+            if canonical is None:
                 raise FetchIncomplete("untrusted_continuation_url")
-            if next_link in seen:
+            if canonical in seen:
                 raise FetchIncomplete("repeated_page_token")
-            seen.add(next_link)
-            url = next_link
+            seen.add(canonical)
+            url = canonical
         raise FetchIncomplete("too_many_pages")
 
     def _request(self, method: str, url: str, body: Optional[Mapping[str, Any]]) -> Mapping[str, Any]:

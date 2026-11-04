@@ -48,6 +48,7 @@ class InventoryReport:
     authoritative: list[str] = field(default_factory=list)
     scope_unverified: list[str] = field(default_factory=list)
     ambiguous: list[str] = field(default_factory=list)
+    unproven_days: dict[str, list[str]] = field(default_factory=dict)  # account to days nothing can be said about
     discovery: str = "not_attempted"
 
     def as_dict(self) -> dict:

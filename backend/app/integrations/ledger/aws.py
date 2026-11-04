@@ -12,6 +12,9 @@ from app.integrations.ledger.base import (
     AdapterConfigError,
     DateWindow,
     VERIFIED,
+    DAY_ESTIMATED,
+    DAY_FINAL,
+    DAY_UNPROVEN,
     Discovery,
     FetchIncomplete,
     ScopeVerdict,
@@ -104,6 +107,7 @@ class AwsCostExplorerAdapter:
             raise AdapterConfigError("invalid_linked_accounts", "linked_account_ids must be explicit 12-digit ids")
         self._client_factory = client_factory
         self._caller: Optional[str] = None
+        self._provable_from: dict[str, date] = {}  # the first day an empty result can mean zero, per account
 
     def _ce(self) -> Any:
         return self._client_factory("ce")
@@ -150,10 +154,15 @@ class AwsCostExplorerAdapter:
                 return self._all(ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc)))
         if master != self.payer:
             return self._all(ScopeVerdict(False, "payer_mismatch"))
-        members = self._organization_members(organizations) if in_organization and caller == self.payer else None
+        joined: dict[str, date] = {}
+        members = (
+            self._organization_members(organizations, joined) if in_organization and caller == self.payer else None
+        )
         verdicts: dict[str, ScopeVerdict] = {}
         for account in self.accounts:
             key = f"aws:acct:{account}"
+            if account == caller:
+                self._provable_from[account] = date.min  # an account's own costs are its own, whatever its organization
             if isinstance(members, ScopeVerdict):
                 verdicts[key] = VERIFIED if account == caller else members
             elif members is not None:
@@ -164,6 +173,8 @@ class AwsCostExplorerAdapter:
                     verdicts[key] = ScopeVerdict(False, "account_not_active")
                 else:
                     verdicts[key] = VERIFIED
+                    if account != caller:
+                        self._provable_from[account] = joined.get(account, date.max)
             elif account == caller:
                 verdicts[key] = VERIFIED
             elif not in_organization:
@@ -175,8 +186,11 @@ class AwsCostExplorerAdapter:
     def _all(self, verdict: ScopeVerdict) -> dict[str, ScopeVerdict]:
         return {f"aws:acct:{account}": verdict for account in self.accounts}
 
-    def _organization_members(self, organizations: Any) -> Any:
-        """Account id to State from ListAccounts (Status is retired), or a verdict when it cannot be read."""
+    def _organization_members(self, organizations: Any, joined: dict[str, date]) -> Any:
+        """Account id to State from ListAccounts (Status is retired), or a verdict when it cannot be read.
+
+        Also records when each account joined: before that, this payer's bill says nothing about it.
+        """
         members: dict[str, str] = {}
         token: Optional[str] = None
         seen: set[str] = set()
@@ -189,6 +203,9 @@ class AwsCostExplorerAdapter:
                 return ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc))
             for account in response.get("Accounts", []):
                 members[str(account.get("Id"))] = str(account.get("State"))
+                timestamp = account.get("JoinedTimestamp")
+                if isinstance(timestamp, datetime):
+                    joined[str(account.get("Id"))] = timestamp.date()
             token = response.get("NextToken")
             if not token:
                 return members
@@ -233,6 +250,8 @@ class AwsCostExplorerAdapter:
         token: Optional[str] = None
         seen_tokens: set[str] = set()
         seen_days: set[date] = set()
+        estimated_days: set[date] = set()
+        days_with_lines: set[date] = set()
         expected = set(window.days)
         for seq in range(MAX_PAGES):
             kwargs: dict[str, Any] = {
@@ -254,6 +273,10 @@ class AwsCostExplorerAdapter:
                 estimated = period.get("Estimated")
                 if not isinstance(estimated, bool):
                     raise FetchIncomplete("malformed_estimated_flag")
+                if estimated:
+                    estimated_days.add(day)
+                if period.get("Groups"):
+                    days_with_lines.add(day)
                 for group in period.get("Groups", []):
                     lines.append(_line(group, day, estimated))
                 if not period.get("Groups") and _has_cost(period.get("Total")):
@@ -262,7 +285,18 @@ class AwsCostExplorerAdapter:
             if not token:
                 if seen_days != expected:
                     raise FetchIncomplete("missing_days")
-                yield SourcePage(seq, tuple(lines), is_last=True, watermark=datetime.now(timezone.utc))
+                provable_from = self._provable_from.get(account, date.max)
+                evidence = {
+                    day: (
+                        DAY_ESTIMATED
+                        if day in estimated_days
+                        else DAY_FINAL if day in days_with_lines or day >= provable_from else DAY_UNPROVEN
+                    )
+                    for day in window.days
+                }
+                yield SourcePage(
+                    seq, tuple(lines), is_last=True, watermark=datetime.now(timezone.utc), day_evidence=evidence
+                )
                 return
             if token in seen_tokens:
                 raise FetchIncomplete("repeated_page_token")

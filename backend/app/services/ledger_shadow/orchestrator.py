@@ -23,6 +23,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.integrations.ledger.base import (
+    DAY_ESTIMATED,
+    DAY_FINAL,
     AdapterConfigError,
     DateWindow,
     FetchIncomplete,
@@ -88,6 +90,7 @@ class _StreamState:
     error: Optional[str] = None
     retryable: bool = False
     watermark: Optional[datetime] = None
+    evidence: Optional[Mapping[Any, str]] = None
 
 
 @dataclass
@@ -362,6 +365,7 @@ class ShadowSyncOrchestrator:
                 state.watermark = page.watermark or state.watermark
                 if page.is_last:
                     state.complete = True
+                    state.evidence = page.day_evidence
                     return
             state.error, state.retryable = "no_final_page", True
         except FetchIncomplete as err:
@@ -458,7 +462,8 @@ class ShadowSyncOrchestrator:
                 for state in ready:
                     stream_id = state.expected.stream_id
                     lines = staged_lines(session, claim.run_id, claim.attempt, stream_id)
-                    service.publish(
+                    evidence = state.evidence or {}  # no evidence proves nothing about an empty day
+                    outcome = service.publish(
                         Publication(
                             claim.run_id,
                             claim.attempt,
@@ -468,13 +473,26 @@ class ShadowSyncOrchestrator:
                             claim.window.end,
                             lines,
                             True,
+                            estimated_days=frozenset(d for d in claim.window.days if evidence.get(d) == DAY_ESTIMATED),
+                            unproven_days=frozenset(
+                                d for d in claim.window.days if evidence.get(d) not in (DAY_FINAL, DAY_ESTIMATED)
+                            ),
                         )
                     )
+                    if outcome.unproven_days:
+                        report.unproven_days[state.expected.spec.usage_account] = [
+                            d.isoformat() for d in outcome.unproven_days
+                        ]
                     record_complete_fetch(session, claim.team_id, stream_id, run.fetch_started_at, state.watermark)
                     report.published.append(state.expected.spec.usage_account)
                 report.incomplete = [s.expected.spec.usage_account for s in states.values() if not s.complete]
                 _classify_roles(session, claim, report)
-                whole = not report.incomplete and not report.unknown and discovery_error is None
+                whole = (
+                    not report.incomplete
+                    and not report.unknown
+                    and not report.unproven_days
+                    and discovery_error is None
+                )
                 status = "success" if whole else "partial" if ready else "failed"
                 service.finish_run(claim.run_id, attempt=claim.attempt, fencing_token=claim.token, status=status)
                 clear_staging(session, claim.run_id)
@@ -549,7 +567,21 @@ def _classify_roles(session: Session, claim: _Claim, report: InventoryReport) ->
             ),
             {"s": item.stream_id, "t": claim.team_id, "ws": claim.window.start, "we": claim.window.end},
         ).scalar_one()
-        (report.authoritative if authoritative else report.witness).append(account)
+        if authoritative:
+            report.authoritative.append(account)
+        elif _has_published_days(session, claim, item.stream_id):
+            report.witness.append(account)
+
+
+def _has_published_days(session: Session, claim: _Claim, stream_id: UUID) -> bool:
+    return bool(
+        session.execute(
+            text(
+                "SELECT 1 FROM cost_source_stream_days WHERE stream_id = :s AND usage_date >= :a AND usage_date < :b LIMIT 1"
+            ),
+            {"s": stream_id, "a": claim.window.start, "b": claim.window.end},
+        ).scalar()
+    )
 
 
 def _record_outcome(

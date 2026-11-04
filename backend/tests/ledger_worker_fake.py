@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from app.integrations.ledger.base import VERIFIED, Discovery, SourcePage, StreamSpec
+from app.integrations.ledger.base import DAY_FINAL, VERIFIED, Discovery, SourcePage, StreamSpec
 from app.services.cost_ledger import normalize_line
 
 
@@ -51,4 +51,4 @@ class ConfiguredAdapter:
             amount=Decimal(self.config["amount"]),
             dim_1="Amazon EC2",
         )
-        yield SourcePage(0, (line,), is_last=True)
+        yield SourcePage(0, (line,), is_last=True, day_evidence={d: DAY_FINAL for d in window.days})

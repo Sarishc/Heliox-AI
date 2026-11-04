@@ -117,7 +117,12 @@ class Aws:
         return {"Organization": {"MasterAccountId": self.master}}
 
     def list_accounts(self, **kwargs):
-        return {"Accounts": [{"Id": i, "State": s} for i, s in self.members.items()]}
+        return {
+            "Accounts": [
+                {"Id": i, "State": s, "JoinedTimestamp": datetime(2020, 1, 1, tzinfo=timezone.utc)}
+                for i, s in self.members.items()
+            ]
+        }
 
     def get_dimension_values(self, **kwargs):
         return {"DimensionValues": []}
@@ -230,7 +235,7 @@ def test_gcp_project_not_on_this_billing_account_is_never_zero(engine, answer, c
     assert errors[account] == code
 
 
-def test_gcp_missing_export_data_is_not_a_zero_but_a_caught_up_export_is(engine):
+def test_gcp_missing_export_data_is_not_a_zero_and_neither_is_a_caught_up_export(engine):
     team = new_team(engine)
     ok = {"billingAccountName": f"billingAccounts/{GCP_BILLING}", "billingEnabled": True}
 
@@ -248,10 +253,12 @@ def test_gcp_missing_export_data_is_not_a_zero_but_a_caught_up_export_is(engine)
 
     team2 = new_team(engine)
     current = rig_with(engine, gcp_adapter(["quiet-project-1"], lambda p: ok), team2)
-    _, result = current.run(window_of(DAY))
-    assert result.status == "published"
-    [c] = completeness(engine, team2, DAY, "gcp:project:quiet-project-1")
-    assert (c.financial_state, c.converted_total_usd) == ("complete", Decimal("0"))
+    run_id, result = current.run(window_of(DAY))
+    assert result.status == "partial"
+    assert completeness(engine, team2, DAY, "gcp:project:quiet-project-1") == []  # caught up, and still unknown
+    assert metrics(engine, run_id)["ledger"]["inventory"]["unproven_days"]["gcp:project:quiet-project-1"] == [
+        DAY.isoformat()
+    ]
 
 
 SUB = "33333333-3333-3333-3333-333333333333"

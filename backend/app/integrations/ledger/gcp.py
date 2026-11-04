@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 
 from app.integrations.ledger.base import (
+    DAY_ESTIMATED,
+    DAY_FINAL,
+    DAY_UNPROVEN,
     VERIFIED,
     AdapterConfigError,
     DateWindow,
@@ -31,6 +34,7 @@ TABLE_RES = {
 }
 NO_PROJECT = "__billing_account__"  # taxes and support carry no project; they must not be dropped
 SETTLE_DAYS = 3
+INVOICE_CLOSE_DAYS = 5  # a heuristic, not a provider guarantee: the docs promise no delivery or correction deadline
 # The schema describes cost_type as "regular, tax, adjustment, or rounding error"; the stored spelling of the last
 # is not stated, so both are accepted. An unknown value stays visible as "other".
 COST_TYPE_CLASSES = {
@@ -81,8 +85,13 @@ WHERE billing_account_id = @billing_account
 
 
 class GcpBillingExportAdapter:
-    """A project with no rows is a confirmed zero only when both hold: Cloud Billing says the project is on this
-    billing account now, and the export has caught up with the whole window. Export rows prove neither.
+    """A day is known only from this project's own rows. A day with no rows is unknown, never zero.
+
+    Cloud Billing says which billing account a project is on now, not which it was on then, and a recent
+    export_time from other rows says nothing about this project. A project that moved here last month has no rows
+    for earlier days in this export whatever it spent. No provider API offers that history, so a genuine zero can't
+    be proven here: a project with truly no cost and no rows stays unknown. A zero is proven only by rows that sum
+    to it. A fresh export is still required, because without it even days with rows may be partial.
     """
 
     provider = "gcp"
@@ -187,6 +196,7 @@ class GcpBillingExportAdapter:
         rows = self._rows(QUERY.format(table=self._table_ref, project_filter=project_filter), params)
         today = self._today()
         fetched = 0
+        days_with_rows: dict[date, bool] = {}  # day to whether any of its rows is still estimated
         watermark: Optional[datetime] = None
         batch: list = []
         seq = 0
@@ -199,6 +209,7 @@ class GcpBillingExportAdapter:
                     fetched += 1
                     line, exported = self._line(row, window, today)
                     batch.append(line)
+                    days_with_rows[line.usage_date] = days_with_rows.get(line.usage_date, False) or line.is_estimated
                     if exported is not None and (watermark is None or exported > watermark):
                         watermark = exported
                 seq += 1
@@ -210,7 +221,11 @@ class GcpBillingExportAdapter:
         if total is not None and total != fetched:
             raise FetchIncomplete("row_count_mismatch", retryable=True)
         self._require_export_caught_up(window, watermark)
-        yield SourcePage(max(seq - 1, 0), tuple(batch), is_last=True, watermark=watermark)
+        evidence = {
+            day: (DAY_ESTIMATED if days_with_rows[day] else DAY_FINAL) if day in days_with_rows else DAY_UNPROVEN
+            for day in window.days
+        }
+        yield SourcePage(max(seq - 1, 0), tuple(batch), is_last=True, watermark=watermark, day_evidence=evidence)
 
     def _require_export_caught_up(self, window: DateWindow, watermark: Optional[datetime]) -> None:
         """A silent day is a zero only once the export has moved past it, in this table for any project."""
@@ -286,11 +301,19 @@ class GcpBillingExportAdapter:
                 fx_source=source,
                 dim_1=str(service_id)[:256],
                 line_key=str(invoice)[:128],
-                is_estimated=is_estimated_day(day, today, SETTLE_DAYS),
+                is_estimated=_still_estimated(day, today),
             )
         except InvalidCostLine:
             raise FetchIncomplete("malformed_row") from None
         return line, exported if isinstance(exported, datetime) else None
+
+
+def _still_estimated(day: date, today: date) -> bool:
+    """A day stays estimated until its usage month should have been invoiced. Final does not mean immutable:
+    a late correction after that is still applied, with its audit trail, on the next re-fetch of the window.
+    """
+    next_month = date(day.year + day.month // 12, day.month % 12 + 1, 1)
+    return is_estimated_day(day, today, SETTLE_DAYS) or today < next_month + timedelta(days=INVOICE_CLOSE_DAYS)
 
 
 def _usd(amount: Decimal, currency: str, rate_min: Any, rate_max: Any):

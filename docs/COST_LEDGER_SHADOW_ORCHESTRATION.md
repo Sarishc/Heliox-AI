@@ -51,11 +51,11 @@ A second view of the same account has a different vantage, so the ledger treats 
 
 ## Completeness guarantees by provider
 
-A stream is complete only when the adapter yields a page with `is_last`, which happens after all of the following:
+A stream's fetch is complete only when the adapter yields a page with `is_last`. That says the fetch finished, not that each day is known; see "What an empty day means". It happens after all of the following:
 
 - **AWS:** every `NextPageToken` is followed; a repeated token, a failed page or an absent day in the window makes it incomplete. A payer caller is authoritative for its linked accounts. A member caller can only claim itself.
-- **GCP:** every result page is read and the row count matches `total_rows`. The export's latest `export_time` must have passed the window end, otherwise a silent day proves nothing.
-- **Azure:** every `nextLink` is followed, only over HTTPS to `management.azure.com` within the same scope. 401 refreshes the token once; 429 and 5xx retry a bounded number of times. 401 after a refresh, 403 and 404 mean the subscription is inaccessible, never zero.
+- **GCP:** every result page is read and the row count matches `total_rows`. The export's latest `export_time` must have passed the window end. That is necessary, because days with rows could otherwise be partial, but it does not make a silent day a zero.
+- **Azure:** every `nextLink` is followed only after `canonical_continuation` validates it. HTTPX normalizes dot segments before sending, so both the raw text and what HTTPX would send must name exactly this host, scope and resource, with only pagination parameters and this API version; the validated form is what gets sent. 401 refreshes the token once; 429 and 5xx retry a bounded number of times. 401 after a refresh, 403 and 404 mean the subscription is inaccessible, never zero.
 
 ## Scope verification
 
@@ -69,6 +69,39 @@ A stream with no rows is a confirmed zero only if the provider itself proves the
 | Azure, billing scope | The billing account's `billingSubscriptions` list contains the subscription | Billing reader | Accounts or agreement types whose list omits `subscriptionId` are unverified |
 
 AWS `SUSPENDED` accounts and disabled GCP projects are refused even though they may have historical cost. This fails closed on purpose: such a day stays unknown rather than wrong.
+
+## What an empty day means
+
+Whether a day has cost lines and whether anything proves the day are separate questions. Each adapter's last page states `final`, `estimated` or `unproven` for every day of the window, and a day it leaves out counts as `unproven`.
+
+| Evidence | Empty day | Written |
+|---|---|---|
+| `final` | proven zero | stream day and coverage, state `final` |
+| `estimated` | not a zero | stream day and coverage, state `estimated` |
+| `unproven` | unknown | nothing; the run ends `partial` and `unproven_days` lists the day |
+
+A day with lines is known from its lines, whatever the evidence says. If an unproven day previously had cost, it is held as `suspect_empty`, never retired or zeroed.
+
+| Provider | `final` for an empty day | Otherwise |
+|---|---|---|
+| AWS | `Estimated` is false, and the account is the caller's own or the day is on or after its `JoinedTimestamp` | `Estimated` true is `estimated`; before joining, or with no join date, is `unproven` |
+| Azure, subscription scope | Older than the settle period (3 days, a heuristic) | Recent days are `estimated` |
+| Azure, billing scope | Never | Recent days are `estimated`, older ones `unproven`, because a subscription may have been billed elsewhere then |
+| GCP | Never | Always `unproven` |
+
+### Restriction: GCP can't prove a genuine zero
+
+Cloud Billing says which billing account a project is on now, not which it was on during a window, and no API offers that history. A recent `export_time` from other rows says nothing about one project. A project that moved here last month has no rows for earlier days in this export, whatever it spent. So a GCP project-day with no rows stays unknown, including for projects that really cost nothing, and runs with such days end `partial`. A zero is proven only by rows that sum to it. The stream for rows with no project is usually empty, so GCP runs are usually `partial`.
+
+A GCP day with rows stays `estimated` until 5 days after its usage month ends. That is a heuristic: Google documents no delivery or correction deadline. `final` never means immutable. A later correction is applied on the next re-fetch, with its audit trail.
+
+## Totals and inventory
+
+`shadow_totals` returns per-bucket subtotals of what the ledger holds. Its `scope` is `known_contributions`: `complete` there says nothing about expected accounts with no records, so it is never a tenant or provider total.
+
+`inventory_total(session, team_id, provider, day)` measures a day against every account the team expects. `known_usd` is always labelled as known. `confirmed_usd` is set only when every expected account is financially complete. `require_complete_total` raises `IncompleteInventory` otherwise, and is what a caller needing a real total must use.
+
+**Limitation under migration 038:** inventory has no history, so "expected" means the bindings active now. An account enrolled later reads as unknown for older days. An account revoked since can't complete a total for days where it has data, but a day where it had no data no longer counts it as missing. Effective-dated bindings need a migration.
 
 ## Source identity and overlap
 
@@ -116,6 +149,9 @@ Request and response mappings were compared with the published API references on
 - `DATE(usage_start_time)` uses UTC. The docs state no timezone for usage days, so days may differ from the billing console.
 - Azure result column names (`Cost`, `CostUSD`, `UsageDate`, `Currency`) and that `Currency` is returned without being grouped. A missing column fails closed.
 - Whether Azure's `to` is inclusive. It isn't documented, so the request names the last second of the last day.
+- Whether real Azure `nextLink` values match the accepted form: this API version and only `$skiptoken`, `skiptoken`, `$skip` and `$top`. A real link with another parameter fails closed, so pagination would stop as incomplete rather than proceed.
+- The settle heuristics: 3 days on Azure and GCP, and 5 days after month end on GCP. Neither is a provider guarantee.
+- Whether AWS `Estimated: false` on a day with no groups is a provider statement of zero cost. It's treated as one, because it is the provider's explicit per-day flag.
 - AWS `RECORD_TYPE` values, which aren't enumerated. Unknown values stay visible as `other`. AWS account `State` values beyond `ACTIVE`, which aren't listed; anything else is refused.
 - Whether a day with no groups reports a zero `Total` in Cost Explorer. A non-zero one fails closed.
 - Azure `204` from the query API, which is documented but undefined. It fails closed, so a provider using it for "no cost" would never complete.

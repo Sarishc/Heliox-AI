@@ -1,0 +1,90 @@
+name: Release GPU Agent
+
+# Manual only: a merge to main never publishes. Run this workflow from main, then approve it in the
+# release-artifacts environment.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to publish, such as 1.4.0"
+        required: true
+        type: string
+      promote_latest:
+        description: "Also move the latest tag, which default installs use"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-gpu-agent
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Test & Publish Agent Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment: release-artifacts
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Test agent
+        run: |
+          pip install -r agent/requirements.txt pytest
+          python -m pytest agent/tests -q
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Choose image tags
+        id: tags
+        env:
+          VERSION: ${{ inputs.version }}
+          PROMOTE_LATEST: ${{ inputs.promote_latest }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version must look like 1.4.0 or 1.4.0-rc.1"
+            exit 1
+          fi
+
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/heliox-agent"
+
+          # A published version never changes. Only a registry "not found" means the tag is free.
+          if LOOKUP=$(docker buildx imagetools inspect "$IMAGE:$VERSION" 2>&1); then
+            echo "::error::$IMAGE:$VERSION already exists"
+            exit 1
+          elif [[ "$LOOKUP" != *": not found"* ]]; then
+            echo "::error::Couldn't confirm whether $IMAGE:$VERSION exists"
+            exit 1
+          fi
+
+          {
+            echo "list<<EOF"
+            echo "$IMAGE:$VERSION"
+            if [[ "$PROMOTE_LATEST" == "true" ]]; then
+              echo "$IMAGE:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push agent image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./agent
+          push: true
+          tags: ${{ steps.tags.outputs.list }}

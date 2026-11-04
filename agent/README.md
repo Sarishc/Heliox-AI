@@ -22,8 +22,10 @@ Heliox measures idle waste as cost × (1 − busy ÷ allocated).
 ### Kubernetes (recommended)
 
 Install with the Helm chart (`charts/heliox`, `agent.*` values) or run
-`heliox agent deploy`. Both run the `ghcr.io/sarishc/heliox-agent` image, which
-CI publishes from `agent/Dockerfile` on every push to `main`.
+`heliox agent deploy`. Both run the `ghcr.io/sarishc/heliox-agent` image. CI
+builds it from `agent/Dockerfile` but doesn't publish it: publishing is the manual
+`Release GPU Agent` workflow, which needs approval. `latest` moves only when that
+run asks for it, so a default install stays on the last promoted release.
 
 GPU nodes need the NVIDIA container runtime. If it isn't the default runtime,
 set `agent.runtimeClassName=nvidia`.

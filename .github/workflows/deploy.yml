@@ -1,14 +1,9 @@
 name: Deploy to AWS
 
+# Manual only: a merge to main never deploys. Run this workflow from main, then approve it in the
+# production environment. Each job waits for its own approval, so no image is pushed before the first one.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      force_deploy:
-        description: "Force deploy even if tests fail"
-        required: false
-        default: "false"
 
 concurrency:
   group: deploy-production
@@ -25,6 +20,8 @@ jobs:
   build:
     name: Build & Push to ECR
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment: production
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
       image_uri: ${{ steps.meta.outputs.uri }}
@@ -38,6 +35,30 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      # App Runner can deploy a new image on its own, which would skip the deploy job's approval
+      - name: Refuse to push while App Runner auto-deploys
+        run: |
+          ARN=$(aws apprunner list-services \
+            --region "$AWS_REGION" \
+            --query "ServiceSummaryList[?ServiceName=='$APP_RUNNER_SERVICE_NAME'].ServiceArn" \
+            --output text)
+
+          if [[ -z "$ARN" || "$ARN" == "None" ]]; then
+            echo "::error::App Runner service '$APP_RUNNER_SERVICE_NAME' not found, so its deployment mode is unknown."
+            exit 1
+          fi
+
+          AUTO_DEPLOY=$(aws apprunner describe-service \
+            --service-arn "$ARN" \
+            --region "$AWS_REGION" \
+            --query 'Service.SourceConfiguration.AutoDeploymentsEnabled' \
+            --output text)
+
+          if [[ "${AUTO_DEPLOY,,}" != "false" ]]; then
+            echo "::error::App Runner automatic deployment must be off before pushing an image (found: $AUTO_DEPLOY)."
+            exit 1
+          fi
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -62,9 +83,7 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
-          tags: |
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.tag }}
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
@@ -86,6 +105,7 @@ jobs:
     name: Deploy to App Runner
     runs-on: ubuntu-latest
     needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     environment: production
 
     steps:
@@ -124,7 +144,8 @@ jobs:
               \"ImageRepository\": {
                 \"ImageIdentifier\": \"${{ needs.build.outputs.image_uri }}\",
                 \"ImageRepositoryType\": \"ECR\"
-              }
+              },
+              \"AutoDeploymentsEnabled\": false
             }" > /dev/null
 
           echo "Deployment triggered with image: ${{ needs.build.outputs.image_uri }}"

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.integrations.ledger.base import (
     DAY_ESTIMATED,
     DAY_FINAL,
+    DAY_PARTIAL,
     AdapterConfigError,
     DateWindow,
     FetchIncomplete,
@@ -477,6 +478,7 @@ class ShadowSyncOrchestrator:
                             unproven_days=frozenset(
                                 d for d in claim.window.days if evidence.get(d) not in (DAY_FINAL, DAY_ESTIMATED)
                             ),
+                            partial_days=frozenset(d for d in claim.window.days if evidence.get(d) == DAY_PARTIAL),
                         )
                     )
                     if outcome.unproven_days:
@@ -485,6 +487,15 @@ class ShadowSyncOrchestrator:
                         ]
                     if outcome.invalidated_claims:
                         report.invalidated_claims[state.expected.spec.usage_account] = outcome.invalidated_claims
+                    if outcome.partial_days:
+                        report.partial_days[state.expected.spec.usage_account] = [
+                            d.isoformat() for d in outcome.partial_days
+                        ]
+                    if outcome.held_days:
+                        report.held_days[state.expected.spec.usage_account] = [
+                            {**held, "provider_evidence": evidence.get(date.fromisoformat(held["day"]))}
+                            for held in outcome.held_days
+                        ]
                     record_complete_fetch(session, claim.team_id, stream_id, run.fetch_started_at, state.watermark)
                     report.published.append(state.expected.spec.usage_account)
                 report.incomplete = [s.expected.spec.usage_account for s in states.values() if not s.complete]
@@ -493,6 +504,8 @@ class ShadowSyncOrchestrator:
                     not report.incomplete
                     and not report.unknown
                     and not report.unproven_days
+                    and not report.partial_days
+                    and not report.held_days
                     and discovery_error is None
                 )
                 status = "success" if whole else "partial" if ready else "failed"

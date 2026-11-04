@@ -72,19 +72,24 @@ AWS `SUSPENDED` accounts and disabled GCP projects are refused even though they 
 
 ## What an empty day means
 
-Whether a day has cost lines and whether anything proves the day are separate questions. Each adapter's last page states `final`, `estimated` or `unproven` for every day of the window, and a day it leaves out counts as `unproven`.
+Whether a day has cost lines and whether anything proves the day are separate questions. Each adapter's last page states `final`, `estimated`, `unproven` or `partial` for every day of the window, and a day it leaves out counts as `unproven`.
 
 | Evidence | Empty day | Written |
 |---|---|---|
 | `final` | proven zero | stream day and coverage, state `final` |
 | `estimated` | not a zero | stream day and coverage, state `estimated` |
 | `unproven` | unknown | nothing; the run ends `partial` and `unproven_days` lists the day |
+| `partial` | unknown, as `unproven` | with lines, the lines and a `suspect_empty` stream day and coverage; the run ends `partial` and `partial_days` lists the day |
 
-A day with lines is known from its lines, whatever the evidence says. An unproven empty day that was never published writes nothing. One that was already published, whether it held cost or a zero, is held as `suspect_empty`: records and observations stay, nothing is retired or zeroed, no complete total can be read from it, and the run ends `partial`. The run's `inventory.invalidated_claims` keeps the state, generation and run of the claim that ended. Only a newer fetch that holds the lease can do this: an older result is ignored as stale, and a later proven fetch settles the day again.
+A day with lines is known from its lines, unless the evidence is `partial`: then the lines are real and kept, but cannot be the whole day, so no complete total can be read from it. An unproven empty day that was never published writes nothing. One that was already published, whether it held cost or a zero, is held as `suspect_empty`: records and observations stay, nothing is retired or zeroed, no complete total can be read from it, and the run ends `partial`. The run's `inventory.invalidated_claims` keeps the state, generation and run of the claim that ended. Only a newer fetch that holds the lease can do this: an older result is ignored as stale, and a later proven fetch settles the day again.
+
+If the provider states a day is settled (`final` or `estimated`) and empty while the ledger holds cost for it, that is the ledger's anomaly, not missing proof. The day is held as `suspect_empty` with its records kept, the run ends `partial`, and `inventory.held_days` lists it with the provider's evidence and the claim it held before. It never appears in `unproven_days`. It recovers when a newer fetch returns its lines.
+
+Migration 038 has no separate "incomplete" state, so `suspect_empty` also covers a partial day, which does hold lines. Tell the two apart with `record_count` and the run's `partial_days` and `held_days`.
 
 | Provider | `final` for an empty day | Otherwise |
 |---|---|---|
-| AWS | `Estimated` is false, and the account is the caller's own or the day is on or after its first full UTC day in the organization | `Estimated` true is `estimated`; before that day, including the joining day itself unless it joined at exactly 00:00 UTC, or with no join time or one with no UTC offset, is `unproven` |
+| AWS | `Estimated` is false, and the account is the caller's own or the day is on or after its first full UTC day in the organization | `Estimated` true is `estimated`; before that day, or with no join time or one with no UTC offset, is `unproven`. The joining day itself, unless it joined at exactly 00:00 UTC, is `partial` with lines and `unproven` without, whatever `Estimated` says |
 | Azure, subscription scope | Older than the settle period (3 days, a heuristic) | Recent days are `estimated` |
 | Azure, billing scope | Never | Recent days are `estimated`, older ones `unproven`, because a subscription may have been billed elsewhere then |
 | GCP | Never | Always `unproven` |

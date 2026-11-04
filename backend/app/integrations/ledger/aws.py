@@ -14,6 +14,7 @@ from app.integrations.ledger.base import (
     VERIFIED,
     DAY_ESTIMATED,
     DAY_FINAL,
+    DAY_PARTIAL,
     DAY_UNPROVEN,
     Discovery,
     FetchIncomplete,
@@ -108,6 +109,7 @@ class AwsCostExplorerAdapter:
         self._client_factory = client_factory
         self._caller: Optional[str] = None
         self._provable_from: dict[str, date] = {}  # the first day an empty result can mean zero, per account
+        self._joining_day: dict[str, date] = {}  # the day an account joined part of the way through, per account
 
     def _ce(self) -> Any:
         return self._client_factory("ce")
@@ -138,6 +140,7 @@ class AwsCostExplorerAdapter:
 
     def verify_scope(self) -> Mapping[str, ScopeVerdict]:
         caller = self._caller_account()
+        self._joining_day = {}
         organizations = self._client_factory("organizations")
         in_organization = True
         try:
@@ -154,11 +157,9 @@ class AwsCostExplorerAdapter:
                 return self._all(ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc)))
         if master != self.payer:
             return self._all(ScopeVerdict(False, "payer_mismatch"))
-        provable_from: dict[str, date] = {}
+        joined: dict[str, datetime] = {}
         members = (
-            self._organization_members(organizations, provable_from)
-            if in_organization and caller == self.payer
-            else None
+            self._organization_members(organizations, joined) if in_organization and caller == self.payer else None
         )
         verdicts: dict[str, ScopeVerdict] = {}
         for account in self.accounts:
@@ -176,7 +177,10 @@ class AwsCostExplorerAdapter:
                 else:
                     verdicts[key] = VERIFIED
                     if account != caller:
-                        self._provable_from[account] = provable_from.get(account, date.max)
+                        joined_at = joined.get(account)
+                        self._provable_from[account] = _first_full_utc_day(joined_at) if joined_at else date.max
+                        if joined_at and joined_at.time() != time.min:
+                            self._joining_day[account] = joined_at.date()
             elif account == caller:
                 verdicts[key] = VERIFIED
             elif not in_organization:
@@ -188,11 +192,11 @@ class AwsCostExplorerAdapter:
     def _all(self, verdict: ScopeVerdict) -> dict[str, ScopeVerdict]:
         return {f"aws:acct:{account}": verdict for account in self.accounts}
 
-    def _organization_members(self, organizations: Any, provable_from: dict[str, date]) -> Any:
+    def _organization_members(self, organizations: Any, joined: dict[str, datetime]) -> Any:
         """Account id to State from ListAccounts (Status is retired), or a verdict when it cannot be read.
 
-        Also records each account's first full UTC day after joining: until then, this payer's bill is not
-        known to hold all of the account's cost, so an empty result proves nothing.
+        Also records when each account joined, in UTC: until its first full UTC day after that, this payer's
+        bill is not known to hold all of the account's cost.
         """
         members: dict[str, str] = {}
         token: Optional[str] = None
@@ -206,9 +210,9 @@ class AwsCostExplorerAdapter:
                 return ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc))
             for account in response.get("Accounts", []):
                 members[str(account.get("Id"))] = str(account.get("State"))
-                first_full_day = _first_full_utc_day(account.get("JoinedTimestamp"))
-                if first_full_day is not None:
-                    provable_from[str(account.get("Id"))] = first_full_day
+                joined_at = _utc(account.get("JoinedTimestamp"))
+                if joined_at is not None:
+                    joined[str(account.get("Id"))] = joined_at
             token = response.get("NextToken")
             if not token:
                 return members
@@ -289,14 +293,15 @@ class AwsCostExplorerAdapter:
                 if seen_days != expected:
                     raise FetchIncomplete("missing_days")
                 provable_from = self._provable_from.get(account, date.max)
-                evidence = {
-                    day: (
-                        DAY_ESTIMATED
-                        if day in estimated_days
-                        else DAY_FINAL if day in days_with_lines or day >= provable_from else DAY_UNPROVEN
-                    )
-                    for day in window.days
-                }
+                joining_day = self._joining_day.get(account)
+                evidence = {}
+                for day in window.days:
+                    if day == joining_day:  # cost from earlier that day went to the previous payer, or nowhere known
+                        evidence[day] = DAY_PARTIAL if day in days_with_lines else DAY_UNPROVEN
+                    elif day in estimated_days:
+                        evidence[day] = DAY_ESTIMATED
+                    else:
+                        evidence[day] = DAY_FINAL if day in days_with_lines or day >= provable_from else DAY_UNPROVEN
                 yield SourcePage(
                     seq, tuple(lines), is_last=True, watermark=datetime.now(timezone.utc), day_evidence=evidence
                 )
@@ -327,12 +332,15 @@ def _is_retryable(exc: Exception) -> bool:
     return True  # network or SDK failure with no provider verdict
 
 
-def _first_full_utc_day(joined: Any) -> Optional[date]:
+def _utc(joined: Any) -> Optional[datetime]:
     """A timestamp with no UTC offset can't be placed on a UTC day, so it proves nothing, like a missing one."""
     if not isinstance(joined, datetime) or joined.utcoffset() is None:
         return None
-    utc = joined.astimezone(timezone.utc)
-    return utc.date() if utc.time() == time.min else utc.date() + timedelta(days=1)
+    return joined.astimezone(timezone.utc)
+
+
+def _first_full_utc_day(joined_at: datetime) -> date:
+    return joined_at.date() if joined_at.time() == time.min else joined_at.date() + timedelta(days=1)
 
 
 def _period(window: DateWindow) -> dict[str, str]:

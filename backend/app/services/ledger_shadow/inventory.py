@@ -50,6 +50,8 @@ class InventoryReport:
     ambiguous: list[str] = field(default_factory=list)
     unproven_days: dict[str, list[str]] = field(default_factory=dict)  # account to days nothing can be said about
     invalidated_claims: dict[str, list[dict]] = field(default_factory=dict)  # the earlier claims those days ended
+    partial_days: dict[str, list[str]] = field(default_factory=dict)  # account to days whose lines are only part
+    held_days: dict[str, list[dict]] = field(default_factory=dict)  # provider proved them empty, the ledger holds cost
     discovery: str = "not_attempted"
 
     def as_dict(self) -> dict:

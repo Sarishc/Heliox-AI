@@ -190,7 +190,9 @@ class Publication:
     complete: bool
     # What the provider proves per day, apart from lines. Both default to empty, meaning every empty day is settled.
     estimated_days: frozenset = frozenset()  # an empty day here is estimated, not a final zero
-    unproven_days: frozenset = frozenset()  # an empty day here says nothing: it is not written at all
+    # An empty day here says nothing. It is not written at all, unless it was already published: then what was
+    # published can no longer stand, and the day is held as suspect_empty with its records kept.
+    unproven_days: frozenset = frozenset()
 
 
 @dataclass
@@ -207,6 +209,7 @@ class PublishOutcome:
     incomplete: bool = False
     published_days: list[date] = field(default_factory=list)
     unproven_days: list[date] = field(default_factory=list)
+    invalidated_claims: list[dict] = field(default_factory=list)  # what each held unproven day said before this run
     new_shadow_facts: int = 0
 
 
@@ -720,7 +723,7 @@ class CostLedgerService:
         prior = {
             r.usage_date: r
             for r in self._x(
-                "SELECT usage_date, generation, last_fetch_started_at FROM cost_source_stream_days "
+                "SELECT usage_date, generation, last_fetch_started_at, state, last_run_id FROM cost_source_stream_days "
                 "WHERE stream_id = :s AND usage_date = ANY(:d)",
                 s=pub.stream_id,
                 d=days,
@@ -745,12 +748,25 @@ class CostLedgerService:
             d
             for d in active
             if d not in with_lines
-            and any(k[0] == d and r.state == "present" and r.amount != 0 for k, r in existing.items())
+            and (
+                any(k[0] == d and r.state == "present" and r.amount != 0 for k, r in existing.items())
+                or (d in prior and d in pub.unproven_days)
+            )
         }
         out.held = len(suspect)
-        unproven = {d for d in pub.unproven_days if d in gen and d not in with_lines and d not in suspect}
-        active = [d for d in active if d not in unproven]
+        unproven = {d for d in pub.unproven_days if d in gen and d not in with_lines}
+        active = [d for d in active if d not in unproven or d in suspect]
         out.unproven_days = sorted(unproven)
+        out.invalidated_claims = [
+            {
+                "day": d.isoformat(),
+                "previous_state": prior[d].state,
+                "previous_generation": prior[d].generation,
+                "previous_run_id": str(prior[d].last_run_id),
+            }
+            for d in sorted(unproven & suspect)
+            if d in prior and prior[d].state != "suspect_empty"
+        ]
 
         obs_base = dict(t=run.team_id, run=pub.run_id, c=run.connection_id, a=pub.attempt, tok=pub.fencing_token)
         for ln in lines:

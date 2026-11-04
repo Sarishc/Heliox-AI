@@ -483,6 +483,8 @@ class ShadowSyncOrchestrator:
                         report.unproven_days[state.expected.spec.usage_account] = [
                             d.isoformat() for d in outcome.unproven_days
                         ]
+                    if outcome.invalidated_claims:
+                        report.invalidated_claims[state.expected.spec.usage_account] = outcome.invalidated_claims
                     record_complete_fetch(session, claim.team_id, stream_id, run.fetch_started_at, state.watermark)
                     report.published.append(state.expected.spec.usage_account)
                 report.incomplete = [s.expected.spec.usage_account for s in states.values() if not s.complete]

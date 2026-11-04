@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 
@@ -154,9 +154,11 @@ class AwsCostExplorerAdapter:
                 return self._all(ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc)))
         if master != self.payer:
             return self._all(ScopeVerdict(False, "payer_mismatch"))
-        joined: dict[str, date] = {}
+        provable_from: dict[str, date] = {}
         members = (
-            self._organization_members(organizations, joined) if in_organization and caller == self.payer else None
+            self._organization_members(organizations, provable_from)
+            if in_organization and caller == self.payer
+            else None
         )
         verdicts: dict[str, ScopeVerdict] = {}
         for account in self.accounts:
@@ -174,7 +176,7 @@ class AwsCostExplorerAdapter:
                 else:
                     verdicts[key] = VERIFIED
                     if account != caller:
-                        self._provable_from[account] = joined.get(account, date.max)
+                        self._provable_from[account] = provable_from.get(account, date.max)
             elif account == caller:
                 verdicts[key] = VERIFIED
             elif not in_organization:
@@ -186,10 +188,11 @@ class AwsCostExplorerAdapter:
     def _all(self, verdict: ScopeVerdict) -> dict[str, ScopeVerdict]:
         return {f"aws:acct:{account}": verdict for account in self.accounts}
 
-    def _organization_members(self, organizations: Any, joined: dict[str, date]) -> Any:
+    def _organization_members(self, organizations: Any, provable_from: dict[str, date]) -> Any:
         """Account id to State from ListAccounts (Status is retired), or a verdict when it cannot be read.
 
-        Also records when each account joined: before that, this payer's bill says nothing about it.
+        Also records each account's first full UTC day after joining: until then, this payer's bill is not
+        known to hold all of the account's cost, so an empty result proves nothing.
         """
         members: dict[str, str] = {}
         token: Optional[str] = None
@@ -203,9 +206,9 @@ class AwsCostExplorerAdapter:
                 return ScopeVerdict(False, "scope_lookup_failed", _is_retryable(exc))
             for account in response.get("Accounts", []):
                 members[str(account.get("Id"))] = str(account.get("State"))
-                timestamp = account.get("JoinedTimestamp")
-                if isinstance(timestamp, datetime):
-                    joined[str(account.get("Id"))] = timestamp.date()
+                first_full_day = _first_full_utc_day(account.get("JoinedTimestamp"))
+                if first_full_day is not None:
+                    provable_from[str(account.get("Id"))] = first_full_day
             token = response.get("NextToken")
             if not token:
                 return members
@@ -322,6 +325,14 @@ def _is_retryable(exc: Exception) -> bool:
     if code:
         return code in THROTTLE_CODES
     return True  # network or SDK failure with no provider verdict
+
+
+def _first_full_utc_day(joined: Any) -> Optional[date]:
+    """A timestamp with no UTC offset can't be placed on a UTC day, so it proves nothing, like a missing one."""
+    if not isinstance(joined, datetime) or joined.utcoffset() is None:
+        return None
+    utc = joined.astimezone(timezone.utc)
+    return utc.date() if utc.time() == time.min else utc.date() + timedelta(days=1)
 
 
 def _period(window: DateWindow) -> dict[str, str]:

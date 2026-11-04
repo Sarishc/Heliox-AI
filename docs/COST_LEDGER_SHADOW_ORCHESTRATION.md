@@ -80,11 +80,11 @@ Whether a day has cost lines and whether anything proves the day are separate qu
 | `estimated` | not a zero | stream day and coverage, state `estimated` |
 | `unproven` | unknown | nothing; the run ends `partial` and `unproven_days` lists the day |
 
-A day with lines is known from its lines, whatever the evidence says. If an unproven day previously had cost, it is held as `suspect_empty`, never retired or zeroed.
+A day with lines is known from its lines, whatever the evidence says. An unproven empty day that was never published writes nothing. One that was already published, whether it held cost or a zero, is held as `suspect_empty`: records and observations stay, nothing is retired or zeroed, no complete total can be read from it, and the run ends `partial`. The run's `inventory.invalidated_claims` keeps the state, generation and run of the claim that ended. Only a newer fetch that holds the lease can do this: an older result is ignored as stale, and a later proven fetch settles the day again.
 
 | Provider | `final` for an empty day | Otherwise |
 |---|---|---|
-| AWS | `Estimated` is false, and the account is the caller's own or the day is on or after its `JoinedTimestamp` | `Estimated` true is `estimated`; before joining, or with no join date, is `unproven` |
+| AWS | `Estimated` is false, and the account is the caller's own or the day is on or after its first full UTC day in the organization | `Estimated` true is `estimated`; before that day, including the joining day itself unless it joined at exactly 00:00 UTC, or with no join time or one with no UTC offset, is `unproven` |
 | Azure, subscription scope | Older than the settle period (3 days, a heuristic) | Recent days are `estimated` |
 | Azure, billing scope | Never | Recent days are `estimated`, older ones `unproven`, because a subscription may have been billed elsewhere then |
 | GCP | Never | Always `unproven` |

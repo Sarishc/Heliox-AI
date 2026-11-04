@@ -27,8 +27,10 @@ from test_ledger_shadow_orchestration_postgres import (
     A,
     GcpClient,
     Rig,
+    WorkerCrash,
     account_id,
     gcp_rows,
+    legacy_untouched,
     line,
     metrics,
     money,
@@ -41,8 +43,14 @@ from test_ledger_shadow_orchestration_postgres import (
 
 from app.integrations.ledger.azure import AzureCostManagementAdapter, canonical_continuation, is_trusted_continuation
 from app.integrations.ledger.base import DAY_ESTIMATED, DAY_FINAL, DAY_UNPROVEN, FetchIncomplete, SourcePage
-from app.services.cost_ledger import CostLedgerService, Publication
-from app.services.ledger_shadow.coverage import IncompleteInventory, inventory_total, require_complete_total
+from app.services.cost_ledger import CostLedgerService, LedgerFenced, Publication
+from app.services.ledger_shadow.coverage import (
+    IncompleteInventory,
+    inventory_total,
+    require_complete_total,
+    stream_coverage,
+)
+from app.services.ledger_shadow.orchestrator import ShadowSyncOrchestrator
 
 TODAY = date(2026, 10, 1)
 SUB_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -636,3 +644,450 @@ def test_an_account_no_longer_expected_cannot_complete_a_total(engine):
     report = inventory(engine, team, "aws", day)
     assert (report.state, report.confirmed_usd, report.known_usd) == ("incomplete", None, Decimal("10.00"))
     assert records(engine, rig.streams[account]) == 1
+
+
+# A newer fetch that proves nothing about a day that was already published
+
+
+def published(engine, team, day, evidence=DAY_FINAL, lines=()):
+    account = account_id()
+    rig = Rig(engine, {account: [list(lines)]}, team=team, evidence={day: evidence})
+    run_id, result = rig.run(window_of(day))
+    return rig, account, run_id, result
+
+
+def unprove(rig, account, day):
+    rig.adapter.evidence = {day: DAY_UNPROVEN}
+    return rig.run(window_of(day), {account: [[]]})
+
+
+def stream_day(engine, sid, day):
+    with engine.connect() as c:
+        return c.execute(
+            text(
+                "SELECT state, generation, record_count, converted_total_usd, last_run_id FROM cost_source_stream_days "
+                "WHERE stream_id = :s AND usage_date = :d"
+            ),
+            {"s": sid, "d": day},
+        ).one_or_none()
+
+
+def financial(engine, team, day, sid):
+    with Session(engine) as s:
+        return stream_coverage(s, sid, window_of(day))
+
+
+def assert_no_confirmed_total(engine, team, day, known):
+    report = inventory(engine, team, "aws", day)
+    assert (report.state, report.confirmed_usd, report.known_usd) == ("incomplete", None, known)
+    with Session(engine) as s, pytest.raises(IncompleteInventory):
+        require_complete_total(s, team, "aws", day)
+
+
+@pytest.mark.parametrize(
+    "evidence,before", [(DAY_FINAL, ("final", "complete")), (DAY_ESTIMATED, ("estimated", "estimated"))]
+)
+def test_a_newer_unproven_fetch_ends_an_earlier_zero_claim(engine, evidence, before):
+    team, day = new_team(engine), date(2026, 3, 1)
+    rig, account, first_run, result = published(engine, team, day, evidence)
+    sid = rig.streams[account]
+    assert result.status == "published"
+    assert stream_day(engine, sid, day).state == evidence
+    assert coverage_row(engine, team, account) == evidence
+    [c] = completeness(engine, team, day, account)
+    assert (c.fetch_state, c.financial_state, c.converted_total_usd) == (*before, Decimal("0"))
+
+    run_id, result = unprove(rig, account, day)
+
+    assert result.status == "partial"
+    assert result.report.unproven_days == {account: [day.isoformat()]}
+    assert stream_day(engine, sid, day).state == "suspect_empty"
+    assert coverage_row(engine, team, account) == "suspect_empty"
+    [c] = completeness(engine, team, day, account)
+    assert (c.fetch_state, c.financial_state) == ("suspect_empty", "incomplete")
+    assert financial(engine, team, day, sid).days[0].financial_state == "incomplete"
+    assert financial(engine, team, day, sid).financially_complete_through is None
+    assert_no_confirmed_total(engine, team, day, Decimal("0.00"))
+    assert metrics(engine, run_id)["ledger"]["inventory"]["invalidated_claims"] == {
+        account: [
+            {
+                "day": day.isoformat(),
+                "previous_state": evidence,
+                "previous_generation": 1,
+                "previous_run_id": str(first_run),
+            }
+        ]
+    }
+    assert rig.run_state(run_id) == "partial/partial/1"
+    legacy_untouched(engine)
+
+
+def test_an_earlier_zero_of_zero_amount_lines_keeps_its_records(engine):
+    team, day = new_team(engine), date(2026, 3, 2)
+    rig, account, _, _ = published(engine, team, day, lines=[line(0, day=day, bucket="zero-lines")])
+    sid = rig.streams[account]
+    assert coverage_row(engine, team, account) == "final"
+    _, result = unprove(rig, account, day)
+    assert result.status == "partial"
+    assert coverage_row(engine, team, account) == "suspect_empty"
+    assert q(engine, "SELECT count(*) FROM cost_source_records WHERE stream_id = :s AND state = 'present'", s=sid) == 1
+    assert_no_confirmed_total(engine, team, day, Decimal("0.00"))
+
+
+def test_lines_netting_to_zero_are_held_and_reported(engine):
+    team, day = new_team(engine), date(2026, 3, 3)
+    lines = [line(10, day=day, bucket="net"), line(-10, day=day, bucket="net", kind="aws:Credit", cls="credit")]
+    rig, account, _, _ = published(engine, team, day, lines=lines)
+    run_id, result = unprove(rig, account, day)
+    assert result.status == "partial"
+    assert coverage_row(engine, team, account) == "suspect_empty"
+    assert account in metrics(engine, run_id)["ledger"]["inventory"]["unproven_days"]
+    assert records(engine, rig.streams[account]) == 2
+    assert_no_confirmed_total(engine, team, day, Decimal("0.00"))
+
+
+def test_a_later_proven_fetch_restores_the_zero(engine):
+    team, day = new_team(engine), date(2026, 3, 4)
+    rig, account, _, _ = published(engine, team, day)
+    unprove(rig, account, day)
+    rig.adapter.evidence = {day: DAY_FINAL}
+    _, result = rig.run(window_of(day), {account: [[]]})
+    assert result.status == "published"
+    assert coverage_row(engine, team, account) == "final"
+    assert inventory(engine, team, "aws", day).confirmed_usd == Decimal("0.00")
+    assert stream_day(engine, rig.streams[account], day).generation == 3
+
+
+def test_a_provider_correction_can_end_the_claim_through_the_real_adapter(engine):
+    """The account left and rejoined, so its join date moved past a day that had read as a zero."""
+    team, day = new_team(engine), date(2026, 3, 5)
+    account = f"aws:acct:{LINKED}"
+    rig = rig_with(engine, aws_adapter([LINKED], LateJoiner(day, datetime(2020, 1, 1, tzinfo=timezone.utc))), team)
+    assert rig.run(window_of(day))[1].status == "published"
+    assert inventory(engine, team, "aws", day).confirmed_usd == Decimal("0.00")
+    rig.adapter._client_factory = LateJoiner(day, datetime(2026, 6, 1, tzinfo=timezone.utc))
+    run_id, result = rig.run(window_of(day))
+    assert result.status == "partial"
+    assert coverage_row(engine, team, account) == "suspect_empty"
+    assert_no_confirmed_total(engine, team, day, Decimal("0.00"))
+
+
+def test_a_real_cost_survives_a_newer_unproven_fetch(engine):
+    team, day = new_team(engine), date(2026, 3, 6)
+    rig, account, first_run, result = published(engine, team, day, lines=[line(100, day=day, bucket="kept")])
+    sid = rig.streams[account]
+    assert result.status == "published"
+    observed = q(
+        engine,
+        "SELECT count(*) FROM cost_source_observations o JOIN cost_source_records r ON r.id = o.record_id "
+        "WHERE r.stream_id = :s",
+        s=sid,
+    )
+    facts = q(engine, "SELECT count(*) FROM billing_canonical_facts WHERE team_id = :t", t=team)
+
+    run_id, result = unprove(rig, account, day)
+
+    assert result.status == "partial"
+    assert result.report.unproven_days == {account: [day.isoformat()]}
+    assert metrics(engine, run_id)["ledger"]["inventory"]["unproven_days"] == {account: [day.isoformat()]}
+    row = stream_day(engine, sid, day)
+    assert (row.state, row.record_count, row.converted_total_usd) == ("suspect_empty", 1, Decimal("100"))
+    assert coverage_row(engine, team, account) == "suspect_empty"
+    assert q(engine, "SELECT amount FROM cost_source_records WHERE stream_id = :s AND state = 'present'", s=sid) == 100
+    assert q(engine, "SELECT count(*) FROM cost_source_records WHERE stream_id = :s AND state = 'absent'", s=sid) == 0
+    assert (
+        q(
+            engine,
+            "SELECT count(*) FROM cost_source_observations o JOIN cost_source_records r ON r.id = o.record_id "
+            "WHERE r.stream_id = :s",
+            s=sid,
+        )
+        == observed
+    )
+    assert q(engine, "SELECT count(*) FROM billing_canonical_facts WHERE team_id = :t", t=team) == facts
+    assert money(total(engine, team, day, "kept")) == (Decimal("100.00"), "incomplete")
+    assert_no_confirmed_total(engine, team, day, Decimal("100.00"))
+    claim = metrics(engine, run_id)["ledger"]["inventory"]["invalidated_claims"][account]
+    assert claim[0]["previous_state"] == "final" and claim[0]["previous_run_id"] == str(first_run)
+    legacy_untouched(engine)
+
+
+def test_a_new_unproven_empty_day_writes_nothing_and_is_reported(engine):
+    team, day = new_team(engine), date(2026, 3, 7)
+    rig, account, run_id, result = published(engine, team, day, DAY_UNPROVEN)
+    assert result.status == "partial"
+    assert_unknown(engine, team, day, rig.streams[account], account)
+    inventory_report = metrics(engine, run_id)["ledger"]["inventory"]
+    assert inventory_report["unproven_days"] == {account: [day.isoformat()]}
+    assert inventory_report["invalidated_claims"] == {}
+    assert q(engine, "SELECT count(*) FROM billing_canonical_facts WHERE team_id = :t", t=team) == 0
+    assert inventory(engine, team, "aws", day).unknown == (account,)
+
+
+def test_a_window_decides_each_of_these_days_alone(engine):
+    team, claimed = new_team(engine), date(2026, 3, 8)
+    new, proven = claimed + timedelta(1), claimed + timedelta(2)
+    rig, account, _, _ = published(engine, team, claimed)
+    sid = rig.streams[account]
+    rig.adapter.evidence = {claimed: DAY_UNPROVEN, new: DAY_UNPROVEN, proven: DAY_FINAL}
+    run_id, result = rig.run(window_of(claimed, 3), {account: [[]]})
+    assert result.status == "partial"
+    assert result.report.unproven_days == {account: [claimed.isoformat(), new.isoformat()]}
+    assert stream_day(engine, sid, claimed).state == "suspect_empty"
+    assert stream_day(engine, sid, new) is None
+    assert stream_day(engine, sid, proven).state == "final"
+    assert [c["day"] for c in result.report.invalidated_claims[account]] == [claimed.isoformat()]
+
+
+def test_the_same_account_in_another_team_keeps_its_zero(engine):
+    day, account = date(2026, 3, 11), account_id()
+    team, other = new_team(engine), new_team(engine)
+    mine = Rig(engine, {account: [[]]}, team=team, evidence={day: DAY_FINAL})
+    theirs = Rig(engine, {account: [[]]}, team=other, evidence={day: DAY_FINAL})
+    mine.run(window_of(day))
+    theirs.run(window_of(day))
+    unprove(mine, account, day)
+    assert coverage_row(engine, team, account) == "suspect_empty"
+    assert coverage_row(engine, other, account) == "final"
+    assert inventory(engine, other, "aws", day).confirmed_usd == Decimal("0.00")
+
+
+def older_run(rig, session):
+    service = CostLedgerService(session)
+    run = service.start_run(rig.conn)
+    token = service.acquire_lease(run)
+    session.execute(
+        text("UPDATE integration_sync_runs SET fetch_started_at = now() - interval '1 hour' WHERE id = :r"), {"r": run}
+    )
+    return service, run, token
+
+
+def test_a_stale_result_cannot_end_a_newer_claim(engine):
+    team, day = new_team(engine), date(2026, 3, 12)
+    rig, account, first_run, _ = published(engine, team, day)
+    sid = rig.streams[account]
+    with rig.sessions() as s, s.begin():
+        service, run, token = older_run(rig, s)
+        out = service.publish(
+            Publication(run, 1, token, sid, day, day + timedelta(1), [], True, unproven_days=frozenset({day}))
+        )
+        service.finish_run(run, attempt=1, fencing_token=token)
+    assert (out.stale, out.held, out.unproven_days, out.invalidated_claims) == (1, 0, [], [])
+    row = stream_day(engine, sid, day)
+    assert (row.state, row.generation, row.last_run_id) == ("final", 1, first_run)
+    assert coverage_row(engine, team, account) == "final"
+    assert inventory(engine, team, "aws", day).confirmed_usd == Decimal("0.00")
+
+
+def test_a_stale_proven_result_cannot_restore_an_ended_claim(engine):
+    team, day = new_team(engine), date(2026, 3, 13)
+    rig, account, _, _ = published(engine, team, day)
+    sid = rig.streams[account]
+    unprove(rig, account, day)
+    with rig.sessions() as s, s.begin():
+        service, run, token = older_run(rig, s)
+        out = service.publish(Publication(run, 1, token, sid, day, day + timedelta(1), [], True))
+        service.finish_run(run, attempt=1, fencing_token=token)
+    assert out.stale == 1
+    assert stream_day(engine, sid, day).state == "suspect_empty"
+    assert_no_confirmed_total(engine, team, day, Decimal("0.00"))
+
+
+def test_a_wrong_fencing_token_cannot_end_a_claim(engine):
+    team, day = new_team(engine), date(2026, 3, 14)
+    rig, account, first_run, _ = published(engine, team, day)
+    sid = rig.streams[account]
+    with rig.sessions() as s, s.begin():
+        service = CostLedgerService(s)
+        run = service.start_run(rig.conn)
+        token = service.acquire_lease(run)
+        with pytest.raises(LedgerFenced):
+            service.publish(
+                Publication(run, 1, token + 1, sid, day, day + timedelta(1), [], True, unproven_days=frozenset({day}))
+            )
+    assert (stream_day(engine, sid, day).state, stream_day(engine, sid, day).last_run_id) == ("final", first_run)
+
+
+def test_a_worker_that_lost_its_lease_cannot_end_a_claim(engine, monkeypatch):
+    team, day = new_team(engine), date(2026, 3, 15)
+    rig, account, first_run, _ = published(engine, team, day)
+    sid = rig.streams[account]
+    rig.adapter.evidence = {day: DAY_UNPROVEN}
+    rig.adapter.scripts = {account: [[]]}
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window_of(day))
+    original = ShadowSyncOrchestrator._publish
+
+    def lose_then_publish(self, *args, **kwargs):
+        rig.expire()
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ShadowSyncOrchestrator, "_publish", lose_then_publish)
+    result = rig.orchestrator.execute(run_id)
+    monkeypatch.undo()
+    assert (result.status, result.reason) == ("fenced", "lease_lost")
+    assert (stream_day(engine, sid, day).state, stream_day(engine, sid, day).last_run_id) == ("final", first_run)
+    assert coverage_row(engine, team, account) == "final"
+    assert rig.orchestrator.execute(run_id).status == "partial"  # the newer attempt is the one that counts
+    assert coverage_row(engine, team, account) == "suspect_empty"
+
+
+def test_a_crash_before_commit_leaves_the_claim_as_it_was(engine, monkeypatch):
+    team, day = new_team(engine), date(2026, 3, 16)
+    rig, account, first_run, _ = published(engine, team, day)
+    sid = rig.streams[account]
+    rig.adapter.evidence = {day: DAY_UNPROVEN}
+    rig.adapter.scripts = {account: [[]]}
+    run_id = rig.orchestrator.create_run(rig.team, rig.conn, window_of(day))
+
+    def crash(*args, **kwargs):
+        raise WorkerCrash()
+
+    monkeypatch.setattr(CostLedgerService, "finish_run", crash)  # after publish, inside the transaction
+    with pytest.raises(WorkerCrash):
+        rig.orchestrator.execute(run_id)
+    monkeypatch.undo()
+    row = stream_day(engine, sid, day)
+    assert (row.state, row.generation, row.last_run_id) == ("final", 1, first_run)
+    assert coverage_row(engine, team, account) == "final"
+    assert "inventory" not in metrics(engine, run_id)["ledger"]
+    rig.expire()
+    assert rig.orchestrator.execute(run_id).status == "partial"
+    assert stream_day(engine, sid, day).state == "suspect_empty"
+
+
+def test_step_6e_publication_without_evidence_still_settles_an_empty_day(engine):
+    team, day = new_team(engine), date(2026, 3, 17)
+    rig, account, _, _ = published(engine, team, day)
+    sid = rig.streams[account]
+    with rig.sessions() as s, s.begin():
+        service = CostLedgerService(s)
+        run = service.start_run(rig.conn)
+        token = service.acquire_lease(run)
+        out = service.publish(Publication(run, 1, token, sid, day, day + timedelta(1), [], True))
+        service.finish_run(run, attempt=1, fencing_token=token)
+    assert (out.held, out.unproven_days, out.invalidated_claims) == (0, [], [])
+    row = stream_day(engine, sid, day)
+    assert (row.state, row.generation) == ("final", 2)
+    assert coverage_row(engine, team, account) == "final"
+
+
+# The day an AWS account joins its payer
+
+
+class JoinedAt(LateJoiner):
+    """Cost Explorer's answer for every requested day. ``amounts`` holds the days the bill shows cost."""
+
+    def __init__(self, joined, amounts=None, account=LINKED, **kwargs):
+        super().__init__(None, joined)
+        self.amounts, self.account = amounts or {}, account
+        self.caller = kwargs.get("caller", self.caller)
+
+    def list_accounts(self, **kwargs):
+        listed = {"Id": self.account, "State": "ACTIVE"}
+        if self.joined:
+            listed["JoinedTimestamp"] = self.joined
+        return {"Accounts": [listed]}
+
+    def get_cost_and_usage(self, **kwargs):
+        day, end = (date.fromisoformat(kwargs["TimePeriod"][k]) for k in ("Start", "End"))
+        results = []
+        while day < end:
+            amount = self.amounts.get(day)
+            groups = (
+                [{"Keys": ["Amazon EC2", "Usage"], "Metrics": {"UnblendedCost": {"Amount": amount, "Unit": "USD"}}}]
+                if amount
+                else []
+            )
+            results.append(
+                {
+                    "TimePeriod": {"Start": day.isoformat(), "End": (day + timedelta(1)).isoformat()},
+                    "Estimated": False,
+                    "Total": {},
+                    "Groups": groups,
+                }
+            )
+            day += timedelta(1)
+        return {"ResultsByTime": results}
+
+
+def aws_evidence(client, accounts=(LINKED,), start=date(2026, 2, 8), days=4):
+    adapter = aws_adapter(list(accounts), client)
+    adapter.verify_scope()
+    window = window_of(start, days)
+    return list(adapter.fetch(adapter.streams()[0], window))[-1].day_evidence
+
+
+def test_aws_joining_day_is_unproven_and_the_next_full_day_can_be_final(engine):
+    team, joining = new_team(engine), date(2026, 2, 9)
+    following = joining + timedelta(1)
+    account = f"aws:acct:{LINKED}"
+    joined = datetime(2026, 2, 9, 18, tzinfo=timezone.utc)
+    rig = rig_with(engine, aws_adapter([LINKED], JoinedAt(joined)), team)
+    run_id, result = rig.run(window_of(joining, 2))
+    assert result.status == "partial"
+    assert metrics(engine, run_id)["ledger"]["inventory"]["unproven_days"] == {account: [joining.isoformat()]}
+    sid = rig.streams[account]
+    assert stream_day(engine, sid, joining) is None
+    assert completeness(engine, team, joining, account) == []
+    assert inventory(engine, team, "aws", joining).confirmed_usd is None
+    assert stream_day(engine, sid, following).state == "final"
+    [c] = completeness(engine, team, following, account)
+    assert (c.fetch_state, c.financial_state, c.converted_total_usd) == ("final", "complete", Decimal("0"))
+    assert inventory(engine, team, "aws", following).confirmed_usd == Decimal("0.00")
+
+
+JOINS = {
+    "utc_evening": (datetime(2026, 2, 9, 18, tzinfo=timezone.utc), date(2026, 2, 10)),
+    "behind_utc_crosses_forward": (
+        datetime(2026, 2, 8, 22, tzinfo=timezone(timedelta(hours=-8))),  # 06:00 on the 9th in UTC
+        date(2026, 2, 10),
+    ),
+    "ahead_of_utc_crosses_back": (
+        datetime(2026, 2, 10, 1, tzinfo=timezone(timedelta(hours=5, minutes=30))),  # 19:30 on the 9th in UTC
+        date(2026, 2, 10),
+    ),
+    "exactly_midnight_is_a_full_day": (datetime(2026, 2, 10, tzinfo=timezone.utc), date(2026, 2, 10)),
+    "one_microsecond_past_midnight": (datetime(2026, 2, 9, 0, 0, 0, 1, tzinfo=timezone.utc), date(2026, 2, 10)),
+}
+
+
+@pytest.mark.parametrize("joined,first_final", JOINS.values(), ids=JOINS.keys())
+def test_aws_join_time_is_measured_in_utc(joined, first_final):
+    evidence = aws_evidence(JoinedAt(joined))
+    assert {d for d, state in evidence.items() if state == DAY_FINAL} == {d for d in evidence if d >= first_final}
+    assert {d for d, state in evidence.items() if state == DAY_UNPROVEN} == {d for d in evidence if d < first_final}
+
+
+@pytest.mark.parametrize("joined", [None, datetime(2020, 1, 1), "2020-01-01"], ids=["missing", "naive", "not_a_time"])
+def test_aws_join_time_that_cannot_be_placed_in_utc_fails_closed(joined):
+    assert set(aws_evidence(JoinedAt(joined)).values()) == {DAY_UNPROVEN}
+
+
+def test_aws_cost_on_and_before_the_joining_day_is_kept(engine):
+    team, before = new_team(engine), date(2026, 2, 8)
+    joining, following = before + timedelta(1), before + timedelta(2)
+    account = f"aws:acct:{LINKED}"
+    joined = datetime(2026, 2, 9, 18, tzinfo=timezone.utc)
+    amounts = {before: "7", joining: "40"}
+    rig = rig_with(engine, aws_adapter([LINKED], JoinedAt(joined, amounts)), team)
+    run_id, result = rig.run(window_of(before, 3))
+    assert result.status == "published"
+    assert money(total(engine, team, before, "ec2")) == (Decimal("7.00"), "complete")
+    assert money(total(engine, team, joining, "ec2")) == (Decimal("40.00"), "complete")
+    assert stream_day(engine, rig.streams[account], following).state == "final"
+    assert (
+        q(
+            engine,
+            "SELECT count(*) FROM cost_source_observations o JOIN cost_source_records r ON r.id = o.record_id "
+            "WHERE r.stream_id = :s AND o.change_kind = 'inserted'",
+            s=rig.streams[account],
+        )
+        == 2
+    )
+
+
+@pytest.mark.parametrize("caller", [PAYER, LINKED], ids=["payer_itself", "member_itself"])
+def test_aws_account_reading_its_own_costs_is_not_bound_by_a_join_time(caller):
+    joined = datetime(2026, 2, 9, 18, tzinfo=timezone.utc)
+    evidence = aws_evidence(JoinedAt(joined, account=caller, caller=caller), accounts=[caller])
+    assert set(evidence.values()) == {DAY_FINAL}

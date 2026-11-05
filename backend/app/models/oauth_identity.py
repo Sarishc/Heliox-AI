@@ -18,6 +18,7 @@ class OAuthProvider(str, Enum):
     GITHUB = "github"
     MICROSOFT = "microsoft"
     OKTA = "okta"
+    AUTH0 = "auth0"
 
 
 class OAuthIdentity(Base, UUIDMixin, TimestampMixin):

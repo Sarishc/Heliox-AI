@@ -35,6 +35,7 @@ from app.api.routes import (
     billing_usage,
     auth_oauth,
     auth_saml,
+    auth_auth0,
     team_sso,
     invites,
     health,
@@ -73,6 +74,7 @@ api_router.include_router(integrations.router, prefix="/integrations", tags=["In
 api_router.include_router(billing_usage.router, prefix="/billing", tags=["Billing & Usage"])
 api_router.include_router(billing.router, prefix="/billing", tags=["Stripe Billing"])
 api_router.include_router(auth_oauth.router, prefix="/auth", tags=["OAuth Authentication"])
+api_router.include_router(auth_auth0.router, prefix="/auth", tags=["Auth0"])
 api_router.include_router(auth_saml.router, prefix="/auth/saml", tags=["SAML SSO"])
 api_router.include_router(team_sso.router, prefix="/teams/sso", tags=["Team SSO"])
 

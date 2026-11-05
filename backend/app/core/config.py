@@ -179,6 +179,19 @@ class Settings(BaseSettings):
     )
     FRONTEND_URL: str = Field(default="http://localhost:3000", description="Frontend URL for OAuth redirects")
 
+    # Auth0 (Universal Login). Enabled when domain, client ID and secret are all set.
+    AUTH0_DOMAIN: str = Field(default="", description="Auth0 tenant domain, e.g. heliox.us.auth0.com")
+    AUTH0_CLIENT_ID: str = Field(default="", description="Auth0 application client ID")
+    AUTH0_CLIENT_SECRET: str = Field(default="", description="Auth0 application client secret")
+    AUTH0_CALLBACK_URL: str = Field(
+        default="",
+        description="Auth0 callback; default FRONTEND_URL + /api/v1/auth/auth0/callback (through the app's proxy)",
+    )
+    LEGACY_AUTH_ENABLED: bool = Field(
+        default=True,
+        description="Allow Heliox password, Google and SAML sign-in. Set false when Auth0 is the sign-in provider.",
+    )
+
     # CSRF (enabled in production; set CSRF_PROTECTION_ENABLED=true for staging)
     CSRF_PROTECTION_ENABLED: bool = Field(
         default=False,

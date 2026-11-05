@@ -79,7 +79,7 @@ async def get_current_user(
         raise credentials_exception
 
     user = crud_user.get_by_email(db, email=token_data.email)
-    if user is None:
+    if user is None or not user.is_active:
         raise credentials_exception
 
     return user
@@ -111,7 +111,7 @@ async def get_current_user_optional(
         return None
 
     user = crud_user.get_by_email(db, email=token_data.email)
-    return user
+    return user if user and user.is_active else None
 
 
 async def get_current_active_user(

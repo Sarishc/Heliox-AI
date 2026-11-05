@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth.auth0 import require_legacy_auth
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.models.team import Team
@@ -30,7 +31,7 @@ class SamlLoginRequest(BaseModel):
     redirect_uri: Optional[str] = Field(default=None, description="Frontend redirect after login")
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(require_legacy_auth)])
 async def saml_login_start(
     request_data: SamlLoginRequest,
     db: Session = Depends(get_db),
@@ -53,7 +54,7 @@ async def saml_login_start(
         )
 
 
-@router.get("/login")
+@router.get("/login", dependencies=[Depends(require_legacy_auth)])
 async def saml_login_start_get(
     team_id: str = Query(..., description="Team ID"),
     db: Session = Depends(get_db),
@@ -72,7 +73,7 @@ async def saml_login_start_get(
         )
 
 
-@router.post("/acs", response_class=HTMLResponse)
+@router.post("/acs", response_class=HTMLResponse, dependencies=[Depends(require_legacy_auth)])
 async def saml_acs(
     request: Request,
     db: Session = Depends(get_db),

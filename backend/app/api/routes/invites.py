@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.auth.auth0 import require_legacy_auth
 from app.auth.deps import get_current_user_optional
 from app.auth.security import create_access_token
 from app.core.audit import record_audit_event
@@ -80,7 +81,8 @@ def accept_invite(
     Accept a team invite.
     - If logged in and email matches: add membership.
     - If not logged in and user exists: must log in first (return 400).
-    - If not logged in and user is new: create user and add membership.
+    - If not logged in and user is new: create user and add membership, unless
+      password sign-in is disabled: then they sign in first, and accept here.
     """
     invite = _get_invite_by_token(db, token)
     if not invite or not _invite_valid(invite):
@@ -109,6 +111,7 @@ def accept_invite(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="An account with this email already exists. Please log in first, then accept the invite.",
             )
+        require_legacy_auth()
         if not body.password:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

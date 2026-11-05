@@ -18,6 +18,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
+from app.auth.auth0 import require_legacy_auth
 from app.auth.security import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from app.auth.cookie_auth import (
     get_token_from_cookie_or_header,
@@ -70,6 +71,7 @@ def _clear_auth_cookie(response: Response) -> None:
 
 @router.post(
     "/register",
+    dependencies=[Depends(require_legacy_auth)],
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user account",
 )
@@ -145,7 +147,7 @@ def register(
     return user_dict
 
 
-@router.post("/login", summary="Authenticate and receive session cookie")
+@router.post("/login", summary="Authenticate and receive session cookie", dependencies=[Depends(require_legacy_auth)])
 def login(
     request: Request,
     response: Response,
@@ -241,7 +243,7 @@ class SetSessionRequest(BaseModel):
     redirect: str = "/"
 
 
-@router.post("/set-session", summary="Set session from OAuth token")
+@router.post("/set-session", summary="Set session from OAuth token", dependencies=[Depends(require_legacy_auth)])
 def set_session(
     body: SetSessionRequest,
     response: Response,
@@ -332,6 +334,7 @@ class ResetPasswordRequest(BaseModel):
 
 @router.post(
     "/forgot-password",
+    dependencies=[Depends(require_legacy_auth)],
     status_code=status.HTTP_202_ACCEPTED,
     summary="Request password reset email",
 )
@@ -378,7 +381,7 @@ def forgot_password(
     return {"message": "If that email is registered you will receive a reset link shortly"}
 
 
-@router.post("/reset-password", summary="Reset password using email token")
+@router.post("/reset-password", summary="Reset password using email token", dependencies=[Depends(require_legacy_auth)])
 def reset_password(
     body: ResetPasswordRequest,
     db: Session = Depends(get_db),

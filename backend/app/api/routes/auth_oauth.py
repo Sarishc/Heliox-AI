@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth.auth0 import require_legacy_auth
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import create_access_token
@@ -53,7 +54,7 @@ class OAuthCallbackResponse(BaseModel):
     email: str
 
 
-@router.post("/google/start")
+@router.post("/google/start", dependencies=[Depends(require_legacy_auth)])
 async def google_oauth_start(*, db: Session = Depends(get_db), request_data: OAuthStartRequest):
     """
     Start Google OAuth flow.
@@ -97,7 +98,7 @@ async def google_oauth_start(*, db: Session = Depends(get_db), request_data: OAu
     return {"auth_url": auth_url, "state": state}
 
 
-@router.get("/google/callback")
+@router.get("/google/callback", dependencies=[Depends(require_legacy_auth)])
 async def google_oauth_callback(
     code: str = Query(..., description="Authorization code from Google"),
     state: str = Query(..., description="OAuth state token"),

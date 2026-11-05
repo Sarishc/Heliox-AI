@@ -101,7 +101,7 @@ async def _resolve_team_id(
             email = payload.get("sub")
             if email:
                 user = crud_user.get_by_email(db, email=email)
-                if user:
+                if user and user.is_active:
                     # Resolve team from TeamMember (first active team)
                     from app.models.team_member import TeamMember
 

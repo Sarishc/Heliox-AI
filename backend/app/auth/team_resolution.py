@@ -60,7 +60,7 @@ async def verify_team_api_key_or_session(
                 from app.crud import user as crud_user
 
                 user = crud_user.get_by_email(db, email=email)
-                if user:
+                if user and user.is_active:
                     membership = db.query(TeamMember).filter(TeamMember.user_id == user.id).first()
                     if membership:
                         ctx = TeamContext(team_id=membership.team_id)
@@ -112,7 +112,7 @@ async def get_team_api_key_or_session_optional(
                 from app.crud import user as crud_user
 
                 user = crud_user.get_by_email(db, email=email)
-                if user:
+                if user and user.is_active:
                     membership = db.query(TeamMember).filter(TeamMember.user_id == user.id).first()
                     if membership:
                         return TeamContext(team_id=membership.team_id)
